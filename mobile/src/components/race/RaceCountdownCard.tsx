@@ -1,46 +1,50 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Badge } from '@/components/Badge';
 import { Card } from '@/components/Card';
 import { ProgressBar } from '@/components/ProgressBar';
-import type { NextRace } from '@/fixtures/race';
+import type { Race } from '@/fixtures/races';
 import { daysUntil, formatCountdown } from '@/lib/format';
 import { colors, spacing, typography } from '@/lib/theme';
 
 interface RaceCountdownCardProps {
-  race: NextRace;
+  race: Race;
   checklistPercent: number;
   onOpenRace: () => void;
   actionLabel?: string;
+  /** Cosmetic-only Premium hint for a secondary active race — never blocks navigation. */
+  showPremiumBadge?: boolean;
 }
 
 export function RaceCountdownCard({
   race,
   checklistPercent,
   onOpenRace,
-  actionLabel = 'Open race',
+  actionLabel = 'Open race prep',
+  showPremiumBadge = false,
 }: RaceCountdownCardProps) {
   const countdownLabel = formatCountdown(daysUntil(race.eventDate));
 
   return (
     <Card>
-      <Text style={typography.label}>YOUR NEXT RACE</Text>
+      <View style={styles.headerRow}>
+        <Text style={typography.label}>
+          {race.status === 'registered' ? 'YOUR NEXT RACE' : 'CONSIDERING'}
+        </Text>
+        {showPremiumBadge ? <Badge label="🔒 Premium" tone="warning" /> : null}
+      </View>
       <Text style={styles.raceName}>{race.name}</Text>
       <Text style={styles.countdown}>{countdownLabel}</Text>
 
       <View style={styles.progressRow}>
         <ProgressBar
           percent={checklistPercent}
-          accessibilityLabel={`Checklist ${checklistPercent}% complete`}
+          accessibilityLabel={`Preparation ${checklistPercent}% complete`}
         />
-        <Text style={styles.progressLabel}>{checklistPercent}% ready</Text>
+        <Text style={styles.progressLabel}>Preparation: {checklistPercent}%</Text>
       </View>
 
       <View style={styles.footerRow}>
-        <Text style={styles.friendCount}>
-          {race.friendCount > 0
-            ? `${race.friendCount} friends racing or considering`
-            : 'No friends signed up yet'}
-        </Text>
         <Pressable
           onPress={onOpenRace}
           accessibilityRole="button"
@@ -54,6 +58,11 @@ export function RaceCountdownCard({
 }
 
 const styles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   raceName: {
     ...typography.title,
     marginTop: spacing.xs,
@@ -73,13 +82,7 @@ const styles = StyleSheet.create({
   footerRow: {
     marginTop: spacing.lg,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  friendCount: {
-    ...typography.caption,
-    flexShrink: 1,
+    justifyContent: 'flex-end',
   },
   openButton: {
     minHeight: 44,

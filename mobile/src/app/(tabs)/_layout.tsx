@@ -48,9 +48,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Signal',
+          title: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon filledName="radio" outlineName="radio-outline" color={color} focused={focused} />
+            <TabIcon filledName="home" outlineName="home-outline" color={color} focused={focused} />
           ),
         }}
       />
@@ -69,9 +69,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="medals"
+        name="stats"
         options={{
-          title: 'Medals',
+          title: 'Stats',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon filledName="trophy" outlineName="trophy-outline" color={color} focused={focused} />
           ),

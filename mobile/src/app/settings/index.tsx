@@ -1,13 +1,16 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { Card } from '@/components/Card';
 import { athlete } from '@/fixtures/athlete';
+import { useOnboarding } from '@/lib/onboarding';
 import { colors, spacing, typography } from '@/lib/theme';
 
 const PLACEHOLDER_ROWS = ['Privacy', 'Subscription', 'Support', 'Blocked Users'];
 
 export default function SettingsScreen() {
+  const { replayOnboarding } = useOnboarding();
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -22,8 +25,19 @@ export default function SettingsScreen() {
         </Card>
 
         <View style={styles.rows}>
+          <Pressable
+            onPress={replayOnboarding}
+            accessibilityRole="button"
+            accessibilityLabel="Replay race-history onboarding"
+            style={styles.row}>
+            <Text style={typography.body}>Replay race-history onboarding</Text>
+          </Pressable>
           {PLACEHOLDER_ROWS.map((row) => (
-            <View key={row} style={styles.row} accessibilityRole="text" accessibilityLabel={`${row}, coming soon`}>
+            <View
+              key={row}
+              style={styles.row}
+              accessibilityRole="text"
+              accessibilityLabel={`${row}, coming soon`}>
               <Text style={typography.body}>{row}</Text>
               <Text style={styles.comingSoon}>Coming soon</Text>
             </View>

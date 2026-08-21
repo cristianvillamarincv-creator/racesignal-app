@@ -1,87 +1,123 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
-import { FloatingActionButton } from '@/components/FloatingActionButton';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { RaceCountdownCard } from '@/components/race/RaceCountdownCard';
-import { SignalCard } from '@/components/signals/SignalCard';
+import { SectionHeader } from '@/components/SectionHeader';
 import { checklistItemsPopulated } from '@/fixtures/checklist';
-import { nextRaceEmpty, nextRacePopulated } from '@/fixtures/race';
-import { signalsEmpty, signalsPopulated } from '@/fixtures/signals';
+import { racesEmpty, racesPopulated } from '@/fixtures/races';
+import {
+  recentActivitiesEmpty,
+  recentActivitiesPopulated,
+  trainingBlocksEmpty,
+  trainingBlocksPopulated,
+  trainingMilestonesEmpty,
+  trainingMilestonesPopulated,
+} from '@/fixtures/training';
 import { checklistProgress } from '@/lib/format';
-import { useFixtureData } from '@/lib/useSimulatedLoad';
+import { getNextRace } from '@/lib/races';
 import { colors, spacing, typography } from '@/lib/theme';
+import { getCurrentTrainingBlock } from '@/lib/training';
+import { useFixtureData } from '@/lib/useSimulatedLoad';
 
-const VISIBLE_SIGNAL_LIMIT = 5;
-
-export default function SignalScreen() {
+export default function HomeScreen() {
   const router = useRouter();
-  const race = useFixtureData(nextRacePopulated, nextRaceEmpty);
-  const signals = useFixtureData(signalsPopulated, signalsEmpty);
-  const [showAllSignals, setShowAllSignals] = useState(false);
+  const races = useFixtureData(racesPopulated, racesEmpty);
+  const blocks = useFixtureData(trainingBlocksPopulated, trainingBlocksEmpty);
+  const activities = useFixtureData(recentActivitiesPopulated, recentActivitiesEmpty);
+  const milestones = useFixtureData(trainingMilestonesPopulated, trainingMilestonesEmpty);
 
-  const isLoading = race.isLoading || signals.isLoading;
-  const isError = race.isError || signals.isError;
+  const isLoading = races.isLoading || blocks.isLoading || activities.isLoading || milestones.isLoading;
+  const isError = races.isError || blocks.isError || activities.isError || milestones.isError;
 
-  const visibleSignals = showAllSignals
-    ? signals.data
-    : signals.data.slice(0, VISIBLE_SIGNAL_LIMIT);
-  const hasMoreSignals = signals.data.length > VISIBLE_SIGNAL_LIMIT && !showAllSignals;
+  const nextRace = getNextRace(races.data);
+  const currentBlock = nextRace ? getCurrentTrainingBlock(blocks.data, nextRace.id) : null;
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        contentInsetAdjustmentBehavior="automatic">
+      <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
         {isLoading ? (
           <LoadingSkeleton rows={4} />
         ) : isError ? (
           <ErrorState />
         ) : (
           <>
-            {race.data ? (
+            {nextRace ? (
               <RaceCountdownCard
-                race={race.data}
+                race={nextRace}
                 checklistPercent={checklistProgress(checklistItemsPopulated)}
-                onOpenRace={() => router.push(`/race/${race.data!.id}`)}
+                onOpenRace={() => router.push(`/race/${nextRace.id}`)}
               />
             ) : (
               <EmptyState
-                title="No next race yet"
-                subtitle="Add a race to see your countdown and checklist here."
+                title="No upcoming race yet"
+                subtitle="Add a race to see your countdown and preparation here."
               />
             )}
 
-            <View style={styles.signalsSection}>
-              {signals.data.length === 0 ? (
-                <EmptyState
-                  title="Invite the people you already train with"
-                  subtitle="Send a Signal to let your Circle know about an upcoming session — before it happens."
-                />
+            {currentBlock ? (
+              <Card style={styles.section}>
+                <SectionHeader title="This training block" />
+                <View style={styles.blockTopRow}>
+                  <BlockStat label="Sessions" value={`${currentBlock.sessions}`} />
+                  <BlockStat label="Hours" value={`${currentBlock.hours}`} />
+                </View>
+                <View style={styles.blockDisciplineRow}>
+                  <BlockStat label="Swim" value={`${currentBlock.swimKm} km`} />
+                  <BlockStat label="Bike" value={`${currentBlock.bikeKm} km`} />
+                  <BlockStat label="Run" value={`${currentBlock.runKm} km`} />
+                </View>
+              </Card>
+            ) : null}
+
+            <View style={styles.section}>
+              <SectionHeader title="Recent" />
+              {activities.data.length === 0 ? (
+                <EmptyState title="No recent activity" subtitle="Recent training will show up here." />
               ) : (
-                <>
-                  {visibleSignals.map((card) => (
-                    <SignalCard key={card.id} card={card} />
+                <Card style={styles.listCard}>
+                  {activities.data.map((activity) => (
+                    <View key={activity.id} style={styles.activityRow}>
+                      <Text style={typography.body}>
+                        {activity.distanceLabel ? `${activity.distanceLabel} ` : ''}
+                        {activity.label.toLowerCase()}
+                      </Text>
+                      <Text style={styles.activityMeta}>
+                        {activity.durationLabel} · {activity.whenLabel}
+                      </Text>
+                    </View>
                   ))}
-                  {hasMoreSignals ? (
-                    <Pressable
-                      onPress={() => setShowAllSignals(true)}
-                      accessibilityRole="button"
-                      accessibilityLabel="See later Signals"
-                      style={styles.seeMoreButton}>
-                      <Text style={styles.seeMoreLabel}>See later Signals</Text>
-                    </Pressable>
-                  ) : null}
-                </>
+                </Card>
               )}
             </View>
+
+            {milestones.data.length > 0 ? (
+              <View style={styles.section}>
+                <SectionHeader title="Milestones" />
+                <Card style={styles.listCard}>
+                  {milestones.data.map((milestone) => (
+                    <Text key={milestone.id} style={styles.milestoneText}>
+                      {milestone.label}
+                    </Text>
+                  ))}
+                </Card>
+              </View>
+            ) : null}
           </>
         )}
       </ScrollView>
-      <FloatingActionButton onPress={() => router.push('/signal/new')} />
+    </View>
+  );
+}
+
+function BlockStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.blockStat}>
+      <Text style={styles.blockStatValue}>{value}</Text>
+      <Text style={typography.label}>{label.toUpperCase()}</Text>
     </View>
   );
 }
@@ -95,17 +131,39 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.lg,
   },
-  signalsSection: {
-    gap: spacing.md,
+  section: {
+    gap: spacing.sm,
   },
-  seeMoreButton: {
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+  blockTopRow: {
+    flexDirection: 'row',
+    gap: spacing.xl,
+    marginTop: spacing.xs,
   },
-  seeMoreLabel: {
-    ...typography.body,
+  blockDisciplineRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  blockStat: {
+    gap: 2,
+  },
+  blockStatValue: {
+    ...typography.title,
     color: colors.accent,
-    fontWeight: '700',
+  },
+  listCard: {
+    gap: spacing.sm,
+  },
+  activityRow: {
+    gap: 2,
+  },
+  activityMeta: {
+    ...typography.caption,
+  },
+  milestoneText: {
+    ...typography.body,
   },
 });

@@ -1,6 +1,6 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
-import { Pressable, Text, type ColorValue } from 'react-native';
+import { Pressable, type ColorValue } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { athlete } from '@/fixtures/athlete';
@@ -21,20 +21,17 @@ function HeaderAvatarButton() {
 }
 
 function TabIcon({
-  name,
+  filledName,
+  outlineName,
   color,
+  focused,
 }: {
-  name: Parameters<typeof SymbolView>[0]['name'];
+  filledName: keyof typeof Ionicons.glyphMap;
+  outlineName: keyof typeof Ionicons.glyphMap;
   color: ColorValue;
+  focused: boolean;
 }) {
-  return (
-    <SymbolView
-      name={name}
-      size={24}
-      tintColor={color}
-      fallback={<Text style={{ color, fontSize: 20 }}>•</Text>}
-    />
-  );
+  return <Ionicons name={focused ? filledName : outlineName} size={24} color={color} />;
 }
 
 export default function TabsLayout() {
@@ -52,8 +49,8 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Signal',
-          tabBarIcon: ({ color }) => (
-            <TabIcon name="antenna.radiowaves.left.and.right" color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon filledName="radio" outlineName="radio-outline" color={color} focused={focused} />
           ),
         }}
       />
@@ -61,21 +58,37 @@ export default function TabsLayout() {
         name="season"
         options={{
           title: 'Season',
-          tabBarIcon: ({ color }) => <TabIcon name="calendar" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              filledName="calendar"
+              outlineName="calendar-outline"
+              color={color}
+              focused={focused}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="medals"
         options={{
           title: 'Medals',
-          tabBarIcon: ({ color }) => <TabIcon name="rosette" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon filledName="trophy" outlineName="trophy-outline" color={color} focused={focused} />
+          ),
         }}
       />
       <Tabs.Screen
         name="ask"
         options={{
           title: 'Ask',
-          tabBarIcon: ({ color }) => <TabIcon name="sparkles" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon
+              filledName="sparkles"
+              outlineName="sparkles-outline"
+              color={color}
+              focused={focused}
+            />
+          ),
         }}
       />
     </Tabs>

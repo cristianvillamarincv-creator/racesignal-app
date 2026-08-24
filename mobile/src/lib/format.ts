@@ -42,3 +42,12 @@ export function formatFinishTime(totalSeconds: number): string {
   }
   return `${minutes}:${pad(seconds)}`;
 }
+
+/**
+ * One line of arithmetic on numbers we already have (place/field) — not a scoring engine.
+ * place=18, field=120 -> 15 ("Top 15%"). Rounds up so "Top 15%" never overstates the result.
+ */
+export function getTopPercentile(place: number, field: number): number {
+  if (field <= 0) return 0;
+  return Math.max(1, Math.ceil((place / field) * 100));
+}

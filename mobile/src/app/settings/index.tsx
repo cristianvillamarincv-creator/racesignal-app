@@ -2,6 +2,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { Card } from '@/components/Card';
+import { SectionHeader } from '@/components/SectionHeader';
 import { athlete } from '@/fixtures/athlete';
 import { useOnboarding } from '@/lib/onboarding';
 import { colors, spacing, typography } from '@/lib/theme';
@@ -24,14 +25,19 @@ export default function SettingsScreen() {
           </View>
         </Card>
 
-        <View style={styles.rows}>
+        <View style={styles.section}>
+          <SectionHeader title="Race history" />
           <Pressable
             onPress={replayOnboarding}
             accessibilityRole="button"
-            accessibilityLabel="Replay race-history onboarding"
-            style={styles.row}>
-            <Text style={typography.body}>Replay race-history onboarding</Text>
+            accessibilityLabel="Replay race-history setup"
+            style={styles.actionRow}>
+            <Text style={styles.actionLabel}>Replay race-history setup</Text>
+            <Text style={styles.actionArrow}>→</Text>
           </Pressable>
+        </View>
+
+        <View style={styles.rows}>
           {PLACEHOLDER_ROWS.map((row) => (
             <View
               key={row}
@@ -71,6 +77,29 @@ const styles = StyleSheet.create({
   },
   profileMeta: {
     ...typography.caption,
+  },
+  section: {
+    gap: spacing.xs,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 44,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceElevated,
+  },
+  actionLabel: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.accent,
+  },
+  actionArrow: {
+    ...typography.body,
+    color: colors.accent,
+    fontWeight: '700',
   },
   rows: {
     gap: 0,

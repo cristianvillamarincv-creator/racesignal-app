@@ -57,9 +57,18 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="race/[id]" options={{ headerShown: true, title: 'Race prep' }} />
-      <Stack.Screen name="results/[id]" options={{ headerShown: true, title: 'Result' }} />
-      <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
+      <Stack.Screen
+        name="race/[id]"
+        options={{ headerShown: true, title: 'Race prep', headerBackTitle: 'Back' }}
+      />
+      <Stack.Screen
+        name="results/[id]"
+        options={{ headerShown: true, title: 'Result', headerBackTitle: 'Back' }}
+      />
+      <Stack.Screen
+        name="settings"
+        options={{ headerShown: true, title: 'Settings', headerBackTitle: 'Back' }}
+      />
     </Stack>
   );
 }

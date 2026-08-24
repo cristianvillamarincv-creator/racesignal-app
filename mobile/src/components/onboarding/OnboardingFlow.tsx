@@ -16,8 +16,16 @@ import { getCompletedRaces } from '@/lib/races';
 import { formatFinishTime } from '@/lib/format';
 import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
 
-type Step = 'intro' | 'searching' | 'candidates' | 'summary';
+type Step = 'intro' | 'searching' | 'disambiguation' | 'candidates' | 'summary';
 type CandidateStatus = 'pending' | 'confirmed' | 'rejected';
+
+/**
+ * Simplest possible mock condition to demonstrate both onboarding paths without building real
+ * duplicate-athlete detection: typing this exact name triggers the "we found a few athletes
+ * named..." disambiguation step. A generic placeholder name, not the real tester's name, so the
+ * normal happy path (any other name, including the real athlete's) goes straight to candidates.
+ */
+const AMBIGUOUS_NAME = 'alex smith';
 
 const SOURCE_LABEL: Record<NonNullable<Race['result']>['sourceStatus'], string> = {
   official_confirmed: 'Official result',
@@ -43,10 +51,9 @@ interface OnboardingFlowProps {
 
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [step, setStep] = useState<Step>('intro');
-  const [name, setName] = useState('');
   const [racedUnder, setRacedUnder] = useState('');
-  const [birthYearOrCity, setBirthYearOrCity] = useState('');
   const [rememberedRace, setRememberedRace] = useState('');
+  const [discriminator, setDiscriminator] = useState('');
   const [candidateStatus, setCandidateStatus] = useState<Record<string, CandidateStatus>>({});
 
   const candidates = useMemo(() => getCompletedRaces(racesPopulated), []);
@@ -64,28 +71,34 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   useEffect(() => {
     if (step !== 'searching') return;
-    const timer = setTimeout(() => setStep('candidates'), 1600);
+    const isAmbiguous = racedUnder.trim().toLowerCase() === AMBIGUOUS_NAME;
+    const timer = setTimeout(() => setStep(isAmbiguous ? 'disambiguation' : 'candidates'), 1600);
     return () => clearTimeout(timer);
-  }, [step]);
+  }, [step, racedUnder]);
 
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
         {step === 'intro' ? (
           <IntroStep
-            name={name}
             racedUnder={racedUnder}
-            birthYearOrCity={birthYearOrCity}
             rememberedRace={rememberedRace}
-            onChangeName={setName}
             onChangeRacedUnder={setRacedUnder}
-            onChangeBirthYearOrCity={setBirthYearOrCity}
             onChangeRememberedRace={setRememberedRace}
             onContinue={() => setStep('searching')}
           />
         ) : null}
 
         {step === 'searching' ? <SearchingStep /> : null}
+
+        {step === 'disambiguation' ? (
+          <DisambiguationStep
+            name={racedUnder || 'this athlete'}
+            discriminator={discriminator}
+            onChangeDiscriminator={setDiscriminator}
+            onContinue={() => setStep('candidates')}
+          />
+        ) : null}
 
         {step === 'candidates' ? (
           <CandidatesStep
@@ -116,56 +129,40 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 }
 
 function IntroStep({
-  name,
   racedUnder,
-  birthYearOrCity,
   rememberedRace,
-  onChangeName,
   onChangeRacedUnder,
-  onChangeBirthYearOrCity,
   onChangeRememberedRace,
   onContinue,
 }: {
-  name: string;
   racedUnder: string;
-  birthYearOrCity: string;
   rememberedRace: string;
-  onChangeName: (value: string) => void;
   onChangeRacedUnder: (value: string) => void;
-  onChangeBirthYearOrCity: (value: string) => void;
   onChangeRememberedRace: (value: string) => void;
   onContinue: () => void;
 }) {
   return (
     <View style={styles.stepGap}>
       <Text style={typography.display}>Let&apos;s build your race history.</Text>
-      <Text style={styles.subcopy}>
-        Tell us a little about how you race, and we&apos;ll search for your past results.
-      </Text>
+      <Text style={styles.subcopy}>Two quick details, then we&apos;ll search for your past results.</Text>
 
-      <Field label="Your name" value={name} onChangeText={onChangeName} />
+      <Field label="What name do you race under?" value={racedUnder} onChangeText={onChangeRacedUnder} />
       <Field
-        label="Name you raced under (if different)"
-        value={racedUnder}
-        onChangeText={onChangeRacedUnder}
-      />
-      <Field
-        label="Birth year or home city (optional)"
-        value={birthYearOrCity}
-        onChangeText={onChangeBirthYearOrCity}
-      />
-      <Field
-        label="One race you remember"
+        label="Tell us one race you've done"
         value={rememberedRace}
         onChangeText={onChangeRememberedRace}
       />
 
       <Pressable
         onPress={onContinue}
-        disabled={name.trim().length === 0}
+        disabled={racedUnder.trim().length === 0 || rememberedRace.trim().length === 0}
         accessibilityRole="button"
         accessibilityLabel="Continue"
-        style={[styles.primaryButton, name.trim().length === 0 && styles.primaryButtonDisabled]}>
+        style={[
+          styles.primaryButton,
+          (racedUnder.trim().length === 0 || rememberedRace.trim().length === 0) &&
+            styles.primaryButtonDisabled,
+        ]}>
         <Text style={styles.primaryButtonLabel}>Continue</Text>
       </Pressable>
     </View>
@@ -177,6 +174,40 @@ function SearchingStep() {
     <View style={styles.centeredStep}>
       <ActivityIndicator size="large" color={colors.accent} />
       <Text style={styles.subcopy}>Searching race-result providers…</Text>
+    </View>
+  );
+}
+
+function DisambiguationStep({
+  name,
+  discriminator,
+  onChangeDiscriminator,
+  onContinue,
+}: {
+  name: string;
+  discriminator: string;
+  onChangeDiscriminator: (value: string) => void;
+  onContinue: () => void;
+}) {
+  return (
+    <View style={styles.stepGap}>
+      <Text style={typography.title}>We found a few athletes named {name}.</Text>
+      <Text style={styles.subcopy}>One more detail will help narrow it down.</Text>
+
+      <Field
+        label="Birth year or home city"
+        value={discriminator}
+        onChangeText={onChangeDiscriminator}
+      />
+
+      <Pressable
+        onPress={onContinue}
+        disabled={discriminator.trim().length === 0}
+        accessibilityRole="button"
+        accessibilityLabel="Continue"
+        style={[styles.primaryButton, discriminator.trim().length === 0 && styles.primaryButtonDisabled]}>
+        <Text style={styles.primaryButtonLabel}>Continue</Text>
+      </Pressable>
     </View>
   );
 }

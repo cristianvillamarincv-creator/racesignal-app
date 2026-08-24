@@ -1,3 +1,4 @@
+import { getTopPercentile } from '@/lib/format';
 import {
   getAvailableSports,
   getAvailableYears,
@@ -5,7 +6,7 @@ import {
   getNextRace,
   getUpcomingRaces,
 } from '@/lib/races';
-import { getAggregateStats, getPersonalBests } from '@/lib/stats';
+import { getAggregateStats, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
 import { getTrainingTotals } from '@/lib/training';
 import type { Race } from '@/fixtures/races';
 import type { TrainingBlock } from '@/fixtures/training';
@@ -41,11 +42,12 @@ const races: Race[] = [
     result: {
       finishSeconds: 9000,
       splits: [],
+      ageGroupRank: { place: 5, field: 50, ageGroup: 'M35-39' },
       sourceStatus: 'official_confirmed',
       isDistancePR: true,
       isCourseBest: false,
       podium: true,
-      achievements: ['Olympic distance PR'],
+      achievements: [{ icon: 'trophy', label: 'Olympic distance PR' }],
     },
   }),
   race({
@@ -57,11 +59,12 @@ const races: Race[] = [
     result: {
       finishSeconds: 2600,
       splits: [],
+      ageGroupRank: { place: 20, field: 100, ageGroup: 'M35-39' },
       sourceStatus: 'self_reported',
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['10K PR'],
+      achievements: [{ icon: 'trophy', label: '10K PR' }],
     },
   }),
 ];
@@ -108,9 +111,33 @@ describe('getAggregateStats', () => {
 });
 
 describe('getPersonalBests', () => {
-  it('lists one entry per distance PR matching the filter', () => {
-    expect(getPersonalBests(races).map((pb) => pb.distanceLabel)).toEqual(['Olympic', '10K']);
+  it('lists one entry per distance PR matching the filter, ordered shortest-to-longest', () => {
+    expect(getPersonalBests(races).map((pb) => pb.distanceLabel)).toEqual(['10K', 'Olympic']);
     expect(getPersonalBests(races, 'running').map((pb) => pb.distanceLabel)).toEqual(['10K']);
+  });
+});
+
+describe('getTopPercentile', () => {
+  it('computes a rounded-up top percentage from place/field', () => {
+    expect(getTopPercentile(18, 120)).toBe(15);
+    expect(getTopPercentile(1, 100)).toBe(1);
+    expect(getTopPercentile(350, 1400)).toBe(25);
+  });
+
+  it('never returns 0, even for a very small place/field ratio', () => {
+    expect(getTopPercentile(1, 10000)).toBe(1);
+  });
+});
+
+describe('getBestAgeGroupPercentile', () => {
+  it('returns the best (lowest) percentile across matching races', () => {
+    // 2025 triathlon: 5/50 -> top 10%. 2024 running: 20/100 -> top 20%. Best overall is 10%.
+    expect(getBestAgeGroupPercentile(races)).toBe(10);
+    expect(getBestAgeGroupPercentile(races, 'running')).toBe(20);
+  });
+
+  it('returns null when nothing in the filter has age-group ranking data', () => {
+    expect(getBestAgeGroupPercentile(races.filter((r) => r.status !== 'completed'))).toBeNull();
   });
 });
 

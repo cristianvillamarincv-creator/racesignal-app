@@ -1,9 +1,11 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AchievementBadge } from '@/components/AchievementBadge';
 import { Badge } from '@/components/Badge';
 import { Card } from '@/components/Card';
 import type { Race } from '@/fixtures/races';
 import { formatFinishTime } from '@/lib/format';
+import { pickTopAchievements } from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
 
 interface RaceHistoryRowProps {
@@ -19,6 +21,7 @@ export function RaceHistoryRow({ race, onPress }: RaceHistoryRowProps) {
     month: 'short',
     day: 'numeric',
   });
+  const topAchievements = result ? pickTopAchievements(result.achievements, 2) : [];
 
   return (
     <Pressable
@@ -34,7 +37,7 @@ export function RaceHistoryRow({ race, onPress }: RaceHistoryRowProps) {
           <Text style={typography.label}>
             {race.sport.toUpperCase()} · {race.distanceLabel}
           </Text>
-          {race.locked ? <Badge label="🔒 Premium" tone="warning" /> : null}
+          {race.locked ? <Badge label="🔒" tone="warning" /> : null}
         </View>
         <Text style={styles.name}>{race.name}</Text>
         {result ? <Text style={styles.finishTime}>{formatFinishTime(result.finishSeconds)}</Text> : null}
@@ -42,10 +45,10 @@ export function RaceHistoryRow({ race, onPress }: RaceHistoryRowProps) {
           {dateLabel} · {race.location}
         </Text>
 
-        {!race.locked && result && result.achievements.length > 0 ? (
+        {!race.locked && topAchievements.length > 0 ? (
           <View style={styles.badgeRow}>
-            {result.achievements.map((achievement) => (
-              <Badge key={achievement} label={achievement} tone="accent" />
+            {topAchievements.map((achievement) => (
+              <AchievementBadge key={achievement.label} achievement={achievement} />
             ))}
           </View>
         ) : null}

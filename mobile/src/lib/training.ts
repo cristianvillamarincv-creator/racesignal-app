@@ -1,4 +1,4 @@
-import type { SportCategory } from '@/fixtures/races';
+import type { Race, SportCategory } from '@/fixtures/races';
 import type { TrainingBlock } from '@/fixtures/training';
 
 export interface TrainingTotals {
@@ -47,6 +47,15 @@ export function getTrainingTotals(
   }, EMPTY_TOTALS);
 }
 
-export function getCurrentTrainingBlock(blocks: TrainingBlock[], raceId: string): TrainingBlock | null {
-  return blocks.find((block) => block.raceId === raceId) ?? null;
+/**
+ * If exactly one of the given year's training blocks was built toward a specific race, returns
+ * that race — used to frame Home's training card as "Road to [Race]" instead of a generic label.
+ * Falls back to null for years with no single linked race (e.g. a past year, or a year split
+ * across untargeted training).
+ */
+export function getLinkedRaceForYear(blocks: TrainingBlock[], races: Race[], year: number): Race | null {
+  const yearBlocks = blocks.filter((block) => block.year === year);
+  const withRace = yearBlocks.filter((block) => block.raceId !== undefined);
+  if (withRace.length !== 1) return null;
+  return races.find((race) => race.id === withRace[0].raceId) ?? null;
 }

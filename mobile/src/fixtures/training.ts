@@ -1,4 +1,5 @@
 import type { SportCategory } from '@/fixtures/races';
+import type { IconName } from '@/lib/icons';
 
 /**
  * One row per (year, sportCategory) the athlete trained for that year — never two rows for the
@@ -31,7 +32,9 @@ export interface RecentActivity {
 export interface TrainingMilestone {
   id: string;
   year: number;
+  icon: IconName;
   label: string;
+  value: string;
 }
 
 export const trainingBlocksPopulated: TrainingBlock[] = [
@@ -152,7 +155,7 @@ export const recentActivitiesPopulated: RecentActivity[] = [
   {
     id: 'activity-bike-yesterday',
     sport: 'bike',
-    label: 'Zone 2 endurance ride',
+    label: 'Endurance ride',
     distanceLabel: '90 km',
     durationLabel: '3h 15m',
     whenLabel: 'Yesterday',
@@ -160,10 +163,10 @@ export const recentActivitiesPopulated: RecentActivity[] = [
   {
     id: 'activity-run-2days',
     sport: 'run',
-    label: 'Easy recovery run',
+    label: 'Recovery run',
     distanceLabel: '8 km',
     durationLabel: '42m',
-    whenLabel: '2 days ago',
+    whenLabel: 'Tuesday',
   },
   {
     id: 'activity-swim-4days',
@@ -178,9 +181,22 @@ export const recentActivitiesPopulated: RecentActivity[] = [
 export const recentActivitiesEmpty: RecentActivity[] = [];
 
 export const trainingMilestonesPopulated: TrainingMilestone[] = [
-  { id: 'milestone-longest-ride', year: 2026, label: 'Longest ride this year: 162 km' },
-  { id: 'milestone-longest-run', year: 2026, label: 'Longest run this year: 32 km' },
-  { id: 'milestone-biggest-week', year: 2026, label: 'Most training hours in a week: 14h' },
+  { id: 'milestone-longest-swim', year: 2026, icon: 'swim', label: 'Longest swim this year', value: '4.5 km' },
+  { id: 'milestone-longest-ride', year: 2026, icon: 'bike', label: 'Longest ride this year', value: '162 km' },
+  {
+    id: 'milestone-fastest-10k',
+    year: 2026,
+    icon: 'run',
+    label: 'Fastest 10K training run',
+    value: '43:21',
+  },
+  {
+    id: 'milestone-biggest-week',
+    year: 2026,
+    icon: 'fire',
+    label: 'Biggest training week',
+    value: '14h 32m',
+  },
 ];
 
 export const trainingMilestonesEmpty: TrainingMilestone[] = [];

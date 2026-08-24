@@ -1,6 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Badge } from '@/components/Badge';
 import { Card } from '@/components/Card';
 import { ProgressBar } from '@/components/ProgressBar';
 import type { Race } from '@/fixtures/races';
@@ -12,8 +11,6 @@ interface RaceCountdownCardProps {
   checklistPercent: number;
   onOpenRace: () => void;
   actionLabel?: string;
-  /** Cosmetic-only Premium hint for a secondary active race — never blocks navigation. */
-  showPremiumBadge?: boolean;
 }
 
 export function RaceCountdownCard({
@@ -21,18 +18,14 @@ export function RaceCountdownCard({
   checklistPercent,
   onOpenRace,
   actionLabel = 'Open race prep',
-  showPremiumBadge = false,
 }: RaceCountdownCardProps) {
   const countdownLabel = formatCountdown(daysUntil(race.eventDate));
 
   return (
     <Card>
-      <View style={styles.headerRow}>
-        <Text style={typography.label}>
-          {race.status === 'registered' ? 'YOUR NEXT RACE' : 'CONSIDERING'}
-        </Text>
-        {showPremiumBadge ? <Badge label="🔒 Premium" tone="warning" /> : null}
-      </View>
+      <Text style={typography.label}>
+        {race.status === 'registered' ? 'YOUR NEXT RACE' : 'CONSIDERING'}
+      </Text>
       <Text style={styles.raceName}>{race.name}</Text>
       <Text style={styles.countdown}>{countdownLabel}</Text>
 
@@ -58,11 +51,6 @@ export function RaceCountdownCard({
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   raceName: {
     ...typography.title,
     marginTop: spacing.xs,

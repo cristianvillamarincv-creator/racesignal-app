@@ -1,7 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { AchievementBadge } from '@/components/AchievementBadge';
 import { Badge } from '@/components/Badge';
 import type { Race } from '@/fixtures/races';
+import { pickTopAchievements } from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
 
 const STATUS_LABEL: Record<Race['status'], string> = {
@@ -20,6 +22,7 @@ export function SeasonRaceRow({ race, onPress }: SeasonRaceRowProps) {
   const month = eventDate.toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
   const day = eventDate.getDate();
   const showLock = race.status === 'completed' && race.locked;
+  const topAchievements = race.result ? pickTopAchievements(race.result.achievements, 2) : [];
 
   return (
     <Pressable
@@ -38,8 +41,15 @@ export function SeasonRaceRow({ race, onPress }: SeasonRaceRowProps) {
         <Text style={styles.location}>
           {race.location} · {STATUS_LABEL[race.status]}
         </Text>
+        {topAchievements.length > 0 ? (
+          <View style={styles.badgeRow}>
+            {topAchievements.map((achievement) => (
+              <AchievementBadge key={achievement.label} achievement={achievement} />
+            ))}
+          </View>
+        ) : null}
       </View>
-      {showLock ? <Badge label="🔒 Premium" tone="warning" /> : <Badge label={race.distanceLabel} />}
+      {showLock ? <Badge label="🔒" tone="warning" /> : <Badge label={race.distanceLabel} />}
     </Pressable>
   );
 }
@@ -73,5 +83,11 @@ const styles = StyleSheet.create({
   },
   location: {
     ...typography.caption,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
   },
 });

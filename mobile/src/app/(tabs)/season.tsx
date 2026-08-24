@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
+import { FilterChip } from '@/components/FilterChip';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SectionHeader } from '@/components/SectionHeader';
 import { SeasonRaceRow } from '@/components/season/SeasonRaceRow';
@@ -38,7 +39,7 @@ export default function SeasonScreen() {
   function openRace(race: Race) {
     if (race.status === 'completed') {
       if (race.locked) {
-        setPremiumHint(`${race.name} is a detailed result — unlock it with Premium.`);
+        setPremiumHint(`${race.name} — full result is Premium.`);
         return;
       }
       router.push(`/results/${race.id}`);
@@ -124,27 +125,6 @@ export default function SeasonScreen() {
   );
 }
 
-function FilterChip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Filter by ${label}`}
-      accessibilityState={{ selected }}
-      style={[styles.filterChip, selected && styles.filterChipActive]}>
-      <Text style={[styles.filterLabel, selected && styles.filterLabelActive]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
@@ -162,28 +142,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.xs,
   },
-  filterChip: {
-    minHeight: 36,
-    paddingHorizontal: spacing.md,
-    justifyContent: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterChipActive: {
-    backgroundColor: colors.accentMuted,
-    borderColor: colors.accent,
-  },
-  filterLabel: {
-    ...typography.caption,
-    fontWeight: '600',
-  },
-  filterLabelActive: {
-    color: colors.accent,
-  },
   premiumHint: {
     ...typography.caption,
-    color: colors.warning,
+    color: colors.textMuted,
   },
   section: {
     gap: spacing.xs,

@@ -80,7 +80,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="ask"
         options={{
-          title: 'Ask',
+          title: 'AI',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               filledName="sparkles"

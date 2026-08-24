@@ -1,10 +1,10 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Badge } from '@/components/Badge';
+import { AchievementBadge } from '@/components/AchievementBadge';
 import { Card } from '@/components/Card';
-import { racesPopulated, type Race } from '@/fixtures/races';
-import { formatFinishTime } from '@/lib/format';
+import { racesPopulated, type Race, type RaceRank } from '@/fixtures/races';
+import { formatFinishTime, getTopPercentile } from '@/lib/format';
 import { colors, spacing, typography } from '@/lib/theme';
 
 const SOURCE_LABEL: Record<NonNullable<Race['result']>['sourceStatus'], string> = {
@@ -50,7 +50,7 @@ export default function RaceResultDetailScreen() {
           {result.achievements.length > 0 ? (
             <View style={styles.badgeRow}>
               {result.achievements.map((achievement) => (
-                <Badge key={achievement} label={achievement} tone="accent" />
+                <AchievementBadge key={achievement.label} achievement={achievement} />
               ))}
             </View>
           ) : null}
@@ -93,13 +93,17 @@ export default function RaceResultDetailScreen() {
   );
 }
 
-function RankRow({ label, rank }: { label: string; rank: { place: number; field: number } }) {
+function RankRow({ label, rank }: { label: string; rank: RaceRank }) {
+  const percentile = getTopPercentile(rank.place, rank.field);
   return (
     <View style={styles.splitRow}>
       <Text style={styles.splitLabel}>{label}</Text>
-      <Text style={styles.splitTime}>
-        {rank.place} / {rank.field}
-      </Text>
+      <View style={styles.splitValues}>
+        <Text style={styles.splitTime}>
+          {rank.place} / {rank.field}
+        </Text>
+        <Text style={styles.splitPace}>Top {percentile}%</Text>
+      </View>
     </View>
   );
 }

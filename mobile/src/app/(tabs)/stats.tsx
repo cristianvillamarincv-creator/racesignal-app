@@ -5,17 +5,24 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
+import { FilterChip } from '@/components/FilterChip';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SectionHeader } from '@/components/SectionHeader';
+import { HighlightCard } from '@/components/stats/HighlightCard';
 import { RaceHistoryRow } from '@/components/stats/RaceHistoryRow';
 import { racesEmpty, racesPopulated, type Race, type SportCategory } from '@/fixtures/races';
-import {
-  trainingBlocksEmpty,
-  trainingBlocksPopulated,
-} from '@/fixtures/training';
+import { trainingBlocksEmpty, trainingBlocksPopulated } from '@/fixtures/training';
 import { formatFinishTime } from '@/lib/format';
+import type { Discipline } from '@/lib/icons';
+import { DISCIPLINE_LABEL, DisciplineIcon } from '@/lib/icons';
 import { getAvailableSports, getAvailableYears, getCompletedRaces } from '@/lib/races';
-import { getAchievementHighlights, getAggregateStats, getPersonalBests } from '@/lib/stats';
+import {
+  getAchievementHighlights,
+  getAggregateStats,
+  getBestAgeGroupPercentile,
+  getPersonalBests,
+  pickTopHighlights,
+} from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
 import { getTrainingTotals } from '@/lib/training';
 import { useFixtureData } from '@/lib/useSimulatedLoad';
@@ -41,6 +48,10 @@ export default function StatsScreen() {
   const year = yearFilter === ALL_TIME ? undefined : yearFilter;
 
   const aggregate = useMemo(() => getAggregateStats(races.data, sport, year), [races.data, sport, year]);
+  const bestAgeGroupPercentile = useMemo(
+    () => getBestAgeGroupPercentile(races.data, sport, year),
+    [races.data, sport, year],
+  );
   const trainingTotals = useMemo(
     () => getTrainingTotals(blocks.data, { sportCategory: sport, year }),
     [blocks.data, sport, year],
@@ -49,8 +60,8 @@ export default function StatsScreen() {
     () => getPersonalBests(races.data, sport, year),
     [races.data, sport, year],
   );
-  const achievements = useMemo(
-    () => getAchievementHighlights(races.data, sport, year),
+  const highlights = useMemo(
+    () => pickTopHighlights(getAchievementHighlights(races.data, sport, year)),
     [races.data, sport, year],
   );
   const history = useMemo(() => {
@@ -58,9 +69,21 @@ export default function StatsScreen() {
     return sport ? completed.filter((race) => race.sport === sport) : completed;
   }, [races.data, sport, year]);
 
+  const disciplineTotals = (['swim', 'bike', 'run'] as Discipline[])
+    .map((discipline) => ({
+      discipline,
+      km:
+        discipline === 'swim'
+          ? trainingTotals.swimKm
+          : discipline === 'bike'
+            ? trainingTotals.bikeKm
+            : trainingTotals.runKm,
+    }))
+    .filter(({ km }) => km > 0);
+
   function openRace(race: Race) {
     if (race.locked) {
-      setPremiumHint(`${race.name} is a detailed result — unlock it with Premium.`);
+      setPremiumHint(`${race.name} — full result is Premium.`);
       return;
     }
     router.push(`/results/${race.id}`);
@@ -120,15 +143,36 @@ export default function StatsScreen() {
 
             {premiumHint ? <Text style={styles.premiumHint}>{premiumHint}</Text> : null}
 
-            <View style={styles.metricsRow}>
-              <MetricStat label="Races" value={`${aggregate.totalRaces}`} />
-              <MetricStat label="Podiums" value={`${aggregate.podiums}`} />
-              <MetricStat label="PRs" value={`${aggregate.prCount}`} />
+            <View style={styles.headlineGrid}>
+              <View style={styles.headlineRow}>
+                <HeadlineStat label="Races" value={`${aggregate.totalRaces}`} />
+                <HeadlineStat label="PRs" value={`${aggregate.prCount}`} />
+              </View>
+              <View style={styles.headlineRow}>
+                <HeadlineStat
+                  label="Best AG finish"
+                  value={bestAgeGroupPercentile !== null ? `Top ${bestAgeGroupPercentile}%` : '—'}
+                />
+                <HeadlineStat label="Training" value={`${trainingTotals.hours}h`} />
+              </View>
             </View>
-            <View style={styles.metricsRow}>
-              <MetricStat label="Training time" value={`${trainingTotals.hours}h`} />
-              <MetricStat label="Training distance" value={`${trainingTotals.totalDistanceKm} km`} />
-            </View>
+
+            {disciplineTotals.length > 0 ? (
+              <View style={styles.section}>
+                <SectionHeader title="Training totals" />
+                <Card style={styles.disciplineCard}>
+                  {disciplineTotals.map(({ discipline, km }) => (
+                    <View key={discipline} style={styles.disciplineRow}>
+                      <View style={styles.disciplineLabelRow}>
+                        <DisciplineIcon discipline={discipline} size={16} color={colors.textPrimary} />
+                        <Text style={styles.disciplineLabel}>{DISCIPLINE_LABEL[discipline]}</Text>
+                      </View>
+                      <Text style={styles.disciplineValue}>{km} km</Text>
+                    </View>
+                  ))}
+                </Card>
+              </View>
+            ) : null}
 
             <View style={styles.section}>
               <SectionHeader title="Personal bests" />
@@ -153,19 +197,18 @@ export default function StatsScreen() {
               )}
             </View>
 
-            {achievements.length > 0 ? (
+            {highlights.length > 0 ? (
               <View style={styles.section}>
-                <SectionHeader title="Notable performances" />
-                <Card style={styles.listCard}>
-                  {achievements.map(({ race, achievement }) => (
-                    <View key={`${race.id}-${achievement}`} style={styles.achievementRow}>
-                      <Text style={typography.body}>{achievement}</Text>
-                      <Text style={styles.achievementMeta}>
-                        {race.name} · {race.eventDate.slice(0, 4)}
-                      </Text>
-                    </View>
+                <SectionHeader title="Highlights" />
+                <View style={styles.highlightsList}>
+                  {highlights.map(({ race, achievement }) => (
+                    <HighlightCard
+                      key={`${race.id}-${achievement.label}`}
+                      highlight={{ race, achievement }}
+                      onPress={() => openRace(race)}
+                    />
                   ))}
-                </Card>
+                </View>
               </View>
             ) : null}
 
@@ -186,33 +229,12 @@ export default function StatsScreen() {
   );
 }
 
-function MetricStat({ label, value }: { label: string; value: string }) {
+function HeadlineStat({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.metricStat}>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View style={styles.headlineStat}>
+      <Text style={styles.headlineValue}>{value}</Text>
       <Text style={typography.label}>{label.toUpperCase()}</Text>
     </View>
-  );
-}
-
-function FilterChip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Filter by ${label}`}
-      accessibilityState={{ selected }}
-      style={[styles.filterChip, selected && styles.filterChipActive]}>
-      <Text style={[styles.filterLabel, selected && styles.filterLabelActive]}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -233,43 +255,48 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.xs,
   },
-  filterChip: {
-    minHeight: 36,
-    paddingHorizontal: spacing.md,
-    justifyContent: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterChipActive: {
-    backgroundColor: colors.accentMuted,
-    borderColor: colors.accent,
-  },
-  filterLabel: {
-    ...typography.caption,
-    fontWeight: '600',
-  },
-  filterLabelActive: {
-    color: colors.accent,
-  },
   premiumHint: {
     ...typography.caption,
-    color: colors.warning,
+    color: colors.textMuted,
   },
-  metricsRow: {
+  headlineGrid: {
+    gap: spacing.md,
+  },
+  headlineRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  metricStat: {
-    alignItems: 'center',
+  headlineStat: {
     gap: 2,
   },
-  metricValue: {
-    ...typography.title,
+  headlineValue: {
+    ...typography.display,
+    fontSize: 28,
     color: colors.accent,
   },
   section: {
     gap: spacing.sm,
+  },
+  disciplineCard: {
+    gap: spacing.sm,
+  },
+  disciplineRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  disciplineLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  disciplineLabel: {
+    ...typography.body,
+  },
+  disciplineValue: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.accent,
   },
   listCard: {
     gap: spacing.sm,
@@ -289,10 +316,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontWeight: '700',
   },
-  achievementRow: {
-    gap: 2,
-  },
-  achievementMeta: {
-    ...typography.caption,
+  highlightsList: {
+    gap: spacing.sm,
   },
 });

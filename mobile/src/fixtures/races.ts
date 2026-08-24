@@ -5,6 +5,8 @@
  * never disagree across tabs. See src/lib/races.ts and src/lib/stats.ts for derived views.
  */
 
+import type { IconName } from '@/lib/icons';
+
 export type SportCategory = 'triathlon' | 'running' | 'cycling' | 'swimming' | 'duathlon' | 'other';
 export type RaceStatus = 'considering' | 'registered' | 'completed';
 
@@ -20,6 +22,18 @@ export interface RaceRank {
   field: number;
 }
 
+/**
+ * Curated highlight — authored directly (icon, label, and an optional value string) rather than
+ * computed by a cross-race comparison engine (this is mock data; the "engine" would just be us).
+ * Intentionally includes highlights that are NOT the overall distance PR (e.g. a fast split in an
+ * otherwise ordinary race), matching the product requirement that those still surface.
+ */
+export interface Achievement {
+  icon: IconName;
+  label: string;
+  value?: string;
+}
+
 export interface RaceResultDetail {
   finishSeconds: number;
   splits: RaceSplit[];
@@ -32,13 +46,7 @@ export interface RaceResultDetail {
   /** This race is the athlete's fastest on this exact course (same race name). */
   isCourseBest: boolean;
   podium: boolean;
-  /**
-   * Curated highlight strings — authored directly rather than computed by a cross-race
-   * comparison engine (this is mock data; the "engine" would just be us). Intentionally includes
-   * highlights that are NOT the overall distance PR (e.g. a fast split in an otherwise ordinary
-   * race), matching the product requirement that those still surface.
-   */
-  achievements: string[];
+  achievements: Achievement[];
 }
 
 export interface Race {
@@ -103,7 +111,7 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['Half Marathon PR'],
+      achievements: [{ icon: 'trophy', label: 'Half Marathon PR', value: '1:36:18' }],
     },
   },
   {
@@ -131,7 +139,10 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: true,
       podium: false,
-      achievements: ['First full-distance finish', 'IRONMAN PR'],
+      achievements: [
+        { icon: 'trophy', label: 'IRONMAN PR', value: '11:45:45' },
+        { icon: 'party-popper', label: 'First full-distance finish' },
+      ],
     },
   },
   {
@@ -159,7 +170,11 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: true,
       podium: true,
-      achievements: ['70.3 PR', 'Course best', 'Age-group podium'],
+      achievements: [
+        { icon: 'trophy', label: '70.3 PR', value: '5:41:18' },
+        { icon: 'flag-checkered', label: 'Course best' },
+        { icon: 'medal', label: 'Age-group podium', value: '3rd / 45' },
+      ],
     },
   },
   {
@@ -187,7 +202,10 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['Olympic distance PR', '2nd-fastest run split (Olympic distance)'],
+      achievements: [
+        { icon: 'trophy', label: 'Olympic distance PR', value: '2:31:42' },
+        { icon: 'lightning-bolt', label: '2nd-fastest run split (Olympic distance)', value: '57:27' },
+      ],
     },
   },
   {
@@ -212,7 +230,7 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['10K PR'],
+      achievements: [{ icon: 'trophy', label: '10K PR', value: '44:10' }],
     },
   },
   {
@@ -240,7 +258,10 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['Sprint distance PR', 'Fastest swim pace across all races'],
+      achievements: [
+        { icon: 'trophy', label: 'Sprint distance PR', value: '1:22:15' },
+        { icon: 'lightning-bolt', label: 'Fastest swim pace across all races', value: '12:10' },
+      ],
     },
   },
   {
@@ -265,7 +286,7 @@ export const racesPopulated: Race[] = [
       isDistancePR: false,
       isCourseBest: false,
       podium: true,
-      achievements: ['Age-group podium'],
+      achievements: [{ icon: 'medal', label: 'Age-group podium', value: '2nd / 55' }],
     },
   },
   {
@@ -292,7 +313,10 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['Marathon PR', 'Sub-4 marathon'],
+      achievements: [
+        { icon: 'trophy', label: 'Marathon PR', value: '3:58:20' },
+        { icon: 'fire', label: 'Sub-4 marathon' },
+      ],
     },
   },
   {
@@ -320,7 +344,7 @@ export const racesPopulated: Race[] = [
       isDistancePR: false,
       isCourseBest: false,
       podium: false,
-      achievements: ['First triathlon finish'],
+      achievements: [{ icon: 'party-popper', label: 'First triathlon finish' }],
     },
   },
   {
@@ -373,7 +397,7 @@ export const racesPopulated: Race[] = [
       isDistancePR: true,
       isCourseBest: false,
       podium: false,
-      achievements: ['5K PR'],
+      achievements: [{ icon: 'trophy', label: '5K PR', value: '24:10' }],
     },
   },
 ];

@@ -6,8 +6,8 @@ export interface AskSuggestion {
 /** Compact suggestion chips below the chat input — not giant prompt cards. */
 export const askSuggestionsPopulated: AskSuggestion[] = [
   { id: 'compare-70-3-bike-splits', text: 'Compare my 70.3 bike splits' },
-  { id: 'replace-shoes', text: 'Should I replace my shoes before Ottawa?' },
-  { id: 'plan-race-week', text: 'Help me plan race week' },
+  { id: 'olympic-pr-vs-bracebridge', text: "How does my Olympic PR compare to last year's Bracebridge?" },
+  { id: 'wasaga-2024-run', text: 'Why was my run slower at Wasaga Beach in 2024?' },
   { id: 'bike-upgrade', text: 'What upgrade would help my bike setup most?' },
 ];
 

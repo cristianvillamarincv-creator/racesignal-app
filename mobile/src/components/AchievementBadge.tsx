@@ -1,11 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import type { Achievement } from '@/fixtures/races';
+import type { Highlight } from '@/lib/highlights';
 import { AppIcon } from '@/lib/icons';
 import { colors, radii, spacing, typography } from '@/lib/theme';
 
 interface AchievementBadgeProps {
-  achievement: Achievement;
+  achievement: Highlight;
 }
 
 /**

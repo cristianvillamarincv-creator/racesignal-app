@@ -18,7 +18,9 @@ export default function RacePrepScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const race = racesPopulated.find((candidate) => candidate.id === id);
 
-  if (!race) {
+  // This screen is for an upcoming race's preparation checklist — a completed race's prep view
+  // isn't meaningful (and its eventDate may be a bare year, which daysUntil can't parse).
+  if (!race || race.status === 'completed') {
     return (
       <View style={styles.screen}>
         <View style={styles.notFound}>

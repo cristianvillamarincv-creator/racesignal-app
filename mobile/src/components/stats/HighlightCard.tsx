@@ -1,12 +1,12 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/Card';
+import type { Highlight } from '@/lib/highlights';
 import { AppIcon } from '@/lib/icons';
-import type { AchievementHighlight } from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
 
 interface HighlightCardProps {
-  highlight: AchievementHighlight;
+  highlight: Highlight;
   onPress: () => void;
 }
 
@@ -15,20 +15,20 @@ interface HighlightCardProps {
  * replaces the old plain-text Notable Performances list.
  */
 export function HighlightCard({ highlight, onPress }: HighlightCardProps) {
-  const { race, achievement } = highlight;
+  const { race, icon, label, value } = highlight;
   const year = race.eventDate.slice(0, 4);
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${achievement.label}${achievement.value ? `, ${achievement.value}` : ''}, ${race.name}, ${year}`}>
+      accessibilityLabel={`${label}${value ? `, ${value}` : ''}, ${race.name}, ${year}`}>
       <Card style={styles.card}>
         <View style={styles.labelRow}>
-          <AppIcon name={achievement.icon} size={16} color={colors.accent} />
-          <Text style={styles.label}>{achievement.label}</Text>
+          <AppIcon name={icon} size={16} color={colors.accent} />
+          <Text style={styles.label}>{label}</Text>
         </View>
-        {achievement.value ? <Text style={styles.value}>{achievement.value}</Text> : null}
+        {value ? <Text style={styles.value}>{value}</Text> : null}
         <View style={styles.footerRow}>
           <Text style={styles.raceLabel}>
             {race.name} · {year}

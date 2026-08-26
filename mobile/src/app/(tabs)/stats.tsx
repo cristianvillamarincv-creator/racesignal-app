@@ -11,35 +11,28 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { HighlightCard } from '@/components/stats/HighlightCard';
 import { RaceHistoryRow } from '@/components/stats/RaceHistoryRow';
 import { racesEmpty, racesPopulated, type Race, type SportCategory } from '@/fixtures/races';
-import { trainingBlocksEmpty, trainingBlocksPopulated } from '@/fixtures/training';
 import { formatFinishTime } from '@/lib/format';
-import type { Discipline } from '@/lib/icons';
-import { DISCIPLINE_LABEL, DisciplineIcon } from '@/lib/icons';
+import { getAllHighlights, getAllHighlightsUnfiltered, pickTopHighlights } from '@/lib/highlights';
 import { getAvailableSports, getAvailableYears, getCompletedRaces } from '@/lib/races';
-import {
-  getAchievementHighlights,
-  getAggregateStats,
-  getBestAgeGroupPercentile,
-  getPersonalBests,
-  pickTopHighlights,
-} from '@/lib/stats';
+import { getAggregateStats, getAverageAgeGroupPercentile, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
-import { getTrainingTotals } from '@/lib/training';
 import { useFixtureData } from '@/lib/useSimulatedLoad';
 
 const OVERALL = 'overall' as const;
 const ALL_TIME = 'all_time' as const;
 
+// The source's "5K" section entry is this race's 5K split, not a standalone race — see the split's
+// own note on the race for the full explanation. Surfaced here as a one-off, not part of the
+// generic Personal Bests ladder (see fixtures/races.ts).
+const FIVE_K_SPLIT_SOURCE_RACE_ID = 'sporting-life-10k-2024';
+const FIVE_K_SPLIT_YEAR = 2024;
+
 export default function StatsScreen() {
   const router = useRouter();
   const races = useFixtureData(racesPopulated, racesEmpty);
-  const blocks = useFixtureData(trainingBlocksPopulated, trainingBlocksEmpty);
   const [sportFilter, setSportFilter] = useState<SportCategory | typeof OVERALL>(OVERALL);
   const [yearFilter, setYearFilter] = useState<number | typeof ALL_TIME>(ALL_TIME);
   const [premiumHint, setPremiumHint] = useState<string | null>(null);
-
-  const isLoading = races.isLoading || blocks.isLoading;
-  const isError = races.isError || blocks.isError;
 
   const sports = useMemo(() => getAvailableSports(races.data), [races.data]);
   const years = useMemo(() => getAvailableYears(races.data), [races.data]);
@@ -52,34 +45,31 @@ export default function StatsScreen() {
     () => getBestAgeGroupPercentile(races.data, sport, year),
     [races.data, sport, year],
   );
-  const trainingTotals = useMemo(
-    () => getTrainingTotals(blocks.data, { sportCategory: sport, year }),
-    [blocks.data, sport, year],
+  const averageAgeGroup = useMemo(
+    () => getAverageAgeGroupPercentile(races.data, sport, year),
+    [races.data, sport, year],
   );
   const personalBests = useMemo(
     () => getPersonalBests(races.data, sport, year),
     [races.data, sport, year],
   );
+  const personalBestsCount = personalBests.length;
   const highlights = useMemo(
-    () => pickTopHighlights(getAchievementHighlights(races.data, sport, year)),
+    () => pickTopHighlights(getAllHighlights(races.data, sport, year)),
     [races.data, sport, year],
   );
   const history = useMemo(() => {
     const completed = getCompletedRaces(races.data, year);
     return sport ? completed.filter((race) => race.sport === sport) : completed;
   }, [races.data, sport, year]);
+  const allHighlights = useMemo(() => getAllHighlightsUnfiltered(races.data), [races.data]);
 
-  const disciplineTotals = (['swim', 'bike', 'run'] as Discipline[])
-    .map((discipline) => ({
-      discipline,
-      km:
-        discipline === 'swim'
-          ? trainingTotals.swimKm
-          : discipline === 'bike'
-            ? trainingTotals.bikeKm
-            : trainingTotals.runKm,
-    }))
-    .filter(({ km }) => km > 0);
+  const fiveKSplitRace = races.data.find((race) => race.id === FIVE_K_SPLIT_SOURCE_RACE_ID);
+  const fiveKSplit = fiveKSplitRace?.result?.splits.find((split) => split.label === '5K');
+  const showFiveKCallout =
+    fiveKSplit !== undefined &&
+    (sportFilter === OVERALL || sportFilter === 'running') &&
+    (yearFilter === ALL_TIME || yearFilter === FIVE_K_SPLIT_YEAR);
 
   function openRace(race: Race) {
     if (race.locked) {
@@ -92,9 +82,9 @@ export default function StatsScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
-        {isLoading ? (
+        {races.isLoading ? (
           <LoadingSkeleton rows={4} />
-        ) : isError ? (
+        ) : races.isError ? (
           <ErrorState />
         ) : races.data.length === 0 ? (
           <EmptyState
@@ -146,37 +136,29 @@ export default function StatsScreen() {
             <View style={styles.headlineGrid}>
               <View style={styles.headlineRow}>
                 <HeadlineStat label="Races" value={`${aggregate.totalRaces}`} />
-                <HeadlineStat label="PRs" value={`${aggregate.prCount}`} />
+                <HeadlineStat label="Personal Bests" value={`${personalBestsCount}`} />
               </View>
               <View style={styles.headlineRow}>
+                <HeadlineStat
+                  label="Average AG finish"
+                  value={averageAgeGroup.percentile !== null ? `Top ${averageAgeGroup.percentile}%` : '—'}
+                />
                 <HeadlineStat
                   label="Best AG finish"
                   value={bestAgeGroupPercentile !== null ? `Top ${bestAgeGroupPercentile}%` : '—'}
                 />
-                <HeadlineStat label="Training" value={`${trainingTotals.hours}h`} />
               </View>
+              {averageAgeGroup.raceCount > 0 ? (
+                <Text style={styles.headlineFootnote}>
+                  Average AG finish is based on {averageAgeGroup.raceCount} race
+                  {averageAgeGroup.raceCount === 1 ? '' : 's'} with complete AG fields.
+                </Text>
+              ) : null}
             </View>
-
-            {disciplineTotals.length > 0 ? (
-              <View style={styles.section}>
-                <SectionHeader title="Training totals" />
-                <Card style={styles.disciplineCard}>
-                  {disciplineTotals.map(({ discipline, km }) => (
-                    <View key={discipline} style={styles.disciplineRow}>
-                      <View style={styles.disciplineLabelRow}>
-                        <DisciplineIcon discipline={discipline} size={16} color={colors.textPrimary} />
-                        <Text style={styles.disciplineLabel}>{DISCIPLINE_LABEL[discipline]}</Text>
-                      </View>
-                      <Text style={styles.disciplineValue}>{km} km</Text>
-                    </View>
-                  ))}
-                </Card>
-              </View>
-            ) : null}
 
             <View style={styles.section}>
               <SectionHeader title="Personal bests" />
-              {personalBests.length === 0 ? (
+              {personalBests.length === 0 && !showFiveKCallout ? (
                 <EmptyState title="No PRs for this filter" subtitle="Try a different sport or year." />
               ) : (
                 <Card style={styles.listCard}>
@@ -193,19 +175,35 @@ export default function StatsScreen() {
                       </Text>
                     </Pressable>
                   ))}
+                  {showFiveKCallout && fiveKSplitRace ? (
+                    <Pressable
+                      onPress={() => openRace(fiveKSplitRace)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`5K best, split from ${fiveKSplitRace.name}`}
+                      style={[styles.prRow, styles.splitRow]}>
+                      <Text style={styles.prDistance}>5K best (split)</Text>
+                      <Text style={styles.prTime}>{formatFinishTime(fiveKSplit!.elapsedSeconds)}</Text>
+                    </Pressable>
+                  ) : null}
                 </Card>
               )}
+              {showFiveKCallout ? (
+                <Text style={styles.splitNote}>
+                  Not a standalone race — the 5K split from {fiveKSplitRace?.name},{' '}
+                  {fiveKSplitRace?.eventDate.slice(0, 4)}.
+                </Text>
+              ) : null}
             </View>
 
             {highlights.length > 0 ? (
               <View style={styles.section}>
                 <SectionHeader title="Highlights" />
                 <View style={styles.highlightsList}>
-                  {highlights.map(({ race, achievement }) => (
+                  {highlights.map((highlight) => (
                     <HighlightCard
-                      key={`${race.id}-${achievement.label}`}
-                      highlight={{ race, achievement }}
-                      onPress={() => openRace(race)}
+                      key={`${highlight.race.id}-${highlight.label}`}
+                      highlight={highlight}
+                      onPress={() => openRace(highlight.race)}
                     />
                   ))}
                 </View>
@@ -218,7 +216,15 @@ export default function StatsScreen() {
                 <EmptyState title="No races" subtitle="Nothing matches this filter yet." />
               ) : (
                 history.map((race) => (
-                  <RaceHistoryRow key={race.id} race={race} onPress={() => openRace(race)} />
+                  <RaceHistoryRow
+                    key={race.id}
+                    race={race}
+                    highlights={pickTopHighlights(
+                      allHighlights.filter((highlight) => highlight.race.id === race.id),
+                      2,
+                    )}
+                    onPress={() => openRace(race)}
+                  />
                 ))
               )}
             </View>
@@ -274,29 +280,12 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: colors.accent,
   },
+  headlineFootnote: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
   section: {
     gap: spacing.sm,
-  },
-  disciplineCard: {
-    gap: spacing.sm,
-  },
-  disciplineRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  disciplineLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  disciplineLabel: {
-    ...typography.body,
-  },
-  disciplineValue: {
-    ...typography.body,
-    fontWeight: '700',
-    color: colors.accent,
   },
   listCard: {
     gap: spacing.sm,
@@ -307,6 +296,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minHeight: 44,
   },
+  splitRow: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+  },
   prDistance: {
     ...typography.body,
     fontWeight: '600',
@@ -315,6 +309,10 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.accent,
     fontWeight: '700',
+  },
+  splitNote: {
+    ...typography.caption,
+    color: colors.textMuted,
   },
   highlightsList: {
     gap: spacing.sm,

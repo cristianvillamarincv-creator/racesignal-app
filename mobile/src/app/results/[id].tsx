@@ -4,7 +4,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { AchievementBadge } from '@/components/AchievementBadge';
 import { Card } from '@/components/Card';
 import { racesPopulated, type Race, type RaceRank } from '@/fixtures/races';
-import { formatFinishTime, getTopPercentile } from '@/lib/format';
+import { formatFinishTime, formatOrdinal, formatRaceDate, getTopPercentile } from '@/lib/format';
+import { getHighlightsForRace } from '@/lib/highlights';
 import { colors, spacing, typography } from '@/lib/theme';
 
 const SOURCE_LABEL: Record<NonNullable<Race['result']>['sourceStatus'], string> = {
@@ -28,12 +29,9 @@ export default function RaceResultDetailScreen() {
   }
 
   const { result } = race;
-  const eventDate = new Date(`${race.eventDate}T00:00:00`);
-  const dateLabel = eventDate.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const dateDisplay = formatRaceDate(race.eventDate);
+  const dateLabel = dateDisplay.precision === 'year' ? dateDisplay.year : dateDisplay.full;
+  const highlights = getHighlightsForRace(racesPopulated, race.id);
 
   return (
     <View style={styles.screen}>
@@ -47,10 +45,10 @@ export default function RaceResultDetailScreen() {
             {dateLabel} · {race.location}
           </Text>
 
-          {result.achievements.length > 0 ? (
+          {highlights.length > 0 ? (
             <View style={styles.badgeRow}>
-              {result.achievements.map((achievement) => (
-                <AchievementBadge key={achievement.label} achievement={achievement} />
+              {highlights.map((highlight) => (
+                <AchievementBadge key={highlight.label} achievement={highlight} />
               ))}
             </View>
           ) : null}
@@ -75,12 +73,29 @@ export default function RaceResultDetailScreen() {
           <Card style={styles.section}>
             <Text style={typography.label}>RANKINGS</Text>
             {result.overallRank ? (
-              <RankRow label="Overall" rank={result.overallRank} />
+              <RankRow label="Overall" rank={result.overallRank} needsConfirmation={result.rankingNeedsConfirmation} />
             ) : null}
-            {result.genderRank ? <RankRow label="Gender" rank={result.genderRank} /> : null}
+            {result.genderRank ? (
+              <RankRow label="Gender" rank={result.genderRank} needsConfirmation={result.rankingNeedsConfirmation} />
+            ) : null}
             {result.ageGroupRank ? (
-              <RankRow label={`Age group (${result.ageGroupRank.ageGroup})`} rank={result.ageGroupRank} />
+              <RankRow
+                label={result.ageGroupRank.ageGroup ? `Age group (${result.ageGroupRank.ageGroup})` : 'Age group'}
+                rank={result.ageGroupRank}
+                needsConfirmation={result.rankingNeedsConfirmation}
+              />
             ) : null}
+          </Card>
+        ) : null}
+
+        {result.sourceNotes && result.sourceNotes.length > 0 ? (
+          <Card style={styles.section}>
+            <Text style={typography.label}>NOTES</Text>
+            {result.sourceNotes.map((note) => (
+              <Text key={note} style={styles.note}>
+                • {note}
+              </Text>
+            ))}
           </Card>
         ) : null}
 
@@ -93,16 +108,28 @@ export default function RaceResultDetailScreen() {
   );
 }
 
-function RankRow({ label, rank }: { label: string; rank: RaceRank }) {
-  const percentile = getTopPercentile(rank.place, rank.field);
+function RankRow({
+  label,
+  rank,
+  needsConfirmation,
+}: {
+  label: string;
+  rank: RaceRank;
+  needsConfirmation?: boolean;
+}) {
+  const hasField = rank.field !== undefined;
   return (
     <View style={styles.splitRow}>
       <Text style={styles.splitLabel}>{label}</Text>
       <View style={styles.splitValues}>
         <Text style={styles.splitTime}>
-          {rank.place} / {rank.field}
+          {hasField ? `${rank.place} / ${rank.field}` : formatOrdinal(rank.place)}
         </Text>
-        <Text style={styles.splitPace}>Top {percentile}%</Text>
+        {needsConfirmation ? (
+          <Text style={styles.needsConfirmation}>Needs confirmation</Text>
+        ) : hasField ? (
+          <Text style={styles.splitPace}>Top {getTopPercentile(rank.place, rank.field!)}%</Text>
+        ) : null}
       </View>
     </View>
   );
@@ -157,6 +184,14 @@ const styles = StyleSheet.create({
   },
   splitPace: {
     ...typography.caption,
+  },
+  needsConfirmation: {
+    ...typography.caption,
+    color: colors.warning,
+  },
+  note: {
+    ...typography.caption,
+    color: colors.textSecondary,
   },
   notFound: {
     flex: 1,

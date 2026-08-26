@@ -4,24 +4,21 @@ import { AchievementBadge } from '@/components/AchievementBadge';
 import { Badge } from '@/components/Badge';
 import { Card } from '@/components/Card';
 import type { Race } from '@/fixtures/races';
-import { formatFinishTime } from '@/lib/format';
-import { pickTopAchievements } from '@/lib/stats';
+import { formatFinishTime, formatRaceDate } from '@/lib/format';
+import type { Highlight } from '@/lib/highlights';
 import { colors, spacing, typography } from '@/lib/theme';
 
 interface RaceHistoryRowProps {
   race: Race;
+  /** Pre-selected (most-meaningful-first, capped) by the caller — see lib/highlights.ts. */
+  highlights: Highlight[];
   onPress: () => void;
 }
 
-export function RaceHistoryRow({ race, onPress }: RaceHistoryRowProps) {
+export function RaceHistoryRow({ race, highlights, onPress }: RaceHistoryRowProps) {
   const result = race.result;
-  const eventDate = new Date(`${race.eventDate}T00:00:00`);
-  const dateLabel = eventDate.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-  const topAchievements = result ? pickTopAchievements(result.achievements, 2) : [];
+  const dateDisplay = formatRaceDate(race.eventDate);
+  const dateLabel = dateDisplay.precision === 'year' ? dateDisplay.year : dateDisplay.full;
 
   return (
     <Pressable
@@ -45,10 +42,10 @@ export function RaceHistoryRow({ race, onPress }: RaceHistoryRowProps) {
           {dateLabel} · {race.location}
         </Text>
 
-        {!race.locked && topAchievements.length > 0 ? (
+        {!race.locked && highlights.length > 0 ? (
           <View style={styles.badgeRow}>
-            {topAchievements.map((achievement) => (
-              <AchievementBadge key={achievement.label} achievement={achievement} />
+            {highlights.map((highlight) => (
+              <AchievementBadge key={highlight.label} achievement={highlight} />
             ))}
           </View>
         ) : null}

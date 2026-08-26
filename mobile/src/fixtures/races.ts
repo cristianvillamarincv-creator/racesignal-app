@@ -1,11 +1,15 @@
 /**
- * Single consolidated race-history fixture. Replaces the old race.ts / season.ts / medals.ts
- * split — Home's next race, Season's upcoming/completed lists, Stats' race history and PRs, and
- * the onboarding recovery flow's "candidates" are all views over this one dataset, so the numbers
- * never disagree across tabs. See src/lib/races.ts and src/lib/stats.ts for derived views.
+ * Single consolidated race-history fixture — now the athlete's REAL race history, transcribed
+ * from "Cristian Races (Wabi Sabi).md". Nothing here is invented: missing times, ranks, field
+ * sizes, dates, and splits are left absent rather than guessed, and anything ambiguous in the
+ * source is preserved via `sourceNotes` rather than silently resolved. See the A.3 plan for the
+ * full data-normalization writeup.
+ *
+ * Home's next race, Season's upcoming/completed lists, Stats' race history/PRs, and onboarding's
+ * recovered-race summary are all views over this one dataset. Achievements/PR status are
+ * COMPUTED from this data (see src/lib/highlights.ts), not authored here — with real numbers,
+ * hand-authoring a "PR" label risks it silently going stale or disagreeing with the numbers.
  */
-
-import type { IconName } from '@/lib/icons';
 
 export type SportCategory = 'triathlon' | 'running' | 'cycling' | 'swimming' | 'duathlon' | 'other';
 export type RaceStatus = 'considering' | 'registered' | 'completed';
@@ -13,25 +17,14 @@ export type RaceStatus = 'considering' | 'registered' | 'completed';
 export interface RaceSplit {
   label: string;
   elapsedSeconds: number;
-  /** Authored directly (e.g. "1:48/100m", "33.3 km/h avg") rather than computed from distance. */
+  /** Preserved verbatim from the source (e.g. two ambiguous pace figures), not computed. */
   paceLabel?: string;
 }
 
 export interface RaceRank {
   place: number;
-  field: number;
-}
-
-/**
- * Curated highlight — authored directly (icon, label, and an optional value string) rather than
- * computed by a cross-race comparison engine (this is mock data; the "engine" would just be us).
- * Intentionally includes highlights that are NOT the overall distance PR (e.g. a fast split in an
- * otherwise ordinary race), matching the product requirement that those still surface.
- */
-export interface Achievement {
-  icon: IconName;
-  label: string;
-  value?: string;
+  /** Absent when the source only gives a placement with no field size (e.g. "AG: 33"). */
+  field?: number;
 }
 
 export interface RaceResultDetail {
@@ -39,14 +32,16 @@ export interface RaceResultDetail {
   splits: RaceSplit[];
   overallRank?: RaceRank;
   genderRank?: RaceRank;
-  ageGroupRank?: RaceRank & { ageGroup: string };
+  /** The source never states an age-group bracket (e.g. "M35-39") — `ageGroup` stays absent. */
+  ageGroupRank?: RaceRank & { ageGroup?: string };
   sourceStatus: 'official_confirmed' | 'imported_confirmed' | 'self_reported';
-  /** This race is the athlete's fastest at this exact distanceLabel. */
-  isDistancePR: boolean;
-  /** This race is the athlete's fastest on this exact course (same race name). */
-  isCourseBest: boolean;
-  podium: boolean;
-  achievements: Achievement[];
+  /** Literal preserved notes: weather, injury, source annotations, data-quality caveats. */
+  sourceNotes?: string[];
+  /** Source gave no usable rank data at all for this race (e.g. "AS KALIL"). Never fabricate. */
+  needsConfirmation?: boolean;
+  /** This race's rank numbers look internally inconsistent in the source. Preserved as given,
+   *  but excluded from every computed percentile/aggregate ranking calculation until corrected. */
+  rankingNeedsConfirmation?: boolean;
 }
 
 export interface Race {
@@ -54,6 +49,7 @@ export interface Race {
   name: string;
   sport: SportCategory;
   distanceLabel: string;
+  /** Full `YYYY-MM-DD`, or a bare `YYYY` when the source only records the year. */
   eventDate: string;
   location: string;
   status: RaceStatus;
@@ -65,341 +61,469 @@ export interface Race {
 const h = (hours: number, minutes: number, seconds: number) => hours * 3600 + minutes * 60 + seconds;
 
 export const racesPopulated: Race[] = [
-  // --- Upcoming ---
+  // --- 70.3 (IRONMANS section, standard 1.9K/90K/21K only — Kingston below is a custom distance) ---
   {
-    id: 'ironman-ottawa-2026',
-    name: 'IRONMAN Ottawa',
+    id: 'ironman-70-3-syracuse-2018',
+    name: 'IRONMAN 70.3 Syracuse',
     sport: 'triathlon',
-    distanceLabel: 'IRONMAN',
-    eventDate: '2026-10-02',
-    location: 'Ottawa, ON',
-    status: 'registered',
-    locked: false,
+    distanceLabel: '70.3',
+    eventDate: '2018',
+    location: 'Syracuse',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(6, 36, 45),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 39, 52), paceLabel: '2:03/100m' },
+        { label: 'Bike', elapsedSeconds: h(3, 22, 18) },
+        { label: 'Run', elapsedSeconds: h(2, 21, 59) },
+      ],
+      overallRank: { place: 535 },
+      genderRank: { place: 427 },
+      ageGroupRank: { place: 55 },
+      sourceStatus: 'self_reported',
+      sourceNotes: [
+        'Exact event date not recorded in source — year only.',
+        'Location recorded as "Syracuse" only; state/country not specified in source.',
+      ],
+    },
   },
   {
-    id: 'toronto-fall-10k-2026',
-    name: 'Toronto Fall 10K',
-    sport: 'running',
-    distanceLabel: '10K',
-    eventDate: '2026-11-01',
-    location: 'Toronto, ON',
-    status: 'considering',
+    id: 'ironman-70-3-gulf-coast-2019',
+    name: 'IRONMAN 70.3 Gulf Coast',
+    sport: 'triathlon',
+    distanceLabel: '70.3',
+    eventDate: '2019-05-11',
+    location: 'Panama City Beach, FL, USA',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(5, 32, 11),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 45, 29) },
+        { label: 'Bike', elapsedSeconds: h(2, 41, 27), paceLabel: '33.5 km/h avg' },
+        { label: 'Run', elapsedSeconds: h(1, 57, 39), paceLabel: '5:34.8/km' },
+      ],
+      overallRank: { place: 256 },
+      genderRank: { place: 201 },
+      ageGroupRank: { place: 40 },
+      sourceStatus: 'self_reported',
+    },
+  },
+  {
+    id: 'ironman-70-3-victoria-2022',
+    name: 'IRONMAN 70.3 Victoria',
+    sport: 'triathlon',
+    distanceLabel: '70.3',
+    eventDate: '2022-05-29',
+    location: 'Victoria, BC, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(5, 44, 5),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 39, 56) },
+        { label: 'Bike', elapsedSeconds: h(2, 59, 0) },
+        { label: 'Run', elapsedSeconds: h(1, 54, 6) },
+      ],
+      overallRank: { place: 530 },
+      genderRank: { place: 530 },
+      ageGroupRank: { place: 83 },
+      sourceStatus: 'self_reported',
+      sourceNotes: ['Source lists Overall and Men placements as the same number (530); preserved as given.'],
+    },
+  },
+  {
+    id: 'ironman-70-3-eagleman-2026',
+    name: 'IRONMAN 70.3 Eagleman',
+    sport: 'triathlon',
+    distanceLabel: '70.3',
+    eventDate: '2026-06-14',
+    location: 'Cambridge, MD, USA',
+    status: 'completed',
     locked: false,
+    result: {
+      finishSeconds: h(4, 54, 58),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 39, 39) },
+        { label: 'Bike', elapsedSeconds: h(2, 29, 29), paceLabel: '36.4 km/h avg' },
+        { label: 'Run', elapsedSeconds: h(1, 37, 34), paceLabel: '4:39/km avg' },
+      ],
+      overallRank: { place: 108, field: 2421 },
+      genderRank: { place: 97, field: 1601 },
+      ageGroupRank: { place: 14, field: 205 },
+      sourceStatus: 'self_reported',
+      sourceNotes: ['Source swim time recorded as "00:39:39k" — trailing character treated as a typo, not a unit.'],
+    },
   },
 
-  // --- Completed, newest first ---
+  // --- Custom distance, explicitly excluded from the 70.3/Olympic comparison pools ---
   {
-    id: 'goodlife-half-marathon-2026',
-    name: 'GoodLife Toronto Half Marathon',
+    id: 'kingston-multisport-2024',
+    name: 'MultiSport Canada Triathlon Series — K-Town/Kingston',
+    sport: 'triathlon',
+    distanceLabel: 'Custom — 2K/55K/15K',
+    eventDate: '2024-07-28',
+    location: 'Kingston, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(4, 6, 9),
+      splits: [
+        { label: 'Swim (2K)', elapsedSeconds: h(0, 48, 4) },
+        { label: 'Bike (55K)', elapsedSeconds: h(1, 45, 59) },
+        { label: 'Run (15K)', elapsedSeconds: h(1, 22, 56) },
+      ],
+      overallRank: { place: 83 },
+      genderRank: { place: 65 },
+      ageGroupRank: { place: 11 },
+      sourceStatus: 'self_reported',
+      sourceNotes: [
+        'Non-standard distance (2K swim / 55K bike / 15K run) — excluded from Olympic/70.3 personal-best comparisons.',
+      ],
+    },
+  },
+
+  // --- Olympic (1.5K/40K/10K per source section header) ---
+  {
+    id: 'gravenhurst-triathlon-2021',
+    name: 'MultiSport Canada Gravenhurst Triathlon',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2021-09-11',
+    location: 'Gravenhurst, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 30, 49),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 33, 59) },
+        { label: 'Bike', elapsedSeconds: h(1, 10, 30), paceLabel: '34.0 km/h avg' },
+        { label: 'Run', elapsedSeconds: h(0, 41, 58), paceLabel: '4:12/km' },
+      ],
+      overallRank: { place: 41 },
+      genderRank: { place: 37 },
+      ageGroupRank: { place: 8 },
+      sourceStatus: 'self_reported',
+      sourceNotes: ['Source labeled this race "PR #2" — exact meaning not specified.'],
+    },
+  },
+  {
+    id: 'wasaga-beach-triathlon-2022',
+    name: 'MultiSport Canada Triathlon Series — Wasaga Beach',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2022-08-27',
+    location: 'Wasaga Beach, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 32, 25),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 30, 22), paceLabel: '2:01/100m' },
+        { label: 'Bike', elapsedSeconds: h(1, 11, 37) },
+        { label: 'Run', elapsedSeconds: h(0, 46, 16) },
+      ],
+      overallRank: { place: 50 },
+      genderRank: { place: 39 },
+      ageGroupRank: { place: 10 },
+      sourceStatus: 'self_reported',
+    },
+  },
+  {
+    id: 'wasaga-beach-triathlon-2024',
+    name: 'MultiSport Canada Triathlon Series — Wasaga Beach',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2024-08-27',
+    location: 'Wasaga Beach, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 51, 48),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 39, 0) },
+        { label: 'Bike', elapsedSeconds: h(1, 14, 25) },
+        { label: 'Run', elapsedSeconds: h(0, 51, 4) },
+      ],
+      overallRank: { place: 191 },
+      genderRank: { place: 145 },
+      ageGroupRank: { place: 17 },
+      sourceStatus: 'self_reported',
+      sourceNotes: ['Source note: "Post injury."'],
+    },
+  },
+  {
+    id: 'rose-city-welland-triathlon-2025',
+    name: 'MultiSport Canada Triathlon Series — Rose City',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2025-06-21',
+    location: 'Welland, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 45, 29),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 33, 27) },
+        { label: 'Bike', elapsedSeconds: h(1, 18, 24) },
+        { label: 'Run', elapsedSeconds: h(0, 48, 38) },
+      ],
+      overallRank: { place: 91 },
+      genderRank: { place: 74 },
+      ageGroupRank: { place: 9 },
+      sourceStatus: 'self_reported',
+    },
+  },
+  {
+    id: 'bracebridge-triathlon-2025',
+    name: 'Bracebridge Triathlon',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2025-07-12',
+    location: 'Bracebridge, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 47, 14),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 34, 33) },
+        { label: 'Bike', elapsedSeconds: h(1, 20, 0) },
+        { label: 'Run', elapsedSeconds: h(0, 48, 15) },
+      ],
+      overallRank: { place: 24 },
+      genderRank: { place: 19 },
+      ageGroupRank: { place: 2 },
+      sourceStatus: 'self_reported',
+      sourceNotes: ['Source note: "+30 degrees weather."'],
+    },
+  },
+  {
+    id: 'wasaga-beach-triathlon-2025',
+    name: 'MultiSport Canada Triathlon Series — Wasaga Beach',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2025-08-23',
+    location: 'Wasaga Beach, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 30, 59),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 28, 29) },
+        { label: 'Bike', elapsedSeconds: h(1, 12, 7) },
+        { label: 'Run', elapsedSeconds: h(0, 45, 43) },
+      ],
+      overallRank: { place: 56, field: 339 },
+      genderRank: { place: 46 },
+      ageGroupRank: { place: 10 },
+      sourceStatus: 'self_reported',
+      sourceNotes: [
+        'Overall field size (339) matches Niagara Falls Barrelman (Sep 14, 2025) exactly — possible copy/paste artifact in source; preserved as given for both races.',
+      ],
+    },
+  },
+  {
+    id: 'niagara-falls-barrelman-2025',
+    name: 'Niagara Falls Barrelman Triathlon',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2025-09-14',
+    location: 'Niagara Falls, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(2, 30, 43),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 30, 23) },
+        { label: 'Bike', elapsedSeconds: h(1, 14, 14) },
+        { label: 'Run', elapsedSeconds: h(0, 41, 27), paceLabel: '4:08.4/km' },
+      ],
+      overallRank: { place: 56, field: 339 },
+      genderRank: { place: 17, field: 114 },
+      ageGroupRank: { place: 5, field: 17 },
+      sourceStatus: 'self_reported',
+      sourceNotes: [
+        'Source labeled this race "PR."',
+        'Event name ("Barrelman") suggests a possibly non-standard distance; source groups it under Olympic (1.5K/40K/10K) with no distance breakdown given — classification is source-derived, not independently confirmed.',
+        'Overall field size (339) matches Wasaga Beach Aug 23, 2025 exactly — possible copy/paste artifact in source; preserved as given for both races.',
+      ],
+    },
+  },
+  {
+    id: 'bracebridge-triathlon-2026',
+    name: 'Bracebridge Triathlon',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2026-07-11',
+    location: 'Bracebridge, ON, CAN',
+    status: 'completed',
+    locked: false,
+    result: {
+      finishSeconds: h(2, 31, 45),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 30, 46) },
+        { label: 'Bike', elapsedSeconds: h(1, 16, 46) },
+        { label: 'Run', elapsedSeconds: h(0, 40, 56) },
+      ],
+      overallRank: { place: 12, field: 264 },
+      genderRank: { place: 10, field: 177 },
+      ageGroupRank: { place: 2, field: 24 },
+      sourceStatus: 'self_reported',
+    },
+  },
+  {
+    id: 'supertri-toronto-2026',
+    name: 'Supertri Toronto',
+    sport: 'triathlon',
+    distanceLabel: 'Olympic',
+    eventDate: '2026-07-26',
+    location: 'Toronto, ON, CAN',
+    status: 'completed',
+    locked: false,
+    result: {
+      finishSeconds: h(2, 35, 7),
+      splits: [
+        { label: 'Swim', elapsedSeconds: h(0, 36, 10) },
+        { label: 'Bike', elapsedSeconds: h(1, 10, 47) },
+        { label: 'Run', elapsedSeconds: h(0, 38, 57), paceLabel: '4:03/km' },
+      ],
+      sourceStatus: 'self_reported',
+      needsConfirmation: true,
+      sourceNotes: [
+        'Source rank field contains "AS KALIL" instead of Overall/Men/AG numbers — meaning unclear; no ranking data available for this race.',
+        'Event name ("Supertri") suggests a possibly non-standard/shortened distance; source groups it under Olympic (1.5K/40K/10K) with no distance breakdown given — classification is source-derived, not independently confirmed.',
+      ],
+    },
+  },
+
+  // --- Half Marathon ---
+  {
+    id: 'toronto-marathon-half-2023',
+    name: 'Toronto Marathon',
+    sport: 'running',
+    distanceLabel: 'Half Marathon',
+    eventDate: '2023-05-07',
+    location: 'Toronto, ON, CAN',
+    status: 'completed',
+    locked: true,
+    result: {
+      finishSeconds: h(1, 30, 16),
+      splits: [],
+      overallRank: { place: 18, field: 201 },
+      genderRank: { place: 127 },
+      ageGroupRank: { place: 33 },
+      sourceStatus: 'self_reported',
+      rankingNeedsConfirmation: true,
+      sourceNotes: [
+        'Source pace figures: 4:14.4/km, 4:16.8/km (segment not specified).',
+        'Source labeled this race "PR."',
+        'Ranking fields appear internally inconsistent (Overall 18/201 implies a much stronger result than Men 127th or AG 33rd would suggest) — preserved as given; excluded from percentile calculations pending confirmation.',
+      ],
+    },
+  },
+  {
+    id: 'toronto-marathon-half-2026',
+    name: 'Toronto Marathon',
     sport: 'running',
     distanceLabel: 'Half Marathon',
     eventDate: '2026-05-03',
-    location: 'Toronto, ON',
+    location: 'Toronto, ON, CAN',
     status: 'completed',
     locked: false,
     result: {
-      finishSeconds: h(1, 36, 18),
-      splits: [
-        { label: '5K', elapsedSeconds: h(0, 22, 40) },
-        { label: '10K', elapsedSeconds: h(0, 45, 32) },
-        { label: 'Half', elapsedSeconds: h(1, 36, 18), paceLabel: '4:34/km avg' },
-      ],
-      overallRank: { place: 210, field: 3400 },
-      genderRank: { place: 165, field: 1600 },
-      ageGroupRank: { place: 22, field: 210, ageGroup: 'M35-39' },
-      sourceStatus: 'imported_confirmed',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [{ icon: 'trophy', label: 'Half Marathon PR', value: '1:36:18' }],
+      finishSeconds: h(1, 26, 56),
+      splits: [{ label: 'Half', elapsedSeconds: h(1, 26, 56), paceLabel: '4:07/km' }],
+      overallRank: { place: 139, field: 10576 },
+      genderRank: { place: 129, field: 5835 },
+      ageGroupRank: { place: 17, field: 704 },
+      sourceStatus: 'self_reported',
+      sourceNotes: ['Source labeled this race "PR."'],
     },
   },
+
+  // --- 10K (includes the Sporting Life 10K's own 5K split — see sourceNotes) ---
   {
-    id: 'ironman-mont-tremblant-2025',
-    name: 'IRONMAN Mont-Tremblant',
-    sport: 'triathlon',
-    distanceLabel: 'IRONMAN',
-    eventDate: '2025-09-14',
-    location: 'Mont-Tremblant, QC',
-    status: 'completed',
-    locked: false,
-    result: {
-      finishSeconds: h(11, 45, 45),
-      splits: [
-        { label: 'Swim', elapsedSeconds: h(1, 12, 40), paceLabel: '1:54/100m' },
-        { label: 'T1', elapsedSeconds: h(0, 4, 10) },
-        { label: 'Bike', elapsedSeconds: h(6, 5, 22), paceLabel: '29.6 km/h avg' },
-        { label: 'T2', elapsedSeconds: h(0, 3, 45) },
-        { label: 'Run', elapsedSeconds: h(4, 19, 48), paceLabel: '6:09/km avg' },
-      ],
-      overallRank: { place: 412, field: 1800 },
-      genderRank: { place: 350, field: 1400 },
-      ageGroupRank: { place: 18, field: 120, ageGroup: 'M35-39' },
-      sourceStatus: 'official_confirmed',
-      isDistancePR: true,
-      isCourseBest: true,
-      podium: false,
-      achievements: [
-        { icon: 'trophy', label: 'IRONMAN PR', value: '11:45:45' },
-        { icon: 'party-popper', label: 'First full-distance finish' },
-      ],
-    },
-  },
-  {
-    id: 'muskoka-70-3-2025',
-    name: 'Muskoka 70.3',
-    sport: 'triathlon',
-    distanceLabel: '70.3',
-    eventDate: '2025-07-07',
-    location: 'Huntsville, ON',
-    status: 'completed',
-    locked: false,
-    result: {
-      finishSeconds: h(5, 41, 18),
-      splits: [
-        { label: 'Swim', elapsedSeconds: h(0, 34, 12), paceLabel: '1:48/100m' },
-        { label: 'T1', elapsedSeconds: h(0, 3, 5) },
-        { label: 'Bike', elapsedSeconds: h(2, 42, 10), paceLabel: '33.3 km/h avg' },
-        { label: 'T2', elapsedSeconds: h(0, 2, 20) },
-        { label: 'Run', elapsedSeconds: h(2, 19, 31), paceLabel: '6:37/km avg' },
-      ],
-      overallRank: { place: 42, field: 850 },
-      genderRank: { place: 38, field: 520 },
-      ageGroupRank: { place: 3, field: 45, ageGroup: 'M35-39' },
-      sourceStatus: 'official_confirmed',
-      isDistancePR: true,
-      isCourseBest: true,
-      podium: true,
-      achievements: [
-        { icon: 'trophy', label: '70.3 PR', value: '5:41:18' },
-        { icon: 'flag-checkered', label: 'Course best' },
-        { icon: 'medal', label: 'Age-group podium', value: '3rd / 45' },
-      ],
-    },
-  },
-  {
-    id: 'toronto-triathlon-festival-olympic-2024',
-    name: 'Toronto Triathlon Festival',
-    sport: 'triathlon',
-    distanceLabel: 'Olympic',
-    eventDate: '2024-07-21',
-    location: 'Toronto, ON',
-    status: 'completed',
-    locked: true,
-    result: {
-      finishSeconds: h(2, 31, 42),
-      splits: [
-        { label: 'Swim', elapsedSeconds: h(0, 18, 4) },
-        { label: 'T1', elapsedSeconds: h(0, 2, 1) },
-        { label: 'Bike', elapsedSeconds: h(1, 12, 40) },
-        { label: 'T2', elapsedSeconds: h(0, 1, 30) },
-        { label: 'Run', elapsedSeconds: h(0, 57, 27) },
-      ],
-      overallRank: { place: 88, field: 600 },
-      genderRank: { place: 71, field: 340 },
-      ageGroupRank: { place: 9, field: 60, ageGroup: 'M35-39' },
-      sourceStatus: 'official_confirmed',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [
-        { icon: 'trophy', label: 'Olympic distance PR', value: '2:31:42' },
-        { icon: 'lightning-bolt', label: '2nd-fastest run split (Olympic distance)', value: '57:27' },
-      ],
-    },
-  },
-  {
-    id: 'goodlife-10k-2024',
-    name: 'GoodLife Toronto 10K',
+    id: 'sporting-life-10k-2024',
+    name: 'Sporting Life 10K',
     sport: 'running',
     distanceLabel: '10K',
-    eventDate: '2024-05-05',
-    location: 'Toronto, ON',
+    eventDate: '2024-05-12',
+    location: 'Toronto, ON, CAN',
     status: 'completed',
     locked: true,
     result: {
-      finishSeconds: h(0, 44, 10),
+      finishSeconds: h(0, 44, 26),
       splits: [
-        { label: '5K', elapsedSeconds: h(0, 21, 50) },
-        { label: '10K', elapsedSeconds: h(0, 44, 10) },
+        { label: '5K', elapsedSeconds: h(0, 20, 56), paceLabel: '4:11/km, 4:10/km' },
+        { label: '10K', elapsedSeconds: h(0, 44, 26), paceLabel: '4:21/km, 4:26.4/km' },
       ],
-      overallRank: { place: 140, field: 2100 },
-      genderRank: { place: 110, field: 980 },
-      ageGroupRank: { place: 12, field: 130, ageGroup: 'M35-39' },
-      sourceStatus: 'imported_confirmed',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [{ icon: 'trophy', label: '10K PR', value: '44:10' }],
-    },
-  },
-  {
-    id: 'toronto-triathlon-festival-sprint-2023',
-    name: 'Toronto Triathlon Festival',
-    sport: 'triathlon',
-    distanceLabel: 'Sprint',
-    eventDate: '2023-07-16',
-    location: 'Toronto, ON',
-    status: 'completed',
-    locked: true,
-    result: {
-      finishSeconds: h(1, 22, 15),
-      splits: [
-        { label: 'Swim', elapsedSeconds: h(0, 12, 10) },
-        { label: 'T1', elapsedSeconds: h(0, 1, 30) },
-        { label: 'Bike', elapsedSeconds: h(0, 38, 20) },
-        { label: 'T2', elapsedSeconds: h(0, 1, 15) },
-        { label: 'Run', elapsedSeconds: h(0, 29, 0) },
-      ],
-      overallRank: { place: 65, field: 480 },
-      genderRank: { place: 52, field: 260 },
-      ageGroupRank: { place: 6, field: 40, ageGroup: 'M30-34' },
-      sourceStatus: 'official_confirmed',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [
-        { icon: 'trophy', label: 'Sprint distance PR', value: '1:22:15' },
-        { icon: 'lightning-bolt', label: 'Fastest swim pace across all races', value: '12:10' },
+      overallRank: { place: 937 },
+      genderRank: { place: 779 },
+      ageGroupRank: { place: 162 },
+      sourceStatus: 'self_reported',
+      sourceNotes: [
+        'Source\'s separate "5K" section entry for this same event/date (20:56) is this race\'s 5K split, not a standalone race — attached above rather than imported as a second result.',
+        '5K split ranking (per source "5K" section): Overall 215, Men 201, AG 23 — preserved here as a note since the data model does not carry separate rankings per split.',
       ],
     },
   },
   {
-    id: 'goodlife-10k-2022',
-    name: 'GoodLife Toronto 10K',
+    id: 'under-armour-10k-2024',
+    name: 'Under Armour Toronto 10K',
     sport: 'running',
     distanceLabel: '10K',
-    eventDate: '2022-05-01',
-    location: 'Toronto, ON',
+    eventDate: '2024-06-15',
+    location: 'Toronto, ON, CAN',
     status: 'completed',
     locked: true,
     result: {
-      finishSeconds: h(0, 48, 55),
-      splits: [
-        { label: '5K', elapsedSeconds: h(0, 23, 50) },
-        { label: '10K', elapsedSeconds: h(0, 48, 55) },
-      ],
-      overallRank: { place: 260, field: 2000 },
-      genderRank: { place: 190, field: 950 },
-      ageGroupRank: { place: 2, field: 55, ageGroup: 'M30-34' },
+      finishSeconds: h(0, 44, 19),
+      splits: [{ label: '10K', elapsedSeconds: h(0, 44, 19), paceLabel: '4:24/km, 4:25.8/km' }],
+      overallRank: { place: 484 },
+      genderRank: { place: 406 },
+      ageGroupRank: { place: 93 },
       sourceStatus: 'self_reported',
-      isDistancePR: false,
-      isCourseBest: false,
-      podium: true,
-      achievements: [{ icon: 'medal', label: 'Age-group podium', value: '2nd / 55' }],
     },
   },
   {
-    id: 'toronto-waterfront-marathon-2021',
-    name: 'Scotiabank Toronto Waterfront Marathon',
+    id: 'under-armour-10k-2025',
+    name: 'Under Armour Toronto 10K',
     sport: 'running',
-    distanceLabel: 'Marathon',
-    eventDate: '2021-10-10',
-    location: 'Toronto, ON',
+    distanceLabel: '10K',
+    eventDate: '2025-06-14',
+    location: 'Toronto, ON, CAN',
     status: 'completed',
     locked: true,
     result: {
-      finishSeconds: h(3, 58, 20),
-      splits: [
-        { label: '10K', elapsedSeconds: h(0, 55, 40) },
-        { label: 'Half', elapsedSeconds: h(1, 57, 30) },
-        { label: '30K', elapsedSeconds: h(2, 48, 10) },
-        { label: 'Finish', elapsedSeconds: h(3, 58, 20) },
-      ],
-      overallRank: { place: 1800, field: 14000 },
-      genderRank: { place: 1250, field: 6800 },
-      ageGroupRank: { place: 140, field: 900, ageGroup: 'M30-34' },
-      sourceStatus: 'official_confirmed',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [
-        { icon: 'trophy', label: 'Marathon PR', value: '3:58:20' },
-        { icon: 'fire', label: 'Sub-4 marathon' },
-      ],
-    },
-  },
-  {
-    id: 'barrie-sprint-triathlon-2021',
-    name: 'Barrie Sprint Triathlon',
-    sport: 'triathlon',
-    distanceLabel: 'Sprint',
-    eventDate: '2021-08-15',
-    location: 'Barrie, ON',
-    status: 'completed',
-    locked: true,
-    result: {
-      finishSeconds: h(1, 35, 40),
-      splits: [
-        { label: 'Swim', elapsedSeconds: h(0, 15, 40) },
-        { label: 'T1', elapsedSeconds: h(0, 2, 30) },
-        { label: 'Bike', elapsedSeconds: h(0, 42, 10) },
-        { label: 'T2', elapsedSeconds: h(0, 2, 0) },
-        { label: 'Run', elapsedSeconds: h(0, 33, 20) },
-      ],
-      overallRank: { place: 210, field: 340 },
-      genderRank: { place: 130, field: 190 },
-      ageGroupRank: { place: 22, field: 30, ageGroup: 'M30-34' },
+      finishSeconds: h(0, 40, 39),
+      splits: [{ label: '10K', elapsedSeconds: h(0, 40, 39), paceLabel: '4:04.2/km' }],
+      overallRank: { place: 210 },
+      genderRank: { place: 178 },
+      ageGroupRank: { place: 33 },
       sourceStatus: 'self_reported',
-      isDistancePR: false,
-      isCourseBest: false,
-      podium: false,
-      achievements: [{ icon: 'party-popper', label: 'First triathlon finish' }],
+      sourceNotes: ['Source labeled this race "PR."'],
     },
   },
   {
-    id: 'milton-triathlon-2020',
-    name: 'Milton Triathlon',
-    sport: 'triathlon',
-    distanceLabel: 'Olympic',
-    eventDate: '2020-09-20',
-    location: 'Milton, ON',
-    status: 'completed',
-    locked: true,
-    result: {
-      finishSeconds: h(2, 45, 15),
-      splits: [
-        { label: 'Swim', elapsedSeconds: h(0, 19, 50) },
-        { label: 'T1', elapsedSeconds: h(0, 2, 40) },
-        { label: 'Bike', elapsedSeconds: h(1, 18, 20) },
-        { label: 'T2', elapsedSeconds: h(0, 2, 10) },
-        { label: 'Run', elapsedSeconds: h(1, 2, 15) },
-      ],
-      overallRank: { place: 190, field: 400 },
-      genderRank: { place: 120, field: 220 },
-      ageGroupRank: { place: 18, field: 32, ageGroup: 'M25-29' },
-      sourceStatus: 'self_reported',
-      isDistancePR: false,
-      isCourseBest: false,
-      podium: false,
-      achievements: [],
-    },
-  },
-  {
-    id: 'turkey-trot-5k-2019',
-    name: 'Toronto Turkey Trot',
+    id: 'sporting-life-10k-2026',
+    name: 'Sporting Life 10K',
     sport: 'running',
-    distanceLabel: '5K',
-    eventDate: '2019-06-16',
-    location: 'Toronto, ON',
+    distanceLabel: '10K',
+    eventDate: '2026-05-10',
+    location: 'Toronto, ON, CAN',
     status: 'completed',
     locked: true,
     result: {
-      finishSeconds: h(0, 24, 10),
-      splits: [
-        { label: '1K', elapsedSeconds: h(0, 4, 45) },
-        { label: '5K', elapsedSeconds: h(0, 24, 10) },
-      ],
-      overallRank: { place: 320, field: 1500 },
-      genderRank: { place: 210, field: 700 },
-      ageGroupRank: { place: 28, field: 95, ageGroup: 'M25-29' },
+      finishSeconds: h(0, 51, 46),
+      splits: [],
       sourceStatus: 'self_reported',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [{ icon: 'trophy', label: '5K PR', value: '24:10' }],
+      sourceNotes: ['Source note: "Run with Juan" — no ranking data recorded for this race.'],
     },
   },
 ];
 
+/** Empty-state fixture variant for `DEV_FIXTURE_MODE` testing — unrelated to the fact that
+ *  `racesPopulated` itself also has zero upcoming races (no upcoming race is confirmed by the
+ *  imported source; see the A.3 plan, decision #4). */
 export const racesEmpty: Race[] = [];

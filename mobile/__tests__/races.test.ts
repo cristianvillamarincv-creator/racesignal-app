@@ -6,10 +6,14 @@ import {
   getNextRace,
   getUpcomingRaces,
 } from '@/lib/races';
-import { getAggregateStats, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
-import { getTrainingTotals } from '@/lib/training';
-import type { Race } from '@/fixtures/races';
-import type { TrainingBlock } from '@/fixtures/training';
+import {
+  getAggregateStats,
+  getAverageAgeGroupPercentile,
+  getBestAgeGroupPercentile,
+  getPersonalBests,
+} from '@/lib/stats';
+import { getDistancePRStatuses } from '@/lib/highlights';
+import { racesPopulated, type Race } from '@/fixtures/races';
 
 function race(overrides: Partial<Race> & Pick<Race, 'id' | 'eventDate' | 'status'>): Race {
   return {
@@ -42,12 +46,8 @@ const races: Race[] = [
     result: {
       finishSeconds: 9000,
       splits: [],
-      ageGroupRank: { place: 5, field: 50, ageGroup: 'M35-39' },
-      sourceStatus: 'official_confirmed',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: true,
-      achievements: [{ icon: 'trophy', label: 'Olympic distance PR' }],
+      ageGroupRank: { place: 5, field: 50 },
+      sourceStatus: 'self_reported',
     },
   }),
   race({
@@ -59,12 +59,8 @@ const races: Race[] = [
     result: {
       finishSeconds: 2600,
       splits: [],
-      ageGroupRank: { place: 20, field: 100, ageGroup: 'M35-39' },
+      ageGroupRank: { place: 20, field: 100 },
       sourceStatus: 'self_reported',
-      isDistancePR: true,
-      isCourseBest: false,
-      podium: false,
-      achievements: [{ icon: 'trophy', label: '10K PR' }],
     },
   }),
 ];
@@ -103,10 +99,10 @@ describe('getAvailableSports / getAvailableYears', () => {
 });
 
 describe('getAggregateStats', () => {
-  it('counts races, podiums, and PRs matching the filter', () => {
-    expect(getAggregateStats(races)).toEqual({ totalRaces: 2, podiums: 1, prCount: 2 });
-    expect(getAggregateStats(races, 'triathlon')).toEqual({ totalRaces: 1, podiums: 1, prCount: 1 });
-    expect(getAggregateStats(races, 'running', 2024)).toEqual({ totalRaces: 1, podiums: 0, prCount: 1 });
+  it('counts races matching the filter', () => {
+    expect(getAggregateStats(races)).toEqual({ totalRaces: 2 });
+    expect(getAggregateStats(races, 'triathlon')).toEqual({ totalRaces: 1 });
+    expect(getAggregateStats(races, 'running', 2024)).toEqual({ totalRaces: 1 });
   });
 });
 
@@ -141,31 +137,152 @@ describe('getBestAgeGroupPercentile', () => {
   });
 });
 
-const trainingBlocks: TrainingBlock[] = [
-  { id: 'b1', year: 2025, sportCategory: 'triathlon', sessions: 100, hours: 120, swimKm: 50, bikeKm: 2000, runKm: 400 },
-  { id: 'b2', year: 2025, sportCategory: 'running', sessions: 40, hours: 45, swimKm: 0, bikeKm: 0, runKm: 350 },
-  { id: 'b3', year: 2024, sportCategory: 'running', sessions: 30, hours: 35, swimKm: 0, bikeKm: 0, runKm: 300 },
-];
+describe('getDistancePRStatuses', () => {
+  const distanceRaces: Race[] = [
+    race({
+      id: 'first',
+      eventDate: '2020-01-01',
+      status: 'completed',
+      distanceLabel: 'Olympic',
+      result: { finishSeconds: 3000, splits: [], sourceStatus: 'self_reported' },
+    }),
+    race({
+      id: 'slower-than-first',
+      eventDate: '2021-01-01',
+      status: 'completed',
+      distanceLabel: 'Olympic',
+      result: { finishSeconds: 3200, splits: [], sourceStatus: 'self_reported' },
+    }),
+    race({
+      id: 'beats-first',
+      eventDate: '2022-01-01',
+      status: 'completed',
+      distanceLabel: 'Olympic',
+      result: { finishSeconds: 2900, splits: [], sourceStatus: 'self_reported' },
+    }),
+    race({
+      id: 'beats-again-current-pb',
+      eventDate: '2023-01-01',
+      status: 'completed',
+      distanceLabel: 'Olympic',
+      result: { finishSeconds: 2800, splits: [], sourceStatus: 'self_reported' },
+    }),
+  ];
 
-describe('getTrainingTotals', () => {
-  it('sums every block for "overall, all time" with no filter', () => {
-    const totals = getTrainingTotals(trainingBlocks);
-    expect(totals.sessions).toBe(170);
-    expect(totals.hours).toBe(200);
+  it('labels the earliest race in a distance group as first-recorded, never a PR', () => {
+    const statuses = getDistancePRStatuses(distanceRaces);
+    const first = statuses.find((s) => s.race.id === 'first')!;
+    expect(first.isFirstRecorded).toBe(true);
+    expect(first.isPRPerformance).toBe(false);
   });
 
-  it('does not double-count: overall for a year equals the sum of that year\'s sport-specific blocks', () => {
-    const overall2025 = getTrainingTotals(trainingBlocks, { year: 2025 });
-    const tri2025 = getTrainingTotals(trainingBlocks, { year: 2025, sportCategory: 'triathlon' });
-    const run2025 = getTrainingTotals(trainingBlocks, { year: 2025, sportCategory: 'running' });
-
-    expect(overall2025.sessions).toBe(tri2025.sessions + run2025.sessions);
-    expect(overall2025.hours).toBe(tri2025.hours + run2025.hours);
-    expect(overall2025.totalDistanceKm).toBe(tri2025.totalDistanceKm + run2025.totalDistanceKm);
+  it('does not flag a slower-than-everything-so-far race as a PR performance', () => {
+    const statuses = getDistancePRStatuses(distanceRaces);
+    const slower = statuses.find((s) => s.race.id === 'slower-than-first')!;
+    expect(slower.isFirstRecorded).toBe(false);
+    expect(slower.isPRPerformance).toBe(false);
+    expect(slower.isCurrentPB).toBe(false);
   });
 
-  it('filters by sport and year together', () => {
-    const totals = getTrainingTotals(trainingBlocks, { sportCategory: 'running', year: 2024 });
-    expect(totals).toEqual({ sessions: 30, hours: 35, swimKm: 0, bikeKm: 0, runKm: 300, totalDistanceKm: 300 });
+  it('flags a race that beats the running-best-so-far as a PR performance, even if later superseded', () => {
+    const statuses = getDistancePRStatuses(distanceRaces);
+    const beatsFirst = statuses.find((s) => s.race.id === 'beats-first')!;
+    expect(beatsFirst.isPRPerformance).toBe(true);
+    expect(beatsFirst.isCurrentPB).toBe(false); // later beaten by 'beats-again-current-pb'
+  });
+
+  it('flags the single fastest-of-all-time race as the current PB, and also a PR performance', () => {
+    const statuses = getDistancePRStatuses(distanceRaces);
+    const currentPb = statuses.find((s) => s.race.id === 'beats-again-current-pb')!;
+    expect(currentPb.isCurrentPB).toBe(true);
+    expect(currentPb.isPRPerformance).toBe(true);
+    expect(currentPb.isFirstRecorded).toBe(false);
+  });
+
+  it('excludes a one-off custom distance (e.g. Kingston) from the PR ladder entirely', () => {
+    const withCustomDistance: Race[] = [
+      ...distanceRaces,
+      race({
+        id: 'kingston-like',
+        eventDate: '2024-01-01',
+        status: 'completed',
+        distanceLabel: 'Custom — 2K/55K/15K',
+        result: { finishSeconds: 14769, splits: [], sourceStatus: 'self_reported' },
+      }),
+    ];
+    const statuses = getDistancePRStatuses(withCustomDistance);
+    expect(statuses.some((s) => s.race.id === 'kingston-like')).toBe(false);
+  });
+});
+
+describe('getAverageAgeGroupPercentile', () => {
+  it('averages raw place/field ratios and rounds up once at the end', () => {
+    // 1/4 -> 0.25, 1/3 -> 0.3333...; averaging the raw ratios (0.29167) and ceiling once gives 30%.
+    const sample: Race[] = [
+      race({
+        id: 'a',
+        eventDate: '2024-01-01',
+        status: 'completed',
+        result: { finishSeconds: 1000, splits: [], ageGroupRank: { place: 1, field: 4 }, sourceStatus: 'self_reported' },
+      }),
+      race({
+        id: 'b',
+        eventDate: '2024-02-01',
+        status: 'completed',
+        result: { finishSeconds: 1000, splits: [], ageGroupRank: { place: 1, field: 3 }, sourceStatus: 'self_reported' },
+      }),
+    ];
+    const result = getAverageAgeGroupPercentile(sample);
+    expect(result.raceCount).toBe(2);
+    expect(result.percentile).toBe(30);
+  });
+
+  it('excludes races with no field size and races flagged rankingNeedsConfirmation', () => {
+    const sample: Race[] = [
+      race({
+        id: 'complete',
+        eventDate: '2024-01-01',
+        status: 'completed',
+        result: { finishSeconds: 1000, splits: [], ageGroupRank: { place: 1, field: 4 }, sourceStatus: 'self_reported' },
+      }),
+      race({
+        id: 'place-only',
+        eventDate: '2024-02-01',
+        status: 'completed',
+        result: { finishSeconds: 1000, splits: [], ageGroupRank: { place: 33 }, sourceStatus: 'self_reported' },
+      }),
+      race({
+        id: 'flagged',
+        eventDate: '2024-03-01',
+        status: 'completed',
+        result: {
+          finishSeconds: 1000,
+          splits: [],
+          ageGroupRank: { place: 1, field: 2 },
+          sourceStatus: 'self_reported',
+          rankingNeedsConfirmation: true,
+        },
+      }),
+    ];
+    const result = getAverageAgeGroupPercentile(sample);
+    expect(result.raceCount).toBe(1);
+    expect(result.percentile).toBe(25);
+  });
+
+  it('matches the worked example against the real race history (4 races with complete AG data -> 12%)', () => {
+    // Eagleman 2026 (14/205), Niagara Falls Barrelman 2025 (5/17), Bracebridge 2026 (2/24), and
+    // Toronto Marathon Half 2026 (17/704) are the only real races with both AG place and field
+    // known and no rankingNeedsConfirmation flag:
+    // (14/205 + 5/17 + 2/24 + 17/704) / 4 = 0.11747... -> ceil -> 12%.
+    const result = getAverageAgeGroupPercentile(racesPopulated);
+    expect(result.raceCount).toBe(4);
+    expect(result.percentile).toBe(12);
+  });
+
+  it('returns null/0 when nothing in the filter has complete age-group data', () => {
+    expect(getAverageAgeGroupPercentile(races.filter((r) => r.status !== 'completed'))).toEqual({
+      percentile: null,
+      raceCount: 0,
+    });
   });
 });

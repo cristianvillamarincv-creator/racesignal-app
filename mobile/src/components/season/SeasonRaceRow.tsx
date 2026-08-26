@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AchievementBadge } from '@/components/AchievementBadge';
 import { Badge } from '@/components/Badge';
 import type { Race } from '@/fixtures/races';
-import { pickTopAchievements } from '@/lib/stats';
+import { formatRaceDate } from '@/lib/format';
+import type { Highlight } from '@/lib/highlights';
 import { colors, spacing, typography } from '@/lib/theme';
 
 const STATUS_LABEL: Record<Race['status'], string> = {
@@ -14,15 +15,14 @@ const STATUS_LABEL: Record<Race['status'], string> = {
 
 interface SeasonRaceRowProps {
   race: Race;
+  /** Pre-selected (most-meaningful-first, capped) by the caller — see lib/highlights.ts. */
+  highlights: Highlight[];
   onPress: () => void;
 }
 
-export function SeasonRaceRow({ race, onPress }: SeasonRaceRowProps) {
-  const eventDate = new Date(`${race.eventDate}T00:00:00`);
-  const month = eventDate.toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
-  const day = eventDate.getDate();
+export function SeasonRaceRow({ race, highlights, onPress }: SeasonRaceRowProps) {
+  const dateDisplay = formatRaceDate(race.eventDate);
   const showLock = race.status === 'completed' && race.locked;
-  const topAchievements = race.result ? pickTopAchievements(race.result.achievements, 2) : [];
 
   return (
     <Pressable
@@ -33,18 +33,24 @@ export function SeasonRaceRow({ race, onPress }: SeasonRaceRowProps) {
       }`}
       style={styles.row}>
       <View style={styles.dateBlock}>
-        <Text style={styles.dateMonth}>{month}</Text>
-        <Text style={styles.dateDay}>{day}</Text>
+        {dateDisplay.precision === 'year' ? (
+          <Text style={styles.dateYear}>{dateDisplay.year}</Text>
+        ) : (
+          <>
+            <Text style={styles.dateMonth}>{dateDisplay.month}</Text>
+            <Text style={styles.dateDay}>{dateDisplay.day}</Text>
+          </>
+        )}
       </View>
       <View style={styles.details}>
         <Text style={styles.name}>{race.name}</Text>
         <Text style={styles.location}>
           {race.location} · {STATUS_LABEL[race.status]}
         </Text>
-        {topAchievements.length > 0 ? (
+        {highlights.length > 0 ? (
           <View style={styles.badgeRow}>
-            {topAchievements.map((achievement) => (
-              <AchievementBadge key={achievement.label} achievement={achievement} />
+            {highlights.map((highlight) => (
+              <AchievementBadge key={highlight.label} achievement={highlight} />
             ))}
           </View>
         ) : null}
@@ -73,6 +79,9 @@ const styles = StyleSheet.create({
   },
   dateDay: {
     ...typography.title,
+  },
+  dateYear: {
+    ...typography.subtitle,
   },
   details: {
     flex: 1,

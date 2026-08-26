@@ -9,6 +9,7 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SectionHeader } from '@/components/SectionHeader';
 import { SeasonRaceRow } from '@/components/season/SeasonRaceRow';
 import { racesEmpty, racesPopulated, type Race, type SportCategory } from '@/fixtures/races';
+import { getAllHighlightsUnfiltered, pickTopHighlights } from '@/lib/highlights';
 import { getAvailableSports, getAvailableYears, getCompletedRaces, getUpcomingRaces } from '@/lib/races';
 import { colors, spacing, typography } from '@/lib/theme';
 import { useFixtureData } from '@/lib/useSimulatedLoad';
@@ -25,6 +26,7 @@ export default function SeasonScreen() {
 
   const sports = useMemo(() => getAvailableSports(races.data), [races.data]);
   const years = useMemo(() => getAvailableYears(races.data), [races.data]);
+  const allHighlights = useMemo(() => getAllHighlightsUnfiltered(races.data), [races.data]);
 
   const upcoming = useMemo(() => {
     const all = getUpcomingRaces(races.data);
@@ -35,6 +37,10 @@ export default function SeasonScreen() {
     const all = getCompletedRaces(races.data, yearFilter === ALL_YEARS ? undefined : yearFilter);
     return sportFilter === ALL_SPORTS ? all : all.filter((race) => race.sport === sportFilter);
   }, [races.data, sportFilter, yearFilter]);
+
+  function highlightsFor(race: Race) {
+    return pickTopHighlights(allHighlights.filter((highlight) => highlight.race.id === race.id), 2);
+  }
 
   function openRace(race: Race) {
     if (race.status === 'completed') {
@@ -100,10 +106,18 @@ export default function SeasonScreen() {
             <View style={styles.section}>
               <SectionHeader title="Upcoming" />
               {upcoming.length === 0 ? (
-                <EmptyState title="No upcoming races" subtitle="Nothing matches this filter yet." />
+                <EmptyState
+                  title="Add your next race"
+                  subtitle="Nothing confirmed by your imported race history yet."
+                />
               ) : (
                 upcoming.map((race) => (
-                  <SeasonRaceRow key={race.id} race={race} onPress={() => openRace(race)} />
+                  <SeasonRaceRow
+                    key={race.id}
+                    race={race}
+                    highlights={highlightsFor(race)}
+                    onPress={() => openRace(race)}
+                  />
                 ))
               )}
             </View>
@@ -114,7 +128,12 @@ export default function SeasonScreen() {
                 <EmptyState title="No completed races" subtitle="Nothing matches this filter yet." />
               ) : (
                 completed.map((race) => (
-                  <SeasonRaceRow key={race.id} race={race} onPress={() => openRace(race)} />
+                  <SeasonRaceRow
+                    key={race.id}
+                    race={race}
+                    highlights={highlightsFor(race)}
+                    onPress={() => openRace(race)}
+                  />
                 ))
               )}
             </View>

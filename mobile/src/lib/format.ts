@@ -51,3 +51,40 @@ export function getTopPercentile(place: number, field: number): number {
   if (field <= 0) return 0;
   return Math.max(1, Math.ceil((place / field) * 100));
 }
+
+/** "33" -> "33rd". No Intl dependency (Hermes' Intl.PluralRules support is inconsistent). */
+export function formatOrdinal(n: number): string {
+  const remainder100 = n % 100;
+  if (remainder100 >= 11 && remainder100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
+
+export type RaceDateDisplay =
+  | { precision: 'day'; month: string; day: number; full: string }
+  | { precision: 'year'; year: string };
+
+/**
+ * A race's `eventDate` is either a full `YYYY-MM-DD` or a bare `YYYY` when the source only
+ * recorded the year (e.g. IRONMAN 70.3 Syracuse 2018). Never invents a day/month for the latter —
+ * callers get a `year`-precision result instead and should show that plainly rather than
+ * constructing a `Date` from it.
+ */
+export function formatRaceDate(eventDate: string): RaceDateDisplay {
+  if (!eventDate.includes('-')) {
+    return { precision: 'year', year: eventDate };
+  }
+  const date = new Date(`${eventDate}T00:00:00`);
+  const month = date.toLocaleDateString(undefined, { month: 'short' }).toUpperCase();
+  const day = date.getDate();
+  const full = date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  return { precision: 'day', month, day, full };
+}

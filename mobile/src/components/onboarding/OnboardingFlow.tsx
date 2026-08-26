@@ -12,8 +12,10 @@ import {
 import { Badge } from '@/components/Badge';
 import { Card } from '@/components/Card';
 import { racesPopulated, type Race } from '@/fixtures/races';
-import { getCompletedRaces } from '@/lib/races';
 import { formatFinishTime } from '@/lib/format';
+import { getAgeGroupPodiums } from '@/lib/highlights';
+import { getCompletedRaces } from '@/lib/races';
+import { getPersonalBestsCount } from '@/lib/stats';
 import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
 
 type Step = 'intro' | 'searching' | 'disambiguation' | 'candidates' | 'summary';
@@ -64,8 +66,8 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     return {
       total: completed.length,
       triathlons: completed.filter((race) => race.sport === 'triathlon').length,
-      prs: completed.filter((race) => race.result?.isDistancePR).length,
-      podiums: completed.filter((race) => race.result?.podium).length,
+      personalBests: getPersonalBestsCount(racesPopulated),
+      podiums: getAgeGroupPodiums(racesPopulated).length,
     };
   }, []);
 
@@ -305,7 +307,7 @@ function SummaryStep({
   summary,
   onEnterApp,
 }: {
-  summary: { total: number; triathlons: number; prs: number; podiums: number };
+  summary: { total: number; triathlons: number; personalBests: number; podiums: number };
   onEnterApp: () => void;
 }) {
   return (
@@ -314,8 +316,8 @@ function SummaryStep({
       <View style={styles.summaryGrid}>
         <SummaryStat label="Races recovered" value={summary.total} />
         <SummaryStat label="Triathlons" value={summary.triathlons} />
-        <SummaryStat label="PRs" value={summary.prs} />
-        <SummaryStat label="Podiums" value={summary.podiums} />
+        <SummaryStat label="Current Personal Bests" value={summary.personalBests} />
+        <SummaryStat label="AG podiums" value={summary.podiums} />
       </View>
       <Pressable
         onPress={onEnterApp}

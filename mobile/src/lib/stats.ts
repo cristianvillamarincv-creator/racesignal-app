@@ -1,12 +1,10 @@
-import type { Achievement, Race, SportCategory } from '@/fixtures/races';
+import type { Race, SportCategory } from '@/fixtures/races';
 import { getTopPercentile } from '@/lib/format';
-import type { IconName } from '@/lib/icons';
+import { getDistancePRStatuses } from '@/lib/highlights';
 import { getCompletedRaces } from '@/lib/races';
 
 export interface AggregateStats {
   totalRaces: number;
-  podiums: number;
-  prCount: number;
 }
 
 function filterBySportAndYear(races: Race[], sport?: SportCategory, year?: number): Race[] {
@@ -14,18 +12,20 @@ function filterBySportAndYear(races: Race[], sport?: SportCategory, year?: numbe
 }
 
 export function getAggregateStats(races: Race[], sport?: SportCategory, year?: number): AggregateStats {
-  const completed = filterBySportAndYear(races, sport, year);
-  return {
-    totalRaces: completed.length,
-    podiums: completed.filter((race) => race.result?.podium).length,
-    prCount: completed.filter((race) => race.result?.isDistancePR).length,
-  };
+  return { totalRaces: filterBySportAndYear(races, sport, year).length };
+}
+
+function hasCompleteAgeGroupRank(race: Race): boolean {
+  const rank = race.result?.ageGroupRank;
+  return !race.result?.rankingNeedsConfirmation && rank !== undefined && rank.field !== undefined;
 }
 
 /**
  * Best (lowest / most impressive) age-group percentile across races matching the filter, or null
- * if none of them have age-group ranking data. One line of arithmetic on existing place/field
- * numbers (see getTopPercentile) — not a fitness or performance-prediction algorithm.
+ * if none of them have complete, trustworthy age-group ranking data. One line of arithmetic on
+ * existing place/field numbers (see getTopPercentile) — not a fitness or performance-prediction
+ * algorithm. Races flagged `rankingNeedsConfirmation` are excluded until their source data is
+ * confirmed.
  */
 export function getBestAgeGroupPercentile(
   races: Race[],
@@ -33,11 +33,38 @@ export function getBestAgeGroupPercentile(
   year?: number,
 ): number | null {
   const percentiles = filterBySportAndYear(races, sport, year)
-    .map((race) => race.result?.ageGroupRank)
-    .filter((rank): rank is NonNullable<typeof rank> => rank !== undefined)
-    .map((rank) => getTopPercentile(rank.place, rank.field));
+    .filter(hasCompleteAgeGroupRank)
+    .map((race) => getTopPercentile(race.result!.ageGroupRank!.place, race.result!.ageGroupRank!.field!));
 
   return percentiles.length === 0 ? null : Math.min(...percentiles);
+}
+
+export interface AverageAgeGroupPercentile {
+  percentile: number | null;
+  raceCount: number;
+}
+
+/**
+ * Averages the RAW place/field ratios across every qualifying race, then rounds once at the end
+ * (ceil, matching getTopPercentile's "never overstate" convention) — not an average of
+ * already-rounded per-race percentages. Only races with both a known age-group place AND field
+ * size count, and only where the ranking data isn't flagged `rankingNeedsConfirmation`.
+ */
+export function getAverageAgeGroupPercentile(
+  races: Race[],
+  sport?: SportCategory,
+  year?: number,
+): AverageAgeGroupPercentile {
+  const qualifying = filterBySportAndYear(races, sport, year).filter(hasCompleteAgeGroupRank);
+  if (qualifying.length === 0) return { percentile: null, raceCount: 0 };
+
+  const averageRatio =
+    qualifying.reduce((sum, race) => {
+      const rank = race.result!.ageGroupRank!;
+      return sum + rank.place / rank.field!;
+    }, 0) / qualifying.length;
+
+  return { percentile: Math.max(1, Math.ceil(averageRatio * 100)), raceCount: qualifying.length };
 }
 
 export interface PersonalBest {
@@ -54,58 +81,24 @@ function distanceOrderIndex(distanceLabel: string): number {
 }
 
 /**
- * One entry per distance the athlete has a current PR at, matching the active sport/year filter,
- * ordered shortest-to-longest rather than by race date.
+ * One entry per distance category currently holding a Current PB, matching the active sport/year
+ * filter, ordered shortest-to-longest. This is the "Personal Bests" ladder — distinct from a
+ * historical "PR Performance," which can belong to a race that's since been beaten.
  */
 export function getPersonalBests(races: Race[], sport?: SportCategory, year?: number): PersonalBest[] {
-  return filterBySportAndYear(races, sport, year)
-    .filter((race) => race.result?.isDistancePR)
+  const currentPBs = getDistancePRStatuses(races)
+    .filter((status) => status.isCurrentPB)
+    .map((status) => status.race);
+  return filterBySportAndYear(currentPBs, sport, year)
     .map((race) => ({ distanceLabel: race.distanceLabel, race }))
     .sort((a, b) => distanceOrderIndex(a.distanceLabel) - distanceOrderIndex(b.distanceLabel));
 }
 
-export interface AchievementHighlight {
-  race: Race;
-  achievement: Achievement;
-}
-
-/** Flattened list of authored achievements for the active sport/year filter. */
-export function getAchievementHighlights(
-  races: Race[],
-  sport?: SportCategory,
-  year?: number,
-): AchievementHighlight[] {
-  return filterBySportAndYear(races, sport, year).flatMap((race) =>
-    (race.result?.achievements ?? []).map((achievement) => ({ race, achievement })),
-  );
-}
-
 /**
- * PR > podium > course-best > everything else. Lets Season/Stats rows show only the 1-2 most
- * meaningful badges instead of every achievement a race happens to have.
+ * Count of distinct distance categories with a Current PB — the "Personal Bests" headline metric.
+ * Deliberately not called "PRs": see the A.3 plan's terminology section for why the yearly "PRs
+ * this year" metric (count of PR Performances, in lib/highlights.ts) is a different number.
  */
-const ACHIEVEMENT_ICON_PRIORITY: IconName[] = [
-  'trophy',
-  'medal',
-  'flag-checkered',
-  'star',
-  'lightning-bolt',
-  'party-popper',
-  'fire',
-];
-
-function achievementPriority(achievement: Achievement): number {
-  const index = ACHIEVEMENT_ICON_PRIORITY.indexOf(achievement.icon);
-  return index === -1 ? ACHIEVEMENT_ICON_PRIORITY.length : index;
-}
-
-export function pickTopAchievements(achievements: Achievement[], max = 2): Achievement[] {
-  return [...achievements].sort((a, b) => achievementPriority(a) - achievementPriority(b)).slice(0, max);
-}
-
-/** Same priority order applied to {race, achievement} pairs, for Stats' Highlight cards. */
-export function pickTopHighlights(highlights: AchievementHighlight[], max = 6): AchievementHighlight[] {
-  return [...highlights]
-    .sort((a, b) => achievementPriority(a.achievement) - achievementPriority(b.achievement))
-    .slice(0, max);
+export function getPersonalBestsCount(races: Race[], sport?: SportCategory, year?: number): number {
+  return getPersonalBests(races, sport, year).length;
 }

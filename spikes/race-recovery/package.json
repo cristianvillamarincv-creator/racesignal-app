@@ -1,0 +1,18 @@
+{
+  "name": "race-recovery-spike",
+  "version": "0.0.0",
+  "private": true,
+  "description": "B.0 standalone spike: prove Sportstats candidate discovery + anchor detail retrieval from public, unauthenticated pages only. Not connected to the RaceSignal app.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

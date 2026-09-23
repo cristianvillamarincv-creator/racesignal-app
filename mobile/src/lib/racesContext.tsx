@@ -2,7 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 
 import type { Race } from '@/fixtures/races';
 import { useAuth } from '@/lib/auth';
-import { fetchConfirmedRaces, insertManualRace, removeRace as removeRaceRow, updateManualRace } from '@/lib/db/races';
+import {
+  fetchConfirmedRaces,
+  insertManualRace,
+  removeRace as removeRaceRow,
+  updateManualRace,
+  updateRaceChecklist,
+} from '@/lib/db/races';
 import { dbRowToRace, type RaceRow } from '@/lib/raceMapping';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -28,6 +34,7 @@ interface AthleteRacesContextValue {
   removeRace: (raceId: string) => Promise<void>;
   addManualRace: (input: ManualRaceInput) => Promise<Race>;
   updateManualRace: (raceId: string, input: ManualRaceInput) => Promise<Race>;
+  setChecklistCompleted: (raceId: string, completedItemIds: string[]) => Promise<void>;
   /** Merges freshly-inserted-or-revived provider rows (see db/races.ts's insertConfirmedRaces)
    *  straight into shared state — the discovery flows (onboarding, Find My Races) call this
    *  instead of `refetch()` so a successful import is reflected everywhere immediately, without
@@ -95,7 +102,7 @@ export function AthleteRacesProvider({ children }: { children: ReactNode }) {
 
   /** Merges rows into shared state by id — same id replaces in place (a revived provider race
    *  keeps its original id), anything else is appended. This is the shared source of truth every
-   *  screen (Home/Season/Stats) reads via `data`, so a merge here is visible everywhere the moment
+   *  screen (Races/Stats) reads via `data`, so a merge here is visible everywhere the moment
    *  it happens, with no dependency on a second fetch completing or on which tab is focused. */
   const mergeRaces = useCallback((races: Race[]) => {
     if (races.length === 0) return;
@@ -164,6 +171,14 @@ export function AthleteRacesProvider({ children }: { children: ReactNode }) {
     [mergeRaces],
   );
 
+  const setChecklistCompleted = useCallback(
+    async (raceId: string, completedItemIds: string[]) => {
+      const row = await updateRaceChecklist(raceId, completedItemIds);
+      mergeRaces([dbRowToRace(row)]);
+    },
+    [mergeRaces],
+  );
+
   return (
     <AthleteRacesContext.Provider
       value={{
@@ -176,6 +191,7 @@ export function AthleteRacesProvider({ children }: { children: ReactNode }) {
         addManualRace,
         updateManualRace: updateManualRaceEntry,
         applyImportedRaces,
+        setChecklistCompleted,
       }}>
       {children}
     </AthleteRacesContext.Provider>

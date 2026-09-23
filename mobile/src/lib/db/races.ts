@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabaseClient';
 import type { RaceRow } from '@/lib/raceMapping';
 
 const RACE_COLUMNS =
-  'id, athlete_id, import_status, race_status, provider, provider_result_id, provider_athlete_name, source_url, import_method, source_notes, event_date, event_year, date_precision, event_name, location, sport, category, finish_seconds, bib, overall_rank_place, overall_rank_field, gender_rank_place, gender_rank_field, age_group_rank_place, age_group_rank_field, age_group_category, splits';
+  'id, athlete_id, import_status, race_status, provider, provider_result_id, provider_athlete_name, source_url, import_method, source_notes, event_date, event_year, date_precision, event_name, location, sport, category, finish_seconds, bib, overall_rank_place, overall_rank_field, gender_rank_place, gender_rank_field, age_group_rank_place, age_group_rank_field, age_group_category, splits, checklist_completed';
 
 export async function fetchConfirmedRaces(athleteId: string): Promise<RaceRow[]> {
   const { data, error } = await supabase
@@ -122,6 +122,21 @@ export async function insertManualRace(row: Record<string, unknown>): Promise<Ra
  *  provider too as a second guard against editing an imported race by id alone. */
 export async function updateManualRace(raceId: string, row: Record<string, unknown>): Promise<RaceRow> {
   const { data, error } = await supabase.from('races').update(row).eq('id', raceId).eq('provider', 'manual').select(RACE_COLUMNS).single();
+  if (error) throw error;
+  return data as unknown as RaceRow;
+}
+
+/** Only ever called for an upcoming race, which (per the import pipeline) is always
+ *  `provider = 'manual'` — Sportstats imports are always completed results — but this still scopes
+ *  by provider too, same defensive pattern as updateManualRace. */
+export async function updateRaceChecklist(raceId: string, completedItemIds: string[]): Promise<RaceRow> {
+  const { data, error } = await supabase
+    .from('races')
+    .update({ checklist_completed: completedItemIds })
+    .eq('id', raceId)
+    .eq('provider', 'manual')
+    .select(RACE_COLUMNS)
+    .single();
   if (error) throw error;
   return data as unknown as RaceRow;
 }

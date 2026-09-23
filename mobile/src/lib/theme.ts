@@ -1,8 +1,15 @@
 /**
- * Visual tokens for RaceSignal. The brand system is intentionally deferred (see the master
- * spec's "Brand guide: intentionally deferred" note) — these values implement the spec's
- * "Shared visual structure" (dark interface, light mint accent) as placeholder, replaceable
- * tokens. Swap the values here when a final brand system lands; screens should never hardcode
+ * Visual tokens for RaceSignal. The full brand system (final palette, iconography, app icon,
+ * wordmark) is deferred to a later milestone — this is a lightweight V1 pass toward that
+ * direction, not the final system. Two colors carry real meaning now and should be used by
+ * intent, not swapped in ad hoc:
+ *  - `achievement` (champagne/gold) — a PR, a podium, "you did this." Reserved for actual
+ *    accomplishments (AchievementBadge, HighlightCard, Personal Bests, the onboarding reveal)
+ *    so it stays special rather than becoming another generic accent.
+ *  - `accent` (sage/aqua) — progress, active/selected state, in-flight actions. Everything that
+ *    used to be a flat mint accent (buttons, active tabs/filters, progress bars, countdowns)
+ *    stays wired to this token, just retinted — no per-screen changes needed for that shift.
+ * Swap the values here when a final brand system lands; screens should never hardcode
  * colors/spacing directly.
  */
 
@@ -14,8 +21,9 @@ export const colors = {
   textPrimary: '#F2F5F7',
   textSecondary: '#9AA7B2',
   textMuted: '#6B7680',
-  accent: '#4FE8C4',
-  accentMuted: '#2C6E60',
+  accent: '#5CA896',
+  accentMuted: '#2E4A42',
+  achievement: '#D4B06A',
   warning: '#E8B34F',
   danger: '#E8615A',
   overlay: 'rgba(0, 0, 0, 0.6)',

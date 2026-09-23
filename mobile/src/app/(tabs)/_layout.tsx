@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
-import { ActionSheetIOS, Pressable, type ColorValue } from 'react-native';
+import { ActionSheetIOS, Pressable, View, type ColorValue } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
+import { RaceFilterProvider, useRaceFilter } from '@/lib/raceFilterContext';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { colors } from '@/lib/theme';
 
@@ -10,8 +11,8 @@ import { colors } from '@/lib/theme';
  * The one global entry point for adding a race, reachable from every tab (P0-7) — not a tab-bar
  * redesign, just a header affordance next to the existing avatar button. Order matches what's most
  * useful most often: most athletes have existing public results to recover before they'd type one
- * in by hand, and an upcoming race (which drives Home's countdown) is a more common ad-hoc action
- * than backfilling a historical result manually.
+ * in by hand, and an upcoming race (which drives the Races tab's countdown) is a more common ad-hoc
+ * action than backfilling a historical result manually.
  */
 function HeaderAddButton() {
   const router = useRouter();
@@ -47,6 +48,30 @@ function initialsFor(name: string | null): string {
   return (first + last).toUpperCase() || '?';
 }
 
+/**
+ * The one global entry point for race-name search, reachable from every tab — Stats stays
+ * analytics-focused with no second search field of its own (P1). Jumps to the Races tab and
+ * requests focus on its existing (local-only) search field via the shared race-filter context,
+ * rather than duplicating search state/UI anywhere else.
+ */
+function HeaderSearchButton() {
+  const router = useRouter();
+  const { requestSearchFocus } = useRaceFilter();
+  return (
+    <Pressable
+      onPress={() => {
+        requestSearchFocus();
+        router.push('/');
+      }}
+      accessibilityRole="button"
+      accessibilityLabel="Search races by name"
+      hitSlop={8}
+      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name="search-outline" size={22} color={colors.textSecondary} />
+    </Pressable>
+  );
+}
+
 function HeaderAvatarButton() {
   const router = useRouter();
   const { racingName } = useAthleteRaces();
@@ -56,9 +81,18 @@ function HeaderAvatarButton() {
       accessibilityRole="button"
       accessibilityLabel="Open profile and settings"
       hitSlop={8}
-      style={{ marginRight: 16, minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
+      style={{ minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
       <Avatar initials={initialsFor(racingName)} />
     </Pressable>
+  );
+}
+
+function HeaderRightGroup() {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12, gap: 4 }}>
+      <HeaderSearchButton />
+      <HeaderAvatarButton />
+    </View>
   );
 }
 
@@ -78,10 +112,18 @@ function TabIcon({
 
 export default function TabsLayout() {
   return (
+    <RaceFilterProvider>
+      <TabsNavigator />
+    </RaceFilterProvider>
+  );
+}
+
+function TabsNavigator() {
+  return (
     <Tabs
       screenOptions={{
         headerLeft: () => <HeaderAddButton />,
-        headerRight: () => <HeaderAvatarButton />,
+        headerRight: () => <HeaderRightGroup />,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textSecondary,
         tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
@@ -91,23 +133,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Races',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon filledName="home" outlineName="home-outline" color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="season"
-        options={{
-          title: 'Season',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              filledName="calendar"
-              outlineName="calendar-outline"
-              color={color}
-              focused={focused}
-            />
+            <TabIcon filledName="flag" outlineName="flag-outline" color={color} focused={focused} />
           ),
         }}
       />

@@ -19,6 +19,42 @@ export interface Highlight {
 /** Distances that aren't comparable to anything else in the dataset — never enter a PR ladder. */
 const EXCLUDED_FROM_PR_LADDER = new Set<string>(['Custom — 2K/55K/15K']);
 
+/**
+ * `distanceLabel` is either Sportstats' own raw category text (`rlbl`) or whatever the athlete
+ * free-typed on the manual-add form — never something the app itself standardizes at write time.
+ * Confirmed directly against this athlete's data: the SAME real-world distance can show up under
+ * more than one exact string ("10k" from a manual entry vs "10km" from Sportstats; "70.3" for one
+ * Sportstats race vs "70.3 Results" for another; "Olympic" (manual) vs "Olympic Triathlon"
+ * (Sportstats)). Every PR/PB/fastest-split comparison below groups races by this label — grouping
+ * by the raw string let a lone race in a mis-spelled variant's group trivially "win" that group
+ * (e.g. a manual 10K entered as "10k" became the 10K PB purely because no real Sportstats "10k"
+ * race existed to compare it against, even though a real "10km" race was 10 minutes faster).
+ *
+ * This maps ONLY exact, case-insensitive matches against variants actually observed in real data
+ * to one canonical label — never fuzzy/similarity matching, so two genuinely different formats
+ * (e.g. "Long Course Triathlon", which is NOT confirmed to be 70.3-equivalent) are never merged on
+ * a guess. Anything not in this table passes through unchanged.
+ */
+const CANONICAL_DISTANCE_ALIASES: Record<string, string> = {
+  '5k': '5K',
+  '5km': '5K',
+  '5 km': '5K',
+  '10k': '10K',
+  '10km': '10K',
+  '70.3': '70.3',
+  '70.3 results': '70.3',
+  olympic: 'Olympic',
+  'olympic triathlon': 'Olympic',
+};
+
+/** The one place a raw `distanceLabel` becomes a comparison-group key — used for PR/PB/fastest-
+ *  split grouping and their labels, never for a per-race detail screen's own display of what its
+ *  source actually recorded (that stays literal). */
+export function canonicalDistanceLabel(distanceLabel: string): string {
+  const normalized = distanceLabel.trim().toLowerCase();
+  return CANONICAL_DISTANCE_ALIASES[normalized] ?? distanceLabel;
+}
+
 function completedWithResult(races: Race[]) {
   return races.filter((race) => race.status === 'completed' && race.result);
 }
@@ -57,9 +93,9 @@ export interface DistancePRStatus {
  */
 export function getDistancePRStatuses(races: Race[]): DistancePRStatus[] {
   const eligible = completedWithResult(races).filter(
-    (race) => !EXCLUDED_FROM_PR_LADDER.has(race.distanceLabel),
+    (race) => !EXCLUDED_FROM_PR_LADDER.has(canonicalDistanceLabel(race.distanceLabel)),
   );
-  const groups = groupBy(eligible, (race) => race.distanceLabel);
+  const groups = groupBy(eligible, (race) => canonicalDistanceLabel(race.distanceLabel));
 
   const statuses: DistancePRStatus[] = [];
   for (const [groupKey, groupRaces] of groups) {
@@ -126,9 +162,9 @@ export function getAgeGroupPodiums(races: Race[]): Race[] {
  */
 export function getFastestSplitHighlights(races: Race[], currentPBRaceIds: Set<string>): Highlight[] {
   const eligible = completedWithResult(races).filter(
-    (race) => !EXCLUDED_FROM_PR_LADDER.has(race.distanceLabel),
+    (race) => !EXCLUDED_FROM_PR_LADDER.has(canonicalDistanceLabel(race.distanceLabel)),
   );
-  const groups = groupBy(eligible, (race) => race.distanceLabel);
+  const groups = groupBy(eligible, (race) => canonicalDistanceLabel(race.distanceLabel));
   const highlights: Highlight[] = [];
 
   for (const [distanceLabel, groupRaces] of groups) {
@@ -226,7 +262,7 @@ export function getAllHighlights(races: Race[], sport?: SportCategory, year?: nu
 }
 
 /** Every highlight belonging to one specific race, regardless of any active filter — used for
- *  per-row badges (Season, Stats race history) and Result detail's top highlight row. */
+ *  per-row badges on the Races tab and Result detail's top highlight row. */
 export function getHighlightsForRace(races: Race[], raceId: string): Highlight[] {
   return getAllHighlightsUnfiltered(races).filter((highlight) => highlight.race.id === raceId);
 }
@@ -249,4 +285,24 @@ function highlightPriority(highlight: Highlight): number {
 /** Most-meaningful-first, capped — PR/podium outrank a lesser split highlight. */
 export function pickTopHighlights(highlights: Highlight[], max = 6): Highlight[] {
   return [...highlights].sort((a, b) => highlightPriority(a) - highlightPriority(b)).slice(0, max);
+}
+
+/**
+ * The Races tab's row/card view is a browse surface, not a second Stats screen — a race with
+ * several highlights (podium + a fastest split + a notable percentile, say) shouldn't grow taller
+ * or busier than one with none. This picks the single most-meaningful highlight for that compact
+ * display; it never discards the others (Stats' Highlights section and Result detail still read
+ * every highlight via getAllHighlights/getHighlightsForRace).
+ *
+ * "First recorded [distance]" is deliberately excluded — it's a historical marker, not something
+ * that reads as an accomplishment worth calling out in a one-badge-per-row context.
+ */
+const PRIMARY_ROW_BADGE_PRIORITY: IconName[] = ['medal', 'trophy', 'trending-up', 'flag-checkered', 'lightning-bolt', 'star'];
+
+export function pickPrimaryHighlight(highlights: Highlight[]): Highlight | undefined {
+  const eligible = highlights.filter((highlight) => PRIMARY_ROW_BADGE_PRIORITY.includes(highlight.icon));
+  if (eligible.length === 0) return undefined;
+  return [...eligible].sort(
+    (a, b) => PRIMARY_ROW_BADGE_PRIORITY.indexOf(a.icon) - PRIMARY_ROW_BADGE_PRIORITY.indexOf(b.icon),
+  )[0];
 }

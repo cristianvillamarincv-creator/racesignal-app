@@ -9,15 +9,15 @@ interface AchievementBadgeProps {
 }
 
 /**
- * One consistent visual language for "something notable happened here" — used in Season rows,
- * Result detail's top highlights, and Stats' race history. Icon + label only; the achievement's
+ * One consistent visual language for "something notable happened here" — used in Races rows and
+ * Result detail's top highlights. Icon + label only; the achievement's
  * `value` (if any) is for contexts like Stats' Highlight cards where no finish time is already
  * shown elsewhere on screen.
  */
 export function AchievementBadge({ achievement }: AchievementBadgeProps) {
   return (
     <View style={styles.badge} accessibilityLabel={achievement.label}>
-      <AppIcon name={achievement.icon} size={13} color={colors.accent} />
+      <AppIcon name={achievement.icon} size={13} color={colors.achievement} />
       <Text style={styles.label} numberOfLines={1}>
         {achievement.label}
       </Text>

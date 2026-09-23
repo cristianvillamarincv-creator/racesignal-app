@@ -10,30 +10,26 @@ import { FilterChip } from '@/components/FilterChip';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SectionHeader } from '@/components/SectionHeader';
 import { HighlightCard } from '@/components/stats/HighlightCard';
-import { RaceHistoryRow } from '@/components/stats/RaceHistoryRow';
-import type { Race, SportCategory } from '@/fixtures/races';
+import type { Race } from '@/fixtures/races';
 import { formatFinishTime } from '@/lib/format';
-import { getAllHighlights, getAllHighlightsUnfiltered, pickTopHighlights } from '@/lib/highlights';
-import { getAvailableSports, getAvailableYears, getCompletedRaces } from '@/lib/races';
+import { getAllHighlights, pickTopHighlights } from '@/lib/highlights';
+import { ALL_SPORTS, ALL_YEARS, useRaceFilter } from '@/lib/raceFilterContext';
+import { getAvailableSports, getAvailableYears } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { getAggregateStats, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
 
-const OVERALL = 'overall' as const;
-const ALL_TIME = 'all_time' as const;
-
 export default function StatsScreen() {
   const router = useRouter();
   const races = useAthleteRaces();
-  const [sportFilter, setSportFilter] = useState<SportCategory | typeof OVERALL>(OVERALL);
-  const [yearFilter, setYearFilter] = useState<number | typeof ALL_TIME>(ALL_TIME);
+  const { sportFilter, setSportFilter, yearFilter, setYearFilter } = useRaceFilter();
   const [premiumHint, setPremiumHint] = useState<string | null>(null);
 
   const sports = useMemo(() => getAvailableSports(races.data), [races.data]);
   const years = useMemo(() => getAvailableYears(races.data), [races.data]);
 
-  const sport = sportFilter === OVERALL ? undefined : sportFilter;
-  const year = yearFilter === ALL_TIME ? undefined : yearFilter;
+  const sport = sportFilter === ALL_SPORTS ? undefined : sportFilter;
+  const year = yearFilter === ALL_YEARS ? undefined : yearFilter;
 
   const aggregate = useMemo(() => getAggregateStats(races.data, sport, year), [races.data, sport, year]);
   const bestAgeGroupPercentile = useMemo(
@@ -49,11 +45,6 @@ export default function StatsScreen() {
     () => pickTopHighlights(getAllHighlights(races.data, sport, year)),
     [races.data, sport, year],
   );
-  const history = useMemo(() => {
-    const completed = getCompletedRaces(races.data, year);
-    return sport ? completed.filter((race) => race.sport === sport) : completed;
-  }, [races.data, sport, year]);
-  const allHighlights = useMemo(() => getAllHighlightsUnfiltered(races.data), [races.data]);
 
   function openRace(race: Race) {
     if (race.locked) {
@@ -79,9 +70,9 @@ export default function StatsScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.filterRow}>
               <FilterChip
-                label="Overall"
-                selected={sportFilter === OVERALL}
-                onPress={() => setSportFilter(OVERALL)}
+                label="All sports"
+                selected={sportFilter === ALL_SPORTS}
+                onPress={() => setSportFilter(ALL_SPORTS)}
               />
               {sports.map((option) => (
                 <FilterChip
@@ -98,9 +89,9 @@ export default function StatsScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.filterRow}>
               <FilterChip
-                label="All Time"
-                selected={yearFilter === ALL_TIME}
-                onPress={() => setYearFilter(ALL_TIME)}
+                label="All years"
+                selected={yearFilter === ALL_YEARS}
+                onPress={() => setYearFilter(ALL_YEARS)}
               />
               {years.map((option) => (
                 <FilterChip
@@ -162,25 +153,6 @@ export default function StatsScreen() {
                 </View>
               </View>
             ) : null}
-
-            <View style={styles.section}>
-              <SectionHeader title="Race history" />
-              {history.length === 0 ? (
-                <EmptyState title="No races" subtitle="Nothing matches this filter yet." />
-              ) : (
-                history.map((race) => (
-                  <RaceHistoryRow
-                    key={race.id}
-                    race={race}
-                    highlights={pickTopHighlights(
-                      allHighlights.filter((highlight) => highlight.race.id === race.id),
-                      2,
-                    )}
-                    onPress={() => openRace(race)}
-                  />
-                ))
-              )}
-            </View>
           </>
         )}
       </ScrollView>
@@ -255,7 +227,7 @@ const styles = StyleSheet.create({
   },
   prTime: {
     ...typography.body,
-    color: colors.accent,
+    color: colors.achievement,
     fontWeight: '700',
   },
   highlightsList: {

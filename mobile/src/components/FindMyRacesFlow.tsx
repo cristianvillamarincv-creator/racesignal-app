@@ -20,7 +20,7 @@ import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
 
 /**
  * The reusable, post-login version of onboarding's discovery pipeline (name -> Sportstats search
- * -> bulk-select -> detail -> persist), reachable any time from Home/Season/Settings via
+ * -> bulk-select -> detail -> persist), reachable any time from the global "+" menu or Settings via
  * `/find-races` — not just once at onboarding. Already authenticated, so there's no auth step and
  * no redirect-survival draft needed (nothing here ever leaves the app). Critically: this can
  * search under a DIFFERENT name than the athlete's primary one (e.g. a fuller legal name) without

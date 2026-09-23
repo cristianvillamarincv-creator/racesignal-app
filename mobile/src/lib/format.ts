@@ -19,16 +19,6 @@ export function formatCountdown(days: number): string {
   return `${days} days`;
 }
 
-export interface ChecklistItemLike {
-  isComplete: boolean;
-}
-
-/** Percentage (0-100, rounded) of complete checklist items. 0 for an empty list. */
-export function checklistProgress(items: ChecklistItemLike[]): number {
-  if (items.length === 0) return 0;
-  const completeCount = items.filter((item) => item.isComplete).length;
-  return Math.round((completeCount / items.length) * 100);
-}
 
 /** Formats a finish time in seconds as H:MM:SS (or M:SS under an hour). */
 export function formatFinishTime(totalSeconds: number): string {

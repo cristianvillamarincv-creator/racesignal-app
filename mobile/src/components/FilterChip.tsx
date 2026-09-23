@@ -8,7 +8,7 @@ interface FilterChipProps {
   onPress: () => void;
 }
 
-/** Shared chip styling for Season and Stats filter rows — one look, not two near-identical ones. */
+/** Shared chip styling for Races and Stats filter rows — one look, not two near-identical ones. */
 export function FilterChip({ label, selected, onPress }: FilterChipProps) {
   return (
     <Pressable

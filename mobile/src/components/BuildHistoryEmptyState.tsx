@@ -4,8 +4,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing, typography } from '@/lib/theme';
 
 /**
- * The shared zero-race-history empty state — shown on Home, Season, and Stats whenever the
- * athlete has no confirmed races at all. Primary action is discovery (the highest-value path);
+ * The shared zero-race-history empty state — shown on Races and Stats whenever the athlete has no
+ * confirmed races at all. Primary action is discovery (the highest-value path);
  * manual entry stays available as the fallback for races Sportstats can't find.
  */
 export function BuildHistoryEmptyState() {

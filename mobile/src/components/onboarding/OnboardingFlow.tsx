@@ -1046,6 +1046,10 @@ function SummaryStep({
       <Text style={typography.display}>
         {imported > 0 ? `We found ${imported} race${imported === 1 ? '' : 's'}` : "You're all set."}
       </Text>
+      {/* A restrained "you found something real" accent — tied to the same imported>0 condition
+          already driving this branch, not to any PR/podium-specific check, per the AHA moment
+          being simply "we found your racing history." */}
+      {imported > 0 ? <View style={styles.achievementRule} /> : null}
       {yearLabel ? <Text style={styles.yearRange}>{yearLabel}</Text> : null}
       {error ? <Text style={styles.message}>{error}</Text> : null}
       {imported > 0 ? (
@@ -1055,7 +1059,7 @@ function SummaryStep({
         </View>
       ) : !error ? (
         <Text style={styles.subcopy}>
-          Nothing imported yet — you can search again or add races manually anytime from Season or
+          Nothing imported yet — you can search again or add races manually anytime from Races or
           Settings.
         </Text>
       ) : null}
@@ -1263,7 +1267,13 @@ const styles = StyleSheet.create({
   },
   summaryValue: {
     ...typography.display,
-    color: colors.accent,
+    color: colors.achievement,
+  },
+  achievementRule: {
+    width: 48,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.achievement,
   },
   yearRange: {
     ...typography.subtitle,

@@ -110,7 +110,8 @@ export default function AddRaceScreen() {
           router.replace({ pathname: '/race/[id]', params: { id: newRace.id } });
         }
       }
-    } catch {
+    } catch (err) {
+      console.warn('[AddRace] save failed:', err);
       Alert.alert('Couldn’t save that race', 'Please try again.');
     } finally {
       setIsSaving(false);

@@ -4,16 +4,29 @@ import type { CandidateRace, RaceDetailPayload } from '@/lib/raceDiscovery';
 /**
  * Sportstats' `rlbl` category label ("Olympic Triathlon", "10km", "Half Marathon", ...) doesn't
  * map onto a distinct sport field in its own data — this is a light, presentation-layer inference
- * so Season/Stats' sport filter has something meaningful to group by, not a claim about what
+ * so Races/Stats' sport filter has something meaningful to group by, not a claim about what
  * Sportstats itself asserts.
+ *
+ * Confirmed bug (live data): a category of bare "70.3" or "70.3 Results" (IRONMAN 70.3 Eagleman,
+ * Gulf Coast, Victoria) contains neither "triathlon" nor a running keyword, so it fell through to
+ * 'other' — hiding those races under the Triathlon filter and dropping their 70.3 PB/fastest-run
+ * highlights from Triathlon Stats. "70.3" and "ironman" are unambiguous triathlon-distance/brand
+ * tokens, so they're added here; this stays conservative — it does not touch "sprint" or bare
+ * "olympic", which are genuinely ambiguous outside a triathlon-specific category string.
+ *
+ * One known category value gives no signal at all: Sportstats' generic "Overall Results" label
+ * (IRONMAN 70.3 Syracuse's stored category) could belong to any race type, so it's not matched
+ * here — `eventName` is checked as a narrow fallback instead, since "IRONMAN" in the event name
+ * itself is just as unambiguous a brand signal as it is in a category string.
  */
-function inferSportFromCategory(category: string): SportCategory {
+export function inferSport(category: string, eventName: string): SportCategory {
   const compact = category.toLowerCase().replace(/\s/g, '');
   if (compact.includes('duathlon')) return 'duathlon';
-  if (compact.includes('triathlon')) return 'triathlon';
+  if (compact.includes('triathlon') || compact.includes('70.3') || compact.includes('ironman')) return 'triathlon';
   if (compact.includes('run') || compact.includes('5k') || compact.includes('10k') || compact.includes('marathon')) {
     return 'running';
   }
+  if (eventName.toLowerCase().includes('ironman')) return 'triathlon';
   return 'other';
 }
 
@@ -45,6 +58,7 @@ export interface RaceRow {
   age_group_rank_field: number | null;
   age_group_category: string | null;
   splits: { label: string; splitSeconds?: number; totalSeconds: number; pace?: string }[] | null;
+  checklist_completed: string[] | null;
   /** The provider's own recorded display name for whichever identity this race was matched under
    *  — distinct from athlete_profiles.racing_name, and never used to overwrite it. Null when the
    *  import path didn't have it on hand (e.g. a resumed draft after an interrupted sign-in). */
@@ -93,6 +107,7 @@ export function dbRowToRace(row: RaceRow): Race {
     locked: false, // Premium gating is explicitly out of scope for B.1 — every persisted race is fully viewable
     isManual: row.provider === 'manual',
     result,
+    checklistCompleted: row.checklist_completed ?? undefined,
   };
 }
 
@@ -118,7 +133,7 @@ export function candidateDetailToInsertRow(
     date_precision: 'day' as const, // Sportstats always gives a full date for its own results
     event_name: candidate.eventName,
     category: candidate.category,
-    sport: inferSportFromCategory(candidate.category),
+    sport: inferSport(candidate.category, candidate.eventName),
     finish_seconds: detail.finishSeconds ?? null,
     bib: detail.bib ?? null,
     overall_rank_place: detail.overallRank?.place ?? null,

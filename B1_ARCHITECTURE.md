@@ -125,6 +125,97 @@ with a verified sending domain (SPF/DKIM). Not addressed now because the app's o
 it (auth flow, error copy, resumability) has already been validated independent of which mailer is
 behind it — this is purely an infrastructure/account-setup step for later.
 
+## Step 4 final validated state — V1 UX/design checkpoint
+
+Physical-device acceptance passed for the full Step 4 pass: information architecture, race
+correctness fixes, and a lightweight brand direction. Explicitly **not** covered by Step 4: AI
+itself (the `Ask`/AI tab exists as a nav entry only — see Step 5), RevenueCat, final branding
+assets (app icon/wordmark/splash), and automatic upcoming-race lookup — all deliberately deferred.
+
+1. **`Races → Stats → AI` navigation** — `(tabs)/_layout.tsx`. Replaces the earlier three-way
+   Home/Season/Stats split (Home added a year-scoped remix of the other two tabs plus a
+   placeholder Strava card; both cut). `Races` (`(tabs)/index.tsx`, kept as `index.tsx` so it's
+   the tab group's default/first screen) is now the **single canonical surface race history is
+   browsed on** — `Stats` never lists raw races, only deep-links back to Races via a PB/highlight
+   card's `onPress`.
+2. **Shared sport/year filters, session-scoped** — `lib/raceFilterContext.tsx`'s
+   `RaceFilterProvider`, mounted once above the tab navigator (not per-screen), so changing the
+   sport or year filter on either Races or Stats updates the other immediately. Plain in-memory
+   React state, never persisted — a cold launch always resets to "All sports" / "All years" (that
+   exact wording standardized across both screens, replacing an earlier inconsistent mix of
+   "All"/"Overall"/"All Time"). Race-name search is deliberately **not** part of this shared state
+   — see the next item.
+3. **Global race search** — one header search icon (`(tabs)/_layout.tsx`'s
+   `HeaderSearchButton`), reachable from every tab, is the single entry point. It bumps
+   `RaceFilterProvider`'s `searchFocusRequestId` counter rather than passing a route param, so it
+   reliably reveals + focuses Races' own local search field whether Races is already the active,
+   already-mounted tab or reached by switching from Stats. Races keeps the field hidden
+   (`isSearchVisible` state) until requested, so it no longer permanently occupies space; a
+   "Cancel" action clears the query, collapses the field, and returns Races to its normal layout.
+   Search itself is unchanged — local, client-side, case-insensitive substring match
+   (`filterRacesByName` in `lib/races.ts`) — this was never rebuilt as a second system.
+4. **Upcoming-race carousel** — `components/races/UpcomingCarousel.tsx` reuses the existing
+   `RaceCountdownCard` unchanged: one full-width card per upcoming race, soonest first, horizontal
+   snap-scroll, with small page dots shown only when there's more than one card. The whole card
+   (not just its "Open race prep" pill, which is now a visual-only affordance) is the tap target
+   into that race's detail screen.
+5. **Persistent Race Prep checklist** — `races.checklist_completed` (`text[]`, default `'{}'`,
+   `supabase/migrations/0004_race_checklist.sql`) stores only which item ids are checked off; the
+   item labels/sections stay a fixed client-side template
+   (`lib/checklistTemplate.ts` — 7 sections, 28 items, restored from the original read-only
+   fixture). Rendered as a collapsible "Race Prep" card (`components/race/RacePrepChecklist.tsx`)
+   on the upcoming-race detail screen (`race/[id].tsx`), gated on `race.isManual` (every upcoming
+   race is manual by construction — Sportstats only returns completed results). Reuses the same
+   `provider = 'manual'`-scoped update pattern as `updateManualRace` (`updateRaceChecklist` in
+   `lib/db/races.ts`); no new RLS policy needed since the existing "own races update" policy
+   already covers the new column. **Documented, not built**: profile-level default templates,
+   separate Running/Triathlon defaults, athlete-editable items, and new races inheriting a
+   template — noted directly in `lib/checklistTemplate.ts` as a future direction.
+6. **Corrected sport/category normalization** — `inferSport()` (`lib/raceMapping.ts`, renamed from
+   `inferSportFromCategory`) previously classified a bare `"70.3"` or `"70.3 Results"` category as
+   `sport: 'other'` (matched neither "triathlon" nor a running keyword), hiding real 70.3 races
+   (confirmed live: IRONMAN 70.3 Eagleman/Gulf Coast/Victoria) from the Triathlon filter and
+   dropping their PR/fastest-split highlights from Triathlon Stats. Fixed by adding "70.3" and
+   "ironman" as triathlon signals, plus a narrow event-name fallback for a generic category value
+   like Sportstats' "Overall Results" (IRONMAN 70.3 Syracuse) that carries no signal on its own.
+   Deliberately conservative — "sprint" and bare "olympic" were **not** added, since they're
+   ambiguous outside a triathlon-specific category string. The 4 already-imported affected rows
+   were repaired directly in the database (one-time data fix, not a schema change). Regression
+   tests in `__tests__/raceMapping.test.ts`.
+7. **Lifetime PR/PB semantics** — a PR/Personal Best is always computed against the athlete's full
+   completed-race history first (`getDistancePRStatuses`/`getAllHighlightsUnfiltered` in
+   `lib/highlights.ts`); sport/year filters are applied to the result afterward, never to the input
+   pool before computation — so selecting a slower year can never promote a slower race into a PR
+   that a faster race in a different year already holds. Real-data bug found and fixed alongside
+   this: `distanceLabel` (Sportstats' raw category text, or a free-typed manual value) was used
+   unnormalized as the PR/PB/fastest-split grouping key, so real spelling variants of the same
+   distance ("10k" vs "10km", "70.3" vs "70.3 Results", "Olympic" vs "Olympic Triathlon") formed
+   separate comparison pools, letting a lone/slower race in a mis-spelled group trivially "win" it
+   (e.g. a 50:40 10K became the shown PB purely because no real "10k"-labeled race existed to beat
+   it, even though a faster "10km"-labeled race did). Fixed with `canonicalDistanceLabel()` — a
+   small, exact-match-only (never fuzzy) alias table for variants actually observed in this
+   athlete's real data. Regression tests in `__tests__/highlights.test.ts`.
+8. **Midnight / sage / champagne visual direction** — `lib/theme.ts`. A lightweight V1 pass toward
+   a future brand system, not the final one (final palette, iconography, app icon, and wordmark
+   remain deferred). Two tokens carry real, restricted meaning: `colors.achievement` (champagne/
+   gold, `#D4B06A`) reserved for actual accomplishments — trophy/medal icons, PR/podium badges — and
+   `colors.accent` (sage/aqua, `#5CA896`) for progress/active/selected state. Races' row-level
+   achievement signal was deliberately kept to the `AchievementBadge` pill alone (at most one
+   per row, via `pickPrimaryHighlight` in `lib/highlights.ts`) — an earlier full-height gold
+   left-rail on every achievement row was removed for reading like an accidental timeline and
+   overusing the achievement color.
+9. **Startup auth hydration fix** — `lib/auth.tsx`'s `AuthProvider` collapsed two independent async
+   paths (a `getSession()` promise racing a separate `onAuthStateChange` subscription) into one:
+   supabase-js v2 guarantees the `onAuthStateChange` callback fires exactly once with
+   `INITIAL_SESSION` immediately after AsyncStorage restoration finishes, so that single callback
+   now sets both `session` and `isReady`. The two-path version could settle out of order on a real
+   device — `isReady` flipping true a tick before `session` reflected its real, restored value —
+   which permanently locked `AppPhaseProvider`'s one-shot classification (`lib/appPhase.tsx`,
+   deliberately `[authReady]`-only in its effect dependencies, preserved unchanged) onto a stale
+   "no session," sending a returning, already-onboarded athlete back into onboarding. Validated on
+   a physical device: existing authenticated/onboarded athletes now consistently cold-launch
+   directly into the app.
+
 ## Authentication (revised three times — see history below)
 
 Reached **only** at the save step — after the athlete has already seen their discovered race

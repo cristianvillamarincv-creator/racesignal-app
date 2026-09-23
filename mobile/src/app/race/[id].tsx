@@ -2,17 +2,17 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/Card';
-import { ProgressBar } from '@/components/ProgressBar';
-import { ChecklistSectionList } from '@/components/race/ChecklistSectionList';
-import { checklistItemsPopulated } from '@/fixtures/checklist';
-import { checklistProgress, daysUntil, formatCountdown } from '@/lib/format';
+import { RacePrepChecklist } from '@/components/race/RacePrepChecklist';
+import { daysUntil, formatCountdown, formatRaceDate } from '@/lib/format';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { colors, spacing, typography } from '@/lib/theme';
 
 /**
- * Milestone A.1: visual only. The same generic checklist template is shown for whichever
- * upcoming race is opened — per-race custom checklists are a later (Premium) milestone.
- * Read-only: no `onPress`, no state mutation, no add-item row.
+ * Upcoming-race detail: countdown + event information + a collapsible Race Prep checklist +
+ * Edit/Remove. The checklist was briefly removed in an earlier Step 4 pass (it used to be a
+ * static fixture — identical for every race, nothing actually checkable) and restored once real
+ * per-race persistence existed (see RacePrepChecklist + lib/checklistTemplate.ts) — RaceSignal
+ * still isn't a training-plan app, so this stays a fixed, shared template, not a custom planner.
  */
 export default function RacePrepScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,8 +20,8 @@ export default function RacePrepScreen() {
   const { data: races, removeRace } = useAthleteRaces();
   const race = races.find((candidate) => candidate.id === id);
 
-  // This screen is for an upcoming race's preparation checklist — a completed race's prep view
-  // isn't meaningful (and its eventDate may be a bare year, which daysUntil can't parse).
+  // This screen is for an upcoming race — a completed race's prep view isn't meaningful (and its
+  // eventDate may be a bare year, which daysUntil can't parse).
   if (!race || race.status === 'completed') {
     return (
       <View style={styles.screen}>
@@ -32,8 +32,9 @@ export default function RacePrepScreen() {
     );
   }
 
-  const percent = checklistProgress(checklistItemsPopulated);
   const countdownLabel = formatCountdown(daysUntil(race.eventDate));
+  const dateDisplay = formatRaceDate(race.eventDate);
+  const dateLabel = dateDisplay.precision === 'year' ? dateDisplay.year : dateDisplay.full;
 
   function confirmRemove() {
     if (!race) return;
@@ -62,23 +63,27 @@ export default function RacePrepScreen() {
         <Card>
           <Text style={typography.title}>{race.name}</Text>
           <Text style={styles.countdown}>{countdownLabel}</Text>
-          <Text style={typography.label}>RACE PREPARATION</Text>
-          <View style={styles.progressRow}>
-            <ProgressBar percent={percent} accessibilityLabel={`Preparation ${percent}% complete`} />
-            <Text style={styles.progressLabel}>{percent}% ready</Text>
-          </View>
-          {race.isManual ? (
-            <Pressable
-              onPress={() => router.push(`/race/add?raceId=${race.id}`)}
-              accessibilityRole="button"
-              accessibilityLabel="Edit this race"
-              style={styles.editLink}>
-              <Text style={styles.editLinkLabel}>Edit this race</Text>
-            </Pressable>
-          ) : null}
         </Card>
 
-        <ChecklistSectionList items={checklistItemsPopulated} />
+        <Card style={styles.section}>
+          <Text style={typography.label}>EVENT INFORMATION</Text>
+          <InfoRow label="Date" value={dateLabel} />
+          {race.location ? <InfoRow label="Location" value={race.location} /> : null}
+          {race.distanceLabel ? <InfoRow label="Distance" value={race.distanceLabel} /> : null}
+          <InfoRow label="Sport" value={capitalize(race.sport)} />
+        </Card>
+
+        {race.isManual ? <RacePrepChecklist race={race} /> : null}
+
+        {race.isManual ? (
+          <Pressable
+            onPress={() => router.push(`/race/add?raceId=${race.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel="Edit this race"
+            style={styles.editButton}>
+            <Text style={styles.editButtonLabel}>Edit this race</Text>
+          </Pressable>
+        ) : null}
 
         {race.isManual ? (
           <Pressable
@@ -92,6 +97,19 @@ export default function RacePrepScreen() {
       </ScrollView>
     </View>
   );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 const styles = StyleSheet.create({
@@ -109,19 +127,31 @@ const styles = StyleSheet.create({
     color: colors.accent,
     marginVertical: spacing.xs,
   },
-  progressRow: {
-    marginTop: spacing.sm,
-    gap: spacing.xs,
+  section: {
+    gap: spacing.sm,
   },
-  progressLabel: {
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 32,
+  },
+  infoLabel: {
     ...typography.caption,
   },
-  editLink: {
-    marginTop: spacing.md,
-    minHeight: 44,
-    justifyContent: 'center',
+  infoValue: {
+    ...typography.body,
+    fontWeight: '600',
   },
-  editLinkLabel: {
+  editButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  editButtonLabel: {
     ...typography.body,
     fontWeight: '700',
     color: colors.accent,

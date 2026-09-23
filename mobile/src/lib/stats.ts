@@ -1,6 +1,6 @@
 import type { Race, SportCategory } from '@/fixtures/races';
 import { getTopPercentile } from '@/lib/format';
-import { getDistancePRStatuses } from '@/lib/highlights';
+import { canonicalDistanceLabel, getDistancePRStatuses } from '@/lib/highlights';
 import { getCompletedRaces } from '@/lib/races';
 
 export interface AggregateStats {
@@ -90,7 +90,7 @@ export function getPersonalBests(races: Race[], sport?: SportCategory, year?: nu
     .filter((status) => status.isCurrentPB)
     .map((status) => status.race);
   return filterBySportAndYear(currentPBs, sport, year)
-    .map((race) => ({ distanceLabel: race.distanceLabel, race }))
+    .map((race) => ({ distanceLabel: canonicalDistanceLabel(race.distanceLabel), race }))
     .sort((a, b) => distanceOrderIndex(a.distanceLabel) - distanceOrderIndex(b.distanceLabel));
 }
 

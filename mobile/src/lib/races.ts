@@ -33,3 +33,37 @@ export function getAvailableYears(races: Race[]): number[] {
   const years = new Set(getCompletedRaces(races).map((race) => yearOf(race.eventDate)));
   return Array.from(years).sort((a, b) => b - a);
 }
+
+export interface RaceYearGroup {
+  year: number;
+  races: Race[];
+}
+
+/**
+ * Groups an already-sorted (newest-first) completed-race list into consecutive per-year buckets,
+ * preserving order — the Races screen's replacement for a separate year-filter control: scrolling
+ * through the grouped list with visible year headers does that job instead of a pill row.
+ */
+export function groupCompletedRacesByYear(races: Race[]): RaceYearGroup[] {
+  const groups: RaceYearGroup[] = [];
+  for (const race of races) {
+    const year = yearOf(race.eventDate);
+    const current = groups[groups.length - 1];
+    if (current && current.year === year) {
+      current.races.push(race);
+    } else {
+      groups.push({ year, races: [race] });
+    }
+  }
+  return groups;
+}
+
+/**
+ * Local, in-memory filter by event name — case-insensitive substring match. Deliberately not a
+ * remote/provider search: this only ever filters races already loaded into the app.
+ */
+export function filterRacesByName(races: Race[], query: string): Race[] {
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return races;
+  return races.filter((race) => race.name.toLowerCase().includes(trimmed));
+}

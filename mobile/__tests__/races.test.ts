@@ -1,10 +1,12 @@
 import { getTopPercentile } from '@/lib/format';
 import {
+  filterRacesByName,
   getAvailableSports,
   getAvailableYears,
   getCompletedRaces,
   getNextRace,
   getUpcomingRaces,
+  groupCompletedRacesByYear,
 } from '@/lib/races';
 import {
   getAggregateStats,
@@ -85,6 +87,42 @@ describe('getCompletedRaces', () => {
 
   it('filters by year', () => {
     expect(getCompletedRaces(races, 2024).map((r) => r.id)).toEqual(['completed-2024-run']);
+  });
+});
+
+describe('groupCompletedRacesByYear', () => {
+  it('groups an already newest-first list into consecutive per-year buckets, preserving order', () => {
+    const completed = getCompletedRaces(races);
+    const groups = groupCompletedRacesByYear(completed);
+    expect(groups.map((g) => g.year)).toEqual([2025, 2024]);
+    expect(groups[0]!.races.map((r) => r.id)).toEqual(['completed-2025-tri']);
+    expect(groups[1]!.races.map((r) => r.id)).toEqual(['completed-2024-run']);
+  });
+
+  it('returns an empty array for an empty input', () => {
+    expect(groupCompletedRacesByYear([])).toEqual([]);
+  });
+});
+
+describe('filterRacesByName', () => {
+  it('matches case-insensitively on a substring of the race name', () => {
+    const named = [
+      race({ id: 'a', eventDate: '2024-01-01', status: 'completed', name: 'Toronto Marathon' }),
+      race({ id: 'b', eventDate: '2024-02-01', status: 'completed', name: 'Ottawa 10K' }),
+    ];
+    expect(filterRacesByName(named, 'toronto').map((r) => r.id)).toEqual(['a']);
+    expect(filterRacesByName(named, 'TORONTO').map((r) => r.id)).toEqual(['a']);
+    expect(filterRacesByName(named, 'marathon').map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('returns every race unchanged for a blank query', () => {
+    const named = [race({ id: 'a', eventDate: '2024-01-01', status: 'completed', name: 'Toronto Marathon' })];
+    expect(filterRacesByName(named, '   ')).toEqual(named);
+  });
+
+  it('returns an empty array when nothing matches', () => {
+    const named = [race({ id: 'a', eventDate: '2024-01-01', status: 'completed', name: 'Toronto Marathon' })];
+    expect(filterRacesByName(named, 'ottawa')).toEqual([]);
   });
 });
 

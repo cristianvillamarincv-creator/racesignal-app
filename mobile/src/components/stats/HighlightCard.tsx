@@ -25,7 +25,7 @@ export function HighlightCard({ highlight, onPress }: HighlightCardProps) {
       accessibilityLabel={`${label}${value ? `, ${value}` : ''}, ${race.name}, ${year}`}>
       <Card style={styles.card}>
         <View style={styles.labelRow}>
-          <AppIcon name={icon} size={16} color={colors.accent} />
+          <AppIcon name={icon} size={16} color={colors.achievement} />
           <Text style={styles.label}>{label}</Text>
         </View>
         {value ? <Text style={styles.value}>{value}</Text> : null}
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   value: {
     ...typography.display,
     fontSize: 26,
-    color: colors.accent,
+    color: colors.achievement,
   },
   footerRow: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import { checklistProgress, daysUntil, formatCountdown, formatFinishTime } from '@/lib/format';
+import { daysUntil, formatCountdown, formatFinishTime } from '@/lib/format';
 
 describe('daysUntil', () => {
   const today = new Date(2026, 5, 12); // June 12, 2026 (month is 0-indexed)
@@ -28,22 +28,6 @@ describe('formatCountdown', () => {
 
   it('labels past dates as completed', () => {
     expect(formatCountdown(-3)).toBe('Completed');
-  });
-});
-
-describe('checklistProgress', () => {
-  it('returns 0 for an empty checklist', () => {
-    expect(checklistProgress([])).toBe(0);
-  });
-
-  it('rounds the percentage of complete items', () => {
-    const items = [{ isComplete: true }, { isComplete: true }, { isComplete: false }];
-    expect(checklistProgress(items)).toBe(67);
-  });
-
-  it('returns 100 when every item is complete', () => {
-    const items = [{ isComplete: true }, { isComplete: true }];
-    expect(checklistProgress(items)).toBe(100);
   });
 });
 

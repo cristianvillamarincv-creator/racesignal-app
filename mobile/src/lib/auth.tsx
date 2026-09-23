@@ -53,13 +53,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setIsReady(true);
-    });
-
+    // A single source of truth for both `session` and `isReady`, deliberately NOT a separate
+    // getSession() call racing against this subscription. supabase-js v2 guarantees this
+    // callback fires exactly once with the `INITIAL_SESSION` event, immediately after the client
+    // finishes reading and validating whatever's in AsyncStorage (or determines there's nothing
+    // there) — that first call is the actual "restoration finished" signal. Two independent async
+    // paths (a getSession() promise plus this subscription, as this used to be written) can settle
+    // in either order on a real device; if `isReady` flips true from the faster one a tick before
+    // `session` reflects the slower one's real, restored value, AppPhaseProvider's classification
+    // (which runs once, right when `isReady` becomes true) permanently locks in "no session" for
+    // an athlete who actually has one — sending a returning, onboarded athlete back into
+    // onboarding. Collapsing to one signal makes that ordering impossible.
+    let hasSetReady = false;
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
+      if (!hasSetReady) {
+        hasSetReady = true;
+        setIsReady(true);
+      }
     });
 
     return () => subscription.subscription.unsubscribe();

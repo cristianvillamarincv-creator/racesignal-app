@@ -5,8 +5,8 @@
  * source is preserved via `sourceNotes` rather than silently resolved. See the A.3 plan for the
  * full data-normalization writeup.
  *
- * Home's next race, Season's upcoming/completed lists, Stats' race history/PRs, and onboarding's
- * recovered-race summary are all views over this one dataset. Achievements/PR status are
+ * The Races tab's next-race hero and upcoming/completed lists, Stats' PRs/highlights, and
+ * onboarding's recovered-race summary are all views over this one dataset. Achievements/PR status are
  * COMPUTED from this data (see src/lib/highlights.ts), not authored here — with real numbers,
  * hand-authoring a "PR" label risks it silently going stale or disagreeing with the numbers.
  */
@@ -63,6 +63,10 @@ export interface Race {
    *  data, which predates the field and isn't used by any real screen anymore. */
   isManual?: boolean;
   result?: RaceResultDetail;
+  /** Ids of checked-off items from the shared Race Prep template (lib/checklistTemplate.ts) —
+   *  absent/empty means nothing's been checked yet, not "no checklist." Only ever set for an
+   *  upcoming manual race (see race/[id].tsx); absent on this file's static fixture data. */
+  checklistCompleted?: string[];
 }
 
 const h = (hours: number, minutes: number, seconds: number) => hours * 3600 + minutes * 60 + seconds;

@@ -77,7 +77,7 @@ function RootNavigator() {
         options={{ headerShown: true, title: 'Result', headerLeft: () => <HeaderBackButton /> }}
       />
       <Stack.Screen
-        name="settings"
+        name="settings/index"
         options={{ headerShown: true, title: 'Settings', headerLeft: () => <HeaderBackButton /> }}
       />
       <Stack.Screen

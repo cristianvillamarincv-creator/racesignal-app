@@ -13,11 +13,10 @@ import {
 import { Card } from '@/components/Card';
 import { ErrorState } from '@/components/ErrorState';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { athlete } from '@/fixtures/athlete';
 import { askCredits, askSuggestionsEmpty, askSuggestionsPopulated, athletePreferences } from '@/fixtures/ask';
 import { gearItemsPopulated } from '@/fixtures/gear';
-import { racesPopulated } from '@/fixtures/races';
 import { getCompletedRaces, getNextRace } from '@/lib/races';
+import { useAthleteRaces } from '@/lib/racesContext';
 import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
 import { useFixtureData } from '@/lib/useSimulatedLoad';
 
@@ -32,14 +31,15 @@ const MOCK_REPLY =
 
 export default function AskScreen() {
   const suggestions = useFixtureData(askSuggestionsPopulated, askSuggestionsEmpty);
+  const { data: races, racingName } = useAthleteRaces();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isAssistantTyping, setIsAssistantTyping] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
   const [attachHint, setAttachHint] = useState(false);
 
-  const nextRace = getNextRace(racesPopulated);
-  const raceCount = getCompletedRaces(racesPopulated).length;
+  const nextRace = getNextRace(races);
+  const raceCount = getCompletedRaces(races).length;
 
   function sendMessage(text: string) {
     const trimmed = text.trim();
@@ -64,7 +64,7 @@ export default function AskScreen() {
           {messages.length === 0 ? (
             <View style={styles.greeting}>
               <Text style={typography.display} numberOfLines={2}>
-                Hey {athlete.displayName}, what are we working on?
+                Hey{racingName ? ` ${racingName.split(' ')[0]}` : ''}, what are we working on?
               </Text>
               <Text style={styles.subcopy}>I can use your race history, training and gear to help.</Text>
               <Text style={styles.credits}>

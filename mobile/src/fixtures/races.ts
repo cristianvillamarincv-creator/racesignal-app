@@ -29,6 +29,7 @@ export interface RaceRank {
 
 export interface RaceResultDetail {
   finishSeconds: number;
+  bib?: string;
   splits: RaceSplit[];
   overallRank?: RaceRank;
   genderRank?: RaceRank;
@@ -55,6 +56,12 @@ export interface Race {
   status: RaceStatus;
   /** Gates the full result-detail view (Premium, visual-only — see results/[id].tsx). */
   locked: boolean;
+  /** Hand-entered by the athlete (provider = 'manual'), as opposed to imported from a discovery
+   *  provider like Sportstats. Only a manual race can be edited after the fact — an imported race
+   *  stays read-only (removal is still available for either) so it always reflects what the
+   *  provider actually returned. Optional/absent (treated as false) on this file's static fixture
+   *  data, which predates the field and isn't used by any real screen anymore. */
+  isManual?: boolean;
   result?: RaceResultDetail;
 }
 

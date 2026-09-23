@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BuildHistoryEmptyState } from '@/components/BuildHistoryEmptyState';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
@@ -11,7 +12,7 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { SeasonRaceRow } from '@/components/season/SeasonRaceRow';
 import { HighlightCard } from '@/components/stats/HighlightCard';
 import { checklistItemsPopulated } from '@/fixtures/checklist';
-import { racesEmpty, racesPopulated, type Race } from '@/fixtures/races';
+import type { Race } from '@/fixtures/races';
 import { checklistProgress } from '@/lib/format';
 import {
   getAllHighlights,
@@ -20,13 +21,13 @@ import {
   pickTopHighlights,
 } from '@/lib/highlights';
 import { getAvailableYears, getCompletedRaces, getNextRace } from '@/lib/races';
+import { useAthleteRaces } from '@/lib/racesContext';
 import { getBestAgeGroupPercentile } from '@/lib/stats';
 import { colors, spacing, typography } from '@/lib/theme';
-import { useFixtureData } from '@/lib/useSimulatedLoad';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const races = useFixtureData(racesPopulated, racesEmpty);
+  const races = useAthleteRaces();
   const [premiumHint, setPremiumHint] = useState<string | null>(null);
 
   const years = useMemo(() => getAvailableYears(races.data), [races.data]);
@@ -71,6 +72,8 @@ export default function HomeScreen() {
           <LoadingSkeleton rows={4} />
         ) : races.isError ? (
           <ErrorState />
+        ) : races.data.length === 0 ? (
+          <BuildHistoryEmptyState />
         ) : (
           <>
             <YearStepper
@@ -89,10 +92,15 @@ export default function HomeScreen() {
                   onOpenRace={() => router.push(`/race/${nextRace.id}`)}
                 />
               ) : (
-                <EmptyState
-                  title="Add your next race"
-                  subtitle="Nothing confirmed by your imported race history yet."
-                />
+                <EmptyState title="Add your next race" subtitle="Nothing on your calendar yet.">
+                  <Pressable
+                    onPress={() => router.push('/race/add')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add your next race"
+                    style={styles.addRaceButton}>
+                    <Text style={styles.addRaceButtonLabel}>+ Add next race</Text>
+                  </Pressable>
+                </EmptyState>
               )
             ) : null}
 
@@ -250,6 +258,18 @@ const styles = StyleSheet.create({
   premiumHint: {
     ...typography.caption,
     color: colors.textMuted,
+  },
+  addRaceButton: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+  },
+  addRaceButtonLabel: {
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 15,
   },
   section: {
     gap: spacing.sm,

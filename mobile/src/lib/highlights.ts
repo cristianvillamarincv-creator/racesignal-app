@@ -153,11 +153,24 @@ export function getFastestSplitHighlights(races: Race[], currentPBRaceIds: Set<s
   return highlights;
 }
 
-/** A strong age-group percentile, only where both place and field are known and trustworthy. */
-export function getNotablePercentileHighlights(races: Race[], thresholdPercent = 20): Highlight[] {
+/**
+ * A strong age-group percentile, only where both place and field are known and trustworthy.
+ *
+ * `excludeRaceIds` dedupes by ranking dimension, not by blanket "one highlight per race": a race
+ * whose age-group result already earned an age-group podium highlight shouldn't also earn a
+ * separate "notable age-group finish" card — same dimension (age-group), same underlying fact,
+ * just a less specific way of saying it. A race's Overall percentile (a different dimension) is
+ * unaffected and, when that highlight type exists, may still appear alongside a suppressed AG one.
+ */
+export function getNotablePercentileHighlights(
+  races: Race[],
+  thresholdPercent = 20,
+  excludeRaceIds: Set<string> = new Set(),
+): Highlight[] {
   const highlights: Highlight[] = [];
   for (const race of completedWithResult(races)) {
     if (race.result!.rankingNeedsConfirmation) continue;
+    if (excludeRaceIds.has(race.id)) continue;
     const rank = race.result!.ageGroupRank;
     if (!rank || rank.field === undefined) continue;
     const percentile = getTopPercentile(rank.place, rank.field);
@@ -197,7 +210,8 @@ export function getAllHighlightsUnfiltered(races: Race[]): Highlight[] {
   });
 
   const splitHighlights = getFastestSplitHighlights(races, currentPBRaceIds);
-  const percentileHighlights = getNotablePercentileHighlights(races);
+  const agPodiumRaceIds = new Set(getAgeGroupPodiums(races).map((race) => race.id));
+  const percentileHighlights = getNotablePercentileHighlights(races, 20, agPodiumRaceIds);
 
   return [...distanceHighlights, ...courseBestHighlights, ...podiumHighlights, ...splitHighlights, ...percentileHighlights];
 }

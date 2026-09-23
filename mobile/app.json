@@ -10,7 +10,10 @@
     "ios": {
       "bundleIdentifier": "com.cristianvillamarin.racesignal",
       "icon": "./assets/expo.icon",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.cristianvillamarin.racesignal",
@@ -32,11 +35,19 @@
           "imageWidth": 76
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-web-browser",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "15b9eff2-0a30-4b84-82cb-cf0114541102"
+      }
     }
   }
 }

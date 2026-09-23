@@ -1,13 +1,55 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
-import { Pressable, type ColorValue } from 'react-native';
+import { ActionSheetIOS, Pressable, type ColorValue } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
-import { athlete } from '@/fixtures/athlete';
+import { useAthleteRaces } from '@/lib/racesContext';
 import { colors } from '@/lib/theme';
+
+/**
+ * The one global entry point for adding a race, reachable from every tab (P0-7) — not a tab-bar
+ * redesign, just a header affordance next to the existing avatar button. Order matches what's most
+ * useful most often: most athletes have existing public results to recover before they'd type one
+ * in by hand, and an upcoming race (which drives Home's countdown) is a more common ad-hoc action
+ * than backfilling a historical result manually.
+ */
+function HeaderAddButton() {
+  const router = useRouter();
+  return (
+    <Pressable
+      onPress={() => {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: ['Find past races', 'Add upcoming race', 'Add manually', 'Cancel'],
+            cancelButtonIndex: 3,
+          },
+          (index) => {
+            if (index === 0) router.push('/find-races');
+            else if (index === 1) router.push('/race/add?mode=upcoming');
+            else if (index === 2) router.push('/race/add?mode=completed');
+          },
+        );
+      }}
+      accessibilityRole="button"
+      accessibilityLabel="Add a race"
+      hitSlop={8}
+      style={{ marginLeft: 16, minWidth: 44, minHeight: 44, alignItems: 'flex-start', justifyContent: 'center' }}>
+      <Ionicons name="add-circle-outline" size={28} color={colors.accent} />
+    </Pressable>
+  );
+}
+
+function initialsFor(name: string | null): string {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  return (first + last).toUpperCase() || '?';
+}
 
 function HeaderAvatarButton() {
   const router = useRouter();
+  const { racingName } = useAthleteRaces();
   return (
     <Pressable
       onPress={() => router.push('/settings')}
@@ -15,7 +57,7 @@ function HeaderAvatarButton() {
       accessibilityLabel="Open profile and settings"
       hitSlop={8}
       style={{ marginRight: 16, minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' }}>
-      <Avatar initials={athlete.avatarInitials} />
+      <Avatar initials={initialsFor(racingName)} />
     </Pressable>
   );
 }
@@ -38,6 +80,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
+        headerLeft: () => <HeaderAddButton />,
         headerRight: () => <HeaderAvatarButton />,
         tabBarActiveTintColor: colors.accent,
         tabBarInactiveTintColor: colors.textSecondary,

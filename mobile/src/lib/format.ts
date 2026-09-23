@@ -68,6 +68,29 @@ export function formatOrdinal(n: number): string {
   }
 }
 
+/**
+ * Known standardized race distances, for DISPLAY only — mirrors (but does not import; separate
+ * mobile vs Deno projects) the same category table used server-side in
+ * supabase/functions/race-discovery/normalize.ts to compute pace. Matching is substring-based,
+ * case-insensitive, most-specific-first ("half marathon" checked before "marathon", since the
+ * latter is a substring of the former). Returns undefined for an unrecognized/custom category —
+ * never invents a distance we don't actually have a trustworthy mapping for.
+ */
+const KNOWN_RUNNING_DISTANCE_LABELS: [match: string, label: string][] = [
+  ['half marathon', '21.1 km'],
+  ['marathon', '42.2 km'],
+  ['10km', '10 km'],
+  ['10k', '10 km'],
+  ['5km', '5 km'],
+  ['5k', '5 km'],
+];
+
+export function getKnownRunningDistanceLabel(category: string | undefined): string | undefined {
+  if (!category) return undefined;
+  const normalized = category.toLowerCase();
+  return KNOWN_RUNNING_DISTANCE_LABELS.find(([match]) => normalized.includes(match))?.[1];
+}
+
 export type RaceDateDisplay =
   | { precision: 'day'; month: string; day: number; full: string }
   | { precision: 'year'; year: string };

@@ -1,25 +1,26 @@
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { BuildHistoryEmptyState } from '@/components/BuildHistoryEmptyState';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
 import { FilterChip } from '@/components/FilterChip';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SectionHeader } from '@/components/SectionHeader';
 import { SeasonRaceRow } from '@/components/season/SeasonRaceRow';
-import { racesEmpty, racesPopulated, type Race, type SportCategory } from '@/fixtures/races';
+import type { Race, SportCategory } from '@/fixtures/races';
 import { getAllHighlightsUnfiltered, pickTopHighlights } from '@/lib/highlights';
 import { getAvailableSports, getAvailableYears, getCompletedRaces, getUpcomingRaces } from '@/lib/races';
+import { useAthleteRaces } from '@/lib/racesContext';
 import { colors, spacing, typography } from '@/lib/theme';
-import { useFixtureData } from '@/lib/useSimulatedLoad';
 
 const ALL_SPORTS = 'all' as const;
 const ALL_YEARS = 'all' as const;
 
 export default function SeasonScreen() {
   const router = useRouter();
-  const races = useFixtureData(racesPopulated, racesEmpty);
+  const races = useAthleteRaces();
   const [sportFilter, setSportFilter] = useState<SportCategory | typeof ALL_SPORTS>(ALL_SPORTS);
   const [yearFilter, setYearFilter] = useState<number | typeof ALL_YEARS>(ALL_YEARS);
   const [premiumHint, setPremiumHint] = useState<string | null>(null);
@@ -61,6 +62,8 @@ export default function SeasonScreen() {
           <LoadingSkeleton rows={4} />
         ) : races.isError ? (
           <ErrorState />
+        ) : races.data.length === 0 ? (
+          <BuildHistoryEmptyState />
         ) : (
           <>
             <ScrollView
@@ -106,10 +109,15 @@ export default function SeasonScreen() {
             <View style={styles.section}>
               <SectionHeader title="Upcoming" />
               {upcoming.length === 0 ? (
-                <EmptyState
-                  title="Add your next race"
-                  subtitle="Nothing confirmed by your imported race history yet."
-                />
+                <EmptyState title="Add your next race" subtitle="Nothing on your calendar yet.">
+                  <Pressable
+                    onPress={() => router.push('/race/add')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add your next race"
+                    style={styles.addRaceButton}>
+                    <Text style={styles.addRaceButtonLabel}>+ Add next race</Text>
+                  </Pressable>
+                </EmptyState>
               ) : (
                 upcoming.map((race) => (
                   <SeasonRaceRow
@@ -164,6 +172,18 @@ const styles = StyleSheet.create({
   premiumHint: {
     ...typography.caption,
     color: colors.textMuted,
+  },
+  addRaceButton: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    justifyContent: 'center',
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+  },
+  addRaceButtonLabel: {
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 15,
   },
   section: {
     gap: spacing.xs,

@@ -151,7 +151,7 @@ function TabsNavigator() {
       <Tabs.Screen
         name="ask"
         options={{
-          title: 'AI',
+          title: 'Signal',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon
               filledName="sparkles"

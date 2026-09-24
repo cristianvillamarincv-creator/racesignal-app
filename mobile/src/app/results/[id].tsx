@@ -67,6 +67,14 @@ export default function RaceResultDetailScreen() {
             <Text style={styles.subcopy}>No finish time recorded for this race yet.</Text>
           </Card>
 
+          <Pressable
+            onPress={() => router.push({ pathname: '/signal', params: { raceId: race.id } })}
+            accessibilityRole="button"
+            accessibilityLabel="Ask Signal about this race"
+            style={styles.askSignalButton}>
+            <Text style={styles.askSignalButtonLabel}>Ask Signal</Text>
+          </Pressable>
+
           {race.isManual ? (
             <Pressable
               onPress={() => router.push(`/race/add?raceId=${race.id}`)}
@@ -171,6 +179,14 @@ export default function RaceResultDetailScreen() {
           <Text style={typography.label}>SOURCE</Text>
           <Text style={styles.meta}>{SOURCE_LABEL[result.sourceStatus]}</Text>
         </Card>
+
+        <Pressable
+          onPress={() => router.push({ pathname: '/signal', params: { raceId: race.id } })}
+          accessibilityRole="button"
+          accessibilityLabel="Ask Signal about this race"
+          style={styles.askSignalButton}>
+          <Text style={styles.askSignalButtonLabel}>Ask Signal</Text>
+        </Pressable>
 
         {race.isManual ? (
           <Pressable
@@ -289,6 +305,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
+  },
+  askSignalButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+  },
+  askSignalButtonLabel: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.background,
   },
   editButton: {
     minHeight: 44,

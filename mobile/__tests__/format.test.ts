@@ -1,4 +1,4 @@
-import { daysUntil, formatCountdown, formatFinishTime } from '@/lib/format';
+import { daysUntil, formatCountdown, formatFinishTime, formatRelativeDate } from '@/lib/format';
 
 describe('daysUntil', () => {
   const today = new Date(2026, 5, 12); // June 12, 2026 (month is 0-indexed)
@@ -42,5 +42,29 @@ describe('formatFinishTime', () => {
 
   it('pads minutes and seconds', () => {
     expect(formatFinishTime(3600 + 5 * 60 + 9)).toBe('1:05:09');
+  });
+});
+
+describe('formatRelativeDate', () => {
+  const now = new Date(2026, 5, 12, 12, 0, 0); // June 12, 2026, noon
+
+  it('labels a timestamp under a minute old as "Just now"', () => {
+    expect(formatRelativeDate(new Date(now.getTime() - 30_000).toISOString(), now)).toBe('Just now');
+  });
+
+  it('shows minutes for under an hour', () => {
+    expect(formatRelativeDate(new Date(now.getTime() - 5 * 60_000).toISOString(), now)).toBe('5m ago');
+  });
+
+  it('shows hours for under a day', () => {
+    expect(formatRelativeDate(new Date(now.getTime() - 3 * 3_600_000).toISOString(), now)).toBe('3h ago');
+  });
+
+  it('labels exactly one day old as "Yesterday"', () => {
+    expect(formatRelativeDate(new Date(now.getTime() - 24 * 3_600_000).toISOString(), now)).toBe('Yesterday');
+  });
+
+  it('shows days for under a week', () => {
+    expect(formatRelativeDate(new Date(now.getTime() - 4 * 24 * 3_600_000).toISOString(), now)).toBe('4d ago');
   });
 });

@@ -9,3 +9,9 @@ project_id = "racesignal"
 # the gateway. The `detail` action validates the caller's JWT explicitly inside the function
 # itself (see index.ts) — this is a deliberate, reviewed exception, not an oversight.
 verify_jwt = false
+
+[functions.signal]
+# Every Signal action requires a signed-in athlete — unlike race-discovery's deliberate exception
+# above, this relies on the platform gateway's own JWT verification (true is also the default;
+# explicit here for contrast with the function right above it).
+verify_jwt = true

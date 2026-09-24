@@ -73,6 +73,14 @@ export default function RacePrepScreen() {
           <InfoRow label="Sport" value={capitalize(race.sport)} />
         </Card>
 
+        <Pressable
+          onPress={() => router.push({ pathname: '/signal', params: { raceId: race.id } })}
+          accessibilityRole="button"
+          accessibilityLabel="Ask Signal about this race"
+          style={styles.askSignalButton}>
+          <Text style={styles.askSignalButtonLabel}>Ask Signal</Text>
+        </Pressable>
+
         {race.isManual ? <RacePrepChecklist race={race} /> : null}
 
         {race.isManual ? (
@@ -142,6 +150,18 @@ const styles = StyleSheet.create({
   infoValue: {
     ...typography.body,
     fontWeight: '600',
+  },
+  askSignalButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+    backgroundColor: colors.accent,
+  },
+  askSignalButtonLabel: {
+    ...typography.body,
+    fontWeight: '700',
+    color: colors.background,
   },
   editButton: {
     minHeight: 44,

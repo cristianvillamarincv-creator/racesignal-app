@@ -84,6 +84,10 @@ function RootNavigator() {
         name="find-races"
         options={{ headerShown: true, title: 'Find my races', headerLeft: () => <HeaderBackButton /> }}
       />
+      <Stack.Screen
+        name="signal"
+        options={{ headerShown: true, title: 'Signal', headerLeft: () => <HeaderBackButton /> }}
+      />
     </Stack>
   );
 }

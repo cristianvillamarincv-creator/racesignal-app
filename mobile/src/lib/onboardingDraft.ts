@@ -18,6 +18,11 @@ export interface OnboardingDraft {
   /** The provider's display name for whichever identity was selected during discovery, if any —
    *  carried through so a resumed-after-redirect import can still record it on provenance. */
   providerAthleteName?: string;
+  /** Set when this draft came from the "Already have an account? Sign in" entry point rather than
+   *  the normal discovery flow — on resume, this must NEVER trigger runImport (there's no real
+   *  racingName/candidates here, and upserting athlete_profiles with them would overwrite the
+   *  returning athlete's actual profile). See OnboardingFlow.tsx's resumeReturningUser(). */
+  isReturningUserSignIn?: boolean;
 }
 
 export async function saveOnboardingDraft(draft: OnboardingDraft): Promise<void> {

@@ -15,6 +15,7 @@ import { Card } from '@/components/Card';
 import { useAuth } from '@/lib/auth';
 import {
   fetchImportedProviderResultIds,
+  fetchOnboardingCompletedAt,
   insertConfirmedRaces,
   markOnboardingComplete,
   upsertAthleteProfile,
@@ -114,6 +115,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  // "Already have an account? Sign in" — a returning athlete authenticating directly, with no
+  // discovery/candidates involved. Tracked separately from the normal discovery-then-save flow so
+  // a completed sign-in never triggers runImport (which would upsert athlete_profiles with this
+  // fresh session's blank racingName/candidates, overwriting the athlete's real, existing profile).
+  const [isReturningUserFlow, setIsReturningUserFlow] = useState(false);
+
   const [importProgress, setImportProgress] = useState({ done: 0, total: 0 });
   const [importedCount, setImportedCount] = useState(0);
   const [podiumCount, setPodiumCount] = useState(0);
@@ -174,6 +181,10 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       console.warn('[Import] resumeFromDraftAndImport called with no draft on disk — nothing to import.');
       return;
     }
+    if (draft.isReturningUserSignIn) {
+      await resumeReturningUser(userId);
+      return;
+    }
     setRacingName(draft.racingName);
     setBirthYearHint(draft.birthYearHint);
     setCandidates(draft.candidates);
@@ -191,6 +202,36 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     await runImport(userId, draft.racingName, draft.birthYearHint, selectedCandidates, draft.providerAthleteName);
   }
 
+  /**
+   * The "Already have an account? Sign in" path's post-auth handling — deliberately never calls
+   * runImport. That function upserts athlete_profiles with whatever racingName/candidates this
+   * fresh onboarding session happens to hold (blank/empty here), which would overwrite the
+   * returning athlete's real, already-saved profile. Their profile and races already exist
+   * server-side and load automatically once `session` is set (AthleteRacesProvider reacts to it)
+   * — there is nothing to import.
+   */
+  async function resumeReturningUser(userId: string) {
+    await clearOnboardingDraft();
+    const completedAt = await fetchOnboardingCompletedAt(userId);
+    if (completedAt) {
+      onComplete();
+      return;
+    }
+    // Authenticated, but this athlete genuinely never finished onboarding (e.g. a prior attempt
+    // was abandoned before ever importing a race). Resume the normal flow from the top — they're
+    // already signed in, so proceedFromCandidates/skipDiscovery will skip straight to import
+    // once reached, instead of asking them to sign in again.
+    setIsReturningUserFlow(false);
+    setAuthError(null);
+    setStep('identity');
+  }
+
+  function startReturningUserSignIn() {
+    setAuthError(null);
+    setIsReturningUserFlow(true);
+    setStep('emailForm');
+  }
+
   async function processAuthRedirect(url: string) {
     if (!url.includes('auth-callback') || processedUrlRef.current === url) return;
     processedUrlRef.current = url;
@@ -199,7 +240,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     const { error, userId } = await completeAuthFromUrl(url);
     if (!userId) {
       setAuthError(error ?? 'Sign-in did not complete. Please try again.');
-      setStep('save');
+      setStep(isReturningUserFlow ? 'emailForm' : 'save');
       return;
     }
     await resumeFromDraftAndImport(userId);
@@ -358,6 +399,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       candidates,
       selectedResultIds: Array.from(selectedIds),
       providerAthleteName: selectedIdentity?.displayName,
+      isReturningUserSignIn: isReturningUserFlow,
     });
   }
 
@@ -584,6 +626,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 onChangeRacingName={setRacingName}
                 message={message}
                 onContinue={runSearch}
+                onSignIn={startReturningUserSignIn}
               />
             ) : null}
 
@@ -646,7 +689,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 onSendLink={handleSendMagicLink}
                 onBack={() => {
                   setAuthError(null);
-                  setStep('save');
+                  if (isReturningUserFlow) {
+                    setIsReturningUserFlow(false);
+                    setStep('identity');
+                  } else {
+                    setStep('save');
+                  }
                 }}
               />
             ) : null}
@@ -664,7 +712,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 }}
                 onBack={() => {
                   setAuthError(null);
-                  setStep('save');
+                  if (isReturningUserFlow) {
+                    setIsReturningUserFlow(false);
+                    setStep('identity');
+                  } else {
+                    setStep('save');
+                  }
                 }}
               />
             ) : null}
@@ -704,11 +757,13 @@ function IdentityStep({
   onChangeRacingName,
   message,
   onContinue,
+  onSignIn,
 }: {
   racingName: string;
   onChangeRacingName: (value: string) => void;
   message: string | null;
   onContinue: () => void;
+  onSignIn: () => void;
 }) {
   return (
     <View style={styles.stepGap}>
@@ -726,6 +781,10 @@ function IdentityStep({
         accessibilityLabel="Search"
         style={[styles.primaryButton, racingName.trim().length === 0 && styles.primaryButtonDisabled]}>
         <Text style={styles.primaryButtonLabel}>Search</Text>
+      </Pressable>
+
+      <Pressable onPress={onSignIn} accessibilityRole="button" accessibilityLabel="Already have an account? Sign in">
+        <Text style={styles.skipLink}>Already have an account? Sign in</Text>
       </Pressable>
     </View>
   );

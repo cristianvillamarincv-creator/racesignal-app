@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Pressable } from 'react-native';
+import { Pressable, type ColorValue } from 'react-native';
 
 import { colors } from '@/lib/theme';
 
@@ -15,8 +15,25 @@ import { colors } from '@/lib/theme';
  * Calls plain `router.back()` when there's actually somewhere to go back to; never hardcodes a
  * fallback destination; a screen with no back history (shouldn't happen for anything this is used
  * on) just renders an inert button rather than jumping somewhere arbitrary.
+ *
+ * `color` defaults to the app-wide accent (every current call site) — a screen using a different
+ * token system (e.g. results/[id].tsx's "Race Morning Precision" palette) can override it locally
+ * without this component needing to know about that palette.
+ *
+ * `circular` (default false — every existing call site is unaffected) renders the button as a
+ * single, unified ~44x44 circle — the same element is both the visual circle and the full tappable
+ * area, so there's no mismatch between a small drawn circle and a larger invisible touch box (a
+ * "ghost container") around it.
  */
-export function HeaderBackButton() {
+export function HeaderBackButton({
+  color = colors.accent,
+  circular = false,
+  circleBackground,
+}: {
+  color?: ColorValue;
+  circular?: boolean;
+  circleBackground?: ColorValue;
+}) {
   const router = useRouter();
   return (
     <Pressable
@@ -25,9 +42,13 @@ export function HeaderBackButton() {
       }}
       accessibilityRole="button"
       accessibilityLabel="Back"
-      hitSlop={8}
-      style={{ marginLeft: 8, minWidth: 44, minHeight: 44, alignItems: 'flex-start', justifyContent: 'center' }}>
-      <Ionicons name="chevron-back" size={26} color={colors.accent} />
+      hitSlop={circular ? 0 : 8}
+      style={
+        circular
+          ? { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: circleBackground }
+          : { marginLeft: 8, minWidth: 44, minHeight: 44, alignItems: 'flex-start', justifyContent: 'center' }
+      }>
+      <Ionicons name="chevron-back" size={circular ? 20 : 26} color={color} />
     </Pressable>
   );
 }

@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "racesignal",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "com.cristianvillamarin.racesignal",
       "icon": "./assets/expo.icon",

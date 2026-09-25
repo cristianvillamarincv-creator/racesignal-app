@@ -14,6 +14,7 @@
     "development-device": {
       "developmentClient": true,
       "distribution": "internal",
+      "autoIncrement": true,
       "ios": {
         "simulator": false
       }

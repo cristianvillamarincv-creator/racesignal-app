@@ -41,7 +41,10 @@ export function SignalModule({ title, supportingText, onPress, colors }: SignalM
       style={[styles.container, { backgroundColor: colors.surfaceTint, borderColor: colors.borderTint }]}>
       <RaceLineMotif tintColor={colors.signalBlue} opacity={0.07} style={styles.motif} />
       <View style={[styles.iconBadge, { backgroundColor: colors.badgeTint }]}>
-        <SignalMark color={colors.signalBlue} size={18} />
+        {/* 24 of the badge's 36pt width — the mark's own asset fills ~84% of its canvas
+            (bbox-normalized, not the full nominal square), so this lands the visible ink at
+            roughly 56% of the badge width, matching the target ~55-65% range. */}
+        <SignalMark color={colors.signalBlue} size={24} />
       </View>
       <View style={styles.textBlock}>
         <Text style={[styles.title, { color: colors.ink }]}>{title}</Text>

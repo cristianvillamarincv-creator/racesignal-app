@@ -72,6 +72,15 @@ export default function AskScreen() {
     router.push(raceId ? { pathname: '/signal', params: { raceId } } : '/signal');
   }
 
+  /** A tapped suggestion is a direct action, not a shortcut to the same chooser again — it opens
+   *  Signal and submits that exact question immediately (see signal.tsx's initialPrompt handling),
+   *  through the same send/conversation path a manually-typed question uses. Unseeded, matching the
+   *  prior (undifferentiated) behavior exactly — only the "open and show the same three questions
+   *  again" part was the bug, not the seeding. */
+  function openSignalWithPrompt(prompt: string) {
+    router.push({ pathname: '/signal', params: { initialPrompt: prompt } });
+  }
+
   // Same construction results/[id].tsx uses for its own Signal module — a lighter tinted border in
   // light mode, unchanged in dark, so the module carries itself without a heavy card outline.
   const signalModuleColors = {
@@ -155,7 +164,7 @@ export default function AskScreen() {
               {suggestions.map((suggestion, index) => (
                 <View key={suggestion}>
                   <Pressable
-                    onPress={() => openSignal()}
+                    onPress={() => openSignalWithPrompt(suggestion)}
                     accessibilityRole="button"
                     accessibilityLabel={suggestion}
                     style={styles.suggestionRow}>

@@ -29,6 +29,7 @@ import { AppIcon } from '@/lib/icons';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
 import { sendSignalMessage, type SignalChatTurn, type SignalImageAttachment, type SignalUnavailableReason } from '@/lib/signal';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
+import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -94,7 +95,11 @@ const REASON_MESSAGES: Record<SignalUnavailableReason, string> = {
  * (see sendMessage) — so an opened-but-abandoned chat never shows up in "Recent Signals".
  */
 export default function SignalScreen() {
-  const { raceId, conversationId: conversationIdParam } = useLocalSearchParams<{ raceId?: string; conversationId?: string }>();
+  const {
+    raceId,
+    conversationId: conversationIdParam,
+    initialPrompt,
+  } = useLocalSearchParams<{ raceId?: string; conversationId?: string; initialPrompt?: string }>();
   const races = useAthleteRaces();
   const { session } = useAuth();
   const { mode: devPreviewMode } = useDevPreview();
@@ -126,6 +131,13 @@ export default function SignalScreen() {
   // await, so no event/path (button, suggestion chip, or anything else) can start a second request
   // while one is already in flight.
   const isSendingRef = useRef(false);
+  // A suggestion tapped on the Signal landing screen ((tabs)/ask.tsx) arrives here as
+  // `initialPrompt` and must be submitted exactly once — never re-submitted on a re-render, and
+  // never confused with the reopened-conversation path (`conversationIdParam`, mutually exclusive
+  // with this by construction — ask.tsx never sends both). This ref (not just the `initialPrompt`
+  // param itself) is what guarantees "exactly once": the effect below still only ever runs a single
+  // time per mount regardless of how many times this component re-renders afterward.
+  const hasAutoSubmittedInitialPromptRef = useRef(false);
 
   // Set once a conversation exists in storage — either restored from `conversationIdParam` (a
   // reopened conversation) or created lazily on the first successful exchange of a new one.
@@ -162,6 +174,20 @@ export default function SignalScreen() {
       cancelled = true;
     };
   }, [conversationIdParam, isPreviewMode]);
+
+  // Submits a suggestion tapped on the Signal landing screen exactly once, through the exact same
+  // sendMessage path a manually-typed question uses (same conversation persistence, same Developer
+  // Preview short-circuit) — see (tabs)/ask.tsx's openSignalWithPrompt. Runs once per mount only
+  // (guarded by the ref above); a fresh tap of a suggestion always pushes a fresh screen instance,
+  // so this never blocks a genuinely new selection, only a duplicate fire within the same instance.
+  useEffect(() => {
+    if (!shouldAutoSubmitInitialPrompt({ initialPrompt, conversationIdParam, alreadySubmitted: hasAutoSubmittedInitialPromptRef.current })) {
+      return;
+    }
+    hasAutoSubmittedInitialPromptRef.current = true;
+    void sendMessage(initialPrompt!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isSending) return;

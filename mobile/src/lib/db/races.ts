@@ -1,5 +1,12 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { RaceRow } from '@/lib/raceMapping';
+import { withTimeout } from '@/lib/timeout';
+
+/** Bounds a query that runs on the critical path of app-launch classification and onboarding's
+ *  post-auth resume — a stalled connection here previously left the caller awaiting indefinitely
+ *  (no built-in timeout in supabase-js), which is what produced an onboarding spinner with no way
+ *  to recover. See lib/timeout.ts. */
+const QUERY_TIMEOUT_MS = 20000;
 
 const RACE_COLUMNS =
   'id, athlete_id, import_status, race_status, provider, provider_result_id, provider_athlete_name, source_url, import_method, source_notes, event_date, event_year, date_precision, event_name, location, sport, category, finish_seconds, bib, overall_rank_place, overall_rank_field, gender_rank_place, gender_rank_field, age_group_rank_place, age_group_rank_field, age_group_category, splits, checklist_completed';
@@ -183,18 +190,26 @@ export async function markOnboardingComplete(athleteId: string): Promise<void> {
   if (error) console.warn('[db/races] markOnboardingComplete failed:', error.message);
 }
 
-/** Read once at app launch to classify a signed-in athlete as done-with-onboarding or not. */
+/** Read once at app launch to classify a signed-in athlete as done-with-onboarding or not. Also
+ *  called mid-onboarding (the "Already have an account? Sign in" path) to check whether a
+ *  returning athlete has already finished it. A timed-out or failed read is treated the same way
+ *  as "not yet onboarded" at the call site — never left unresolved. */
 export async function fetchOnboardingCompletedAt(athleteId: string): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('athlete_profiles')
-    .select('onboarding_completed_at')
-    .eq('id', athleteId)
-    .maybeSingle();
-  if (error) {
-    console.warn('[db/races] fetchOnboardingCompletedAt failed:', error.message);
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from('athlete_profiles').select('onboarding_completed_at').eq('id', athleteId).maybeSingle(),
+      QUERY_TIMEOUT_MS,
+      'fetchOnboardingCompletedAt',
+    );
+    if (error) {
+      console.warn('[db/races] fetchOnboardingCompletedAt failed:', error.message);
+      return null;
+    }
+    return data?.onboarding_completed_at ?? null;
+  } catch (err) {
+    console.warn('[db/races] fetchOnboardingCompletedAt did not complete:', err);
     return null;
   }
-  return data?.onboarding_completed_at ?? null;
 }
 
 /** Existing confirmed provider_result_ids for one athlete/provider — used to mark discovery

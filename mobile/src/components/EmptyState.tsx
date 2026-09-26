@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { spacing, typography } from '@/lib/theme';
+import { useBrandPalette } from '@/lib/brandTheme';
 
 interface EmptyStateProps {
   title: string;
@@ -9,10 +9,11 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ title, subtitle, children }: EmptyStateProps) {
+  const palette = useBrandPalette();
   return (
     <View style={styles.container} accessibilityRole="text">
-      <Text style={typography.subtitle}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      <Text style={[styles.title, { color: palette.ink }]}>{title}</Text>
+      {subtitle ? <Text style={[styles.subtitle, { color: palette.inkSecondary }]}>{subtitle}</Text> : null}
       {children ? <View style={styles.actions}>{children}</View> : null}
     </View>
   );
@@ -21,15 +22,19 @@ export function EmptyState({ title, subtitle, children }: EmptyStateProps) {
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '600',
   },
   subtitle: {
-    ...typography.body,
+    fontSize: 15,
     textAlign: 'center',
   },
   actions: {
-    marginTop: spacing.md,
+    marginTop: 12,
   },
 });

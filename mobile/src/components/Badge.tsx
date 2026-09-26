@@ -1,28 +1,27 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radii, spacing, typography } from '@/lib/theme';
+import { useBrandPalette } from '@/lib/brandTheme';
 
-export type BadgeTone = 'neutral' | 'accent' | 'warning' | 'danger';
+export type BadgeTone = 'neutral' | 'danger';
 
 interface BadgeProps {
   label: string;
   tone?: BadgeTone;
 }
 
-const toneColors: Record<BadgeTone, { background: string; text: string }> = {
-  neutral: { background: colors.surfaceElevated, text: colors.textSecondary },
-  accent: { background: colors.accentMuted, text: colors.accent },
-  warning: { background: '#3A3020', text: colors.warning },
-  danger: { background: '#3A2422', text: colors.danger },
-};
-
+/** A small pill for a distance/status chip — `neutral` reads as quiet metadata (a canvas-elevated
+ *  fill with secondary ink text); `danger` is reserved for a genuinely blocking state. Recolored to
+ *  the "Race Morning Precision" brand palette — the old flat theme.ts tones are gone. */
 export function Badge({ label, tone = 'neutral' }: BadgeProps) {
-  const palette = toneColors[tone];
+  const palette = useBrandPalette();
+  const toneColors: Record<BadgeTone, { background: string; text: string }> = {
+    neutral: { background: palette.canvasElevated, text: palette.inkSecondary },
+    danger: { background: palette.canvasElevated, text: palette.danger },
+  };
+  const resolved = toneColors[tone];
   return (
-    <View
-      style={[styles.badge, { backgroundColor: palette.background }]}
-      accessibilityLabel={label}>
-      <Text style={[styles.label, { color: palette.text }]}>{label}</Text>
+    <View style={[styles.badge, { backgroundColor: resolved.background }]} accessibilityLabel={label}>
+      <Text style={[styles.label, { color: resolved.text }]}>{label}</Text>
     </View>
   );
 }
@@ -30,11 +29,12 @@ export function Badge({ label, tone = 'neutral' }: BadgeProps) {
 const styles = StyleSheet.create({
   badge: {
     alignSelf: 'flex-start',
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
   label: {
-    ...typography.label,
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

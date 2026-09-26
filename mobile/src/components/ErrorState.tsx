@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, spacing, typography } from '@/lib/theme';
+import { useBrandPalette } from '@/lib/brandTheme';
 
 interface ErrorStateProps {
   title?: string;
@@ -11,10 +11,11 @@ export function ErrorState({
   title = 'Something went wrong',
   subtitle = "We couldn't load this right now. Please try again shortly.",
 }: ErrorStateProps) {
+  const palette = useBrandPalette();
   return (
     <View style={styles.container} accessibilityRole="alert">
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
+      <Text style={[styles.title, { color: palette.danger }]}>{title}</Text>
+      <Text style={[styles.subtitle, { color: palette.inkSecondary }]}>{subtitle}</Text>
     </View>
   );
 }
@@ -22,16 +23,16 @@ export function ErrorState({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    gap: 8,
   },
   title: {
-    ...typography.subtitle,
-    color: colors.danger,
+    fontSize: 17,
+    fontWeight: '600',
   },
   subtitle: {
-    ...typography.body,
+    fontSize: 15,
     textAlign: 'center',
   },
 });

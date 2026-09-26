@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { Card } from '@/components/Card';
+import { HairlineRule } from '@/components/HairlineRule';
 import { useAuth } from '@/lib/auth';
+import { type BrandPalette, tabularNumerals, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { fetchImportedProviderResultIds, insertConfirmedRaces } from '@/lib/db/races';
 import { AppIcon } from '@/lib/icons';
 import { normalizeNameForQuery } from '@/lib/nameNormalization';
@@ -16,7 +17,7 @@ import {
   type UnavailableReason,
 } from '@/lib/raceDiscovery';
 import { useAthleteRaces } from '@/lib/racesContext';
-import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
+import { minTouchSize, spacing } from '@/lib/theme';
 
 /**
  * The reusable, post-login version of onboarding's discovery pipeline (name -> Sportstats search
@@ -54,6 +55,8 @@ interface FindMyRacesFlowProps {
 export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
   const { session } = useAuth();
   const { racingName: primaryRacingName, applyImportedRaces } = useAthleteRaces();
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
 
   const [step, setStep] = useState<Step>('identity');
   const [searchName, setSearchName] = useState(primaryRacingName ?? '');
@@ -222,11 +225,11 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {step === 'identity' ? (
           <View style={styles.stepGap}>
-            <Text style={typography.display}>Find more races.</Text>
+            <Text style={styles.screenTitle}>Find more races.</Text>
             <Text style={styles.subcopy}>
               Search under any name you&apos;ve raced under — this won&apos;t change your account name.
             </Text>
-            <Field label="Racing name to search" value={searchName} onChangeText={setSearchName} />
+            <Field label="Racing name to search" value={searchName} onChangeText={setSearchName} styles={styles} palette={palette} />
             {message ? <Text style={styles.message}>{message}</Text> : null}
             <Pressable
               onPress={runSearch}
@@ -241,27 +244,37 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
 
         {step === 'searching' ? (
           <View style={styles.centeredStep}>
-            <ActivityIndicator size="large" color={colors.accent} />
+            <ActivityIndicator size="large" color={palette.signalBlue} />
             <Text style={styles.subcopy}>Searching public race-result sources…</Text>
           </View>
         ) : null}
 
         {step === 'disambiguation' ? (
           <View style={styles.stepGap}>
-            <Text style={typography.title}>We found more than one athlete named {searchName}.</Text>
+            <Text style={styles.stepTitle}>We found more than one athlete named {searchName}.</Text>
             <Text style={styles.subcopy}>A race you remember can help you tell them apart — just a hint, not used to search.</Text>
-            <Field label="A race you remember (optional)" value={knownRaceHint} onChangeText={setKnownRaceHint} />
-            {identities.map((identity) => (
-              <Pressable
-                key={identity.providerAthleteId}
-                onPress={() => loadHistoryFor(identity)}
-                accessibilityRole="button"
-                accessibilityLabel={`This is me: ${identity.displayName}`}
-                style={styles.identityRow}>
-                <Text style={typography.body}>{identity.displayName}</Text>
-                <Text style={styles.identityArrow}>→</Text>
-              </Pressable>
-            ))}
+            <Field
+              label="A race you remember (optional)"
+              value={knownRaceHint}
+              onChangeText={setKnownRaceHint}
+              styles={styles}
+              palette={palette}
+            />
+            <View>
+              {identities.map((identity, index) => (
+                <View key={identity.providerAthleteId}>
+                  <Pressable
+                    onPress={() => loadHistoryFor(identity)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`This is me: ${identity.displayName}`}
+                    style={styles.identityRow}>
+                    <Text style={styles.bodyText}>{identity.displayName}</Text>
+                    <Text style={styles.identityArrow}>→</Text>
+                  </Pressable>
+                  {index < identities.length - 1 ? <HairlineRule color={palette.hairline} /> : null}
+                </View>
+              ))}
+            </View>
             <Pressable onPress={backToIdentity} accessibilityRole="button" accessibilityLabel="Back">
               <Text style={styles.skipLink}>Back</Text>
             </Pressable>
@@ -270,49 +283,54 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
 
         {step === 'candidates' ? (
           <View style={styles.stepGap}>
-            <Text style={typography.title}>We found {candidates.length} race{candidates.length === 1 ? '' : 's'}</Text>
+            <Text style={styles.stepTitle}>
+              We found <Text style={tabularNumerals}>{candidates.length}</Text> race{candidates.length === 1 ? '' : 's'}
+            </Text>
             <Text style={styles.subcopy}>Select the ones that are you. Nothing unselected is imported.</Text>
 
             {candidates.length === 0 ? (
-              <Card>
-                <Text style={typography.body}>No public race history found for that profile.</Text>
-              </Card>
+              <Text style={styles.emptyText}>No public race history found for that profile.</Text>
             ) : (
-              candidates.map((candidate) => {
-                const alreadyImported = alreadyImportedIds.has(candidate.providerResultId);
-                const selected = selectedIds.has(candidate.providerResultId);
-                return (
-                  <Pressable
-                    key={candidate.providerResultId}
-                    onPress={() => toggleCandidate(candidate.providerResultId)}
-                    disabled={alreadyImported}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: selected, disabled: alreadyImported }}
-                    accessibilityLabel={`${candidate.eventName}, ${candidate.eventYear}${alreadyImported ? ', already added' : ''}`}
-                    style={[
-                      styles.candidateRow,
-                      selected && styles.candidateRowSelected,
-                      alreadyImported && styles.candidateRowDisabled,
-                    ]}>
-                    <AppIcon
-                      name={alreadyImported ? 'check-circle' : selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                      size={22}
-                      color={alreadyImported ? colors.textMuted : selected ? colors.accent : colors.textMuted}
-                    />
-                    <View style={styles.candidateText}>
-                      <Text style={typography.body}>{candidate.eventName}</Text>
-                      <Text style={styles.candidateMeta}>
-                        {candidate.eventDate ?? candidate.eventYear} · {candidate.category}
-                      </Text>
+              <View>
+                <HairlineRule color={palette.hairline} />
+                {candidates.map((candidate, index) => {
+                  const alreadyImported = alreadyImportedIds.has(candidate.providerResultId);
+                  const selected = selectedIds.has(candidate.providerResultId);
+                  return (
+                    <View key={candidate.providerResultId}>
+                      <Pressable
+                        onPress={() => toggleCandidate(candidate.providerResultId)}
+                        disabled={alreadyImported}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: selected, disabled: alreadyImported }}
+                        accessibilityLabel={`${candidate.eventName}, ${candidate.eventYear}${alreadyImported ? ', already added' : ''}`}
+                        style={[
+                          styles.candidateRow,
+                          selected && styles.candidateRowSelected,
+                          alreadyImported && styles.candidateRowDisabled,
+                        ]}>
+                        <AppIcon
+                          name={alreadyImported ? 'check-circle' : selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                          size={22}
+                          color={selected && !alreadyImported ? palette.signalBlue : palette.inkSecondary}
+                        />
+                        <View style={styles.candidateText}>
+                          <Text style={styles.bodyText}>{candidate.eventName}</Text>
+                          <Text style={styles.candidateMeta}>
+                            {candidate.eventDate ?? candidate.eventYear} · {candidate.category}
+                          </Text>
+                        </View>
+                        {alreadyImported ? (
+                          <View style={styles.alreadyAddedBadge}>
+                            <Text style={styles.alreadyAddedLabel}>Already added</Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                      <HairlineRule color={palette.hairline} />
                     </View>
-                    {alreadyImported ? (
-                      <View style={styles.alreadyAddedBadge}>
-                        <Text style={styles.alreadyAddedLabel}>Already added</Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })
+                  );
+                })}
+              </View>
             )}
 
             <Pressable
@@ -321,7 +339,9 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
               accessibilityRole="button"
               accessibilityLabel={`Add ${selectedIds.size} races`}
               style={[styles.primaryButton, selectedIds.size === 0 && styles.primaryButtonDisabled]}>
-              <Text style={styles.primaryButtonLabel}>Add {selectedIds.size} race{selectedIds.size === 1 ? '' : 's'}</Text>
+              <Text style={styles.primaryButtonLabel}>
+                Add <Text style={tabularNumerals}>{selectedIds.size}</Text> race{selectedIds.size === 1 ? '' : 's'}
+              </Text>
             </Pressable>
             <Pressable onPress={backFromCandidates} accessibilityRole="button" accessibilityLabel="Back">
               <Text style={styles.skipLink}>Back</Text>
@@ -334,23 +354,28 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
 
         {step === 'importing' ? (
           <View style={styles.centeredStep}>
-            <ActivityIndicator size="large" color={colors.accent} />
+            <ActivityIndicator size="large" color={palette.signalBlue} />
             <Text style={styles.subcopy}>
-              {importProgress.total > 0
-                ? `Fetching result ${importProgress.done + 1} of ${importProgress.total}…`
-                : 'Saving…'}
+              {importProgress.total > 0 ? (
+                <>
+                  Fetching result <Text style={tabularNumerals}>{importProgress.done + 1}</Text> of{' '}
+                  <Text style={tabularNumerals}>{importProgress.total}</Text>…
+                </>
+              ) : (
+                'Saving…'
+              )}
             </Text>
           </View>
         ) : null}
 
         {step === 'summary' ? (
           <View style={styles.centeredStep}>
-            <Text style={typography.display}>{importedCount > 0 ? 'Added to your history.' : 'No races added.'}</Text>
+            <Text style={styles.screenTitle}>{importedCount > 0 ? 'Added to your history.' : 'No races added.'}</Text>
             {saveError ? <Text style={styles.message}>{saveError}</Text> : null}
             {importedCount > 0 ? (
               <View style={styles.summaryGrid}>
-                <SummaryStat label="Races added" value={importedCount} />
-                <SummaryStat label="AG podiums" value={podiumCount} />
+                <SummaryStat label="Races added" value={importedCount} styles={styles} />
+                <SummaryStat label="AG podiums" value={podiumCount} styles={styles} />
               </View>
             ) : null}
             {canRetry ? (
@@ -363,8 +388,12 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
                 <Text style={styles.primaryButtonLabel}>{isRetrying ? 'Retrying…' : 'Retry'}</Text>
               </Pressable>
             ) : null}
-            <Pressable onPress={onDone} accessibilityRole="button" accessibilityLabel="Done" style={canRetry ? styles.googleButton : styles.primaryButton}>
-              <Text style={canRetry ? styles.googleButtonLabel : styles.primaryButtonLabel}>Done</Text>
+            <Pressable
+              onPress={onDone}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+              style={canRetry ? styles.secondaryButton : styles.primaryButton}>
+              <Text style={canRetry ? styles.secondaryButtonLabel : styles.primaryButtonLabel}>Done</Text>
             </Pressable>
           </View>
         ) : null}
@@ -373,23 +402,35 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
   );
 }
 
-function SummaryStat({ label, value }: { label: string; value: number }) {
+function SummaryStat({ label, value, styles }: { label: string; value: number; styles: Styles }) {
   return (
     <View style={styles.summaryStat}>
-      <Text style={styles.summaryValue}>{value}</Text>
-      <Text style={typography.label}>{label.toUpperCase()}</Text>
+      <Text style={[styles.summaryValue, tabularNumerals]}>{value}</Text>
+      <Text style={styles.kicker}>{label.toUpperCase()}</Text>
     </View>
   );
 }
 
-function Field({ label, value, onChangeText }: { label: string; value: string; onChangeText: (text: string) => void }) {
+function Field({
+  label,
+  value,
+  onChangeText,
+  styles,
+  palette,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  styles: Styles;
+  palette: BrandPalette;
+}) {
   return (
     <View>
-      <Text style={typography.label}>{label.toUpperCase()}</Text>
+      <Text style={styles.kicker}>{label.toUpperCase()}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={palette.inkSecondary}
         style={styles.input}
         accessibilityLabel={label}
       />
@@ -397,146 +438,178 @@ function Field({ label, value, onChangeText }: { label: string; value: string; o
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    flexGrow: 1,
-    padding: spacing.lg,
-    paddingTop: spacing.xxl,
-    justifyContent: 'center',
-    gap: spacing.md,
-  },
-  stepGap: {
-    gap: spacing.md,
-  },
-  centeredStep: {
-    alignItems: 'center',
-    gap: spacing.lg,
-    paddingVertical: spacing.xxl,
-  },
-  subcopy: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
-  message: {
-    ...typography.caption,
-    color: colors.warning,
-  },
-  input: {
-    minHeight: minTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: spacing.md,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  primaryButton: {
-    alignSelf: 'stretch',
-    minHeight: minTouchSize,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.accent,
-    marginTop: spacing.md,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.4,
-  },
-  primaryButtonLabel: {
-    color: colors.background,
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  googleButton: {
-    alignSelf: 'stretch',
-    minHeight: minTouchSize,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    marginTop: spacing.md,
-  },
-  googleButtonLabel: {
-    ...typography.body,
-    fontWeight: '700',
-  },
-  skipLink: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    minHeight: 44,
-    textAlignVertical: 'center',
-  },
-  identityRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceElevated,
-  },
-  identityArrow: {
-    ...typography.body,
-    color: colors.accent,
-    fontWeight: '700',
-  },
-  candidateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 44,
-    padding: spacing.sm,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  candidateRowSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accentMuted,
-  },
-  candidateRowDisabled: {
-    opacity: 0.5,
-  },
-  candidateText: {
-    flex: 1,
-    gap: 2,
-  },
-  candidateMeta: {
-    ...typography.caption,
-  },
-  alreadyAddedBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceElevated,
-  },
-  alreadyAddedLabel: {
-    ...typography.label,
-    color: colors.textMuted,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.xl,
-  },
-  summaryStat: {
-    alignItems: 'center',
-    gap: 2,
-    minWidth: 100,
-  },
-  summaryValue: {
-    ...typography.display,
-    color: colors.accent,
-  },
-});
+type Styles = ReturnType<typeof createStyles>;
+
+function createStyles(palette: BrandPalette) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: palette.canvas,
+    },
+    content: {
+      flexGrow: 1,
+      padding: spacing.lg,
+      paddingTop: spacing.xxl,
+      justifyContent: 'center',
+      gap: spacing.md,
+    },
+    stepGap: {
+      gap: spacing.md,
+    },
+    centeredStep: {
+      alignItems: 'center',
+      gap: spacing.lg,
+      paddingVertical: spacing.xxl,
+    },
+    screenTitle: {
+      fontSize: 34,
+      fontWeight: '700',
+      color: palette.ink,
+    },
+    stepTitle: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: palette.ink,
+    },
+    bodyText: {
+      fontSize: 15,
+      fontWeight: '400',
+      color: palette.ink,
+    },
+    subcopy: {
+      fontSize: 15,
+      color: palette.inkSecondary,
+    },
+    kicker: {
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.6,
+      color: palette.inkSecondary,
+    },
+    message: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: palette.danger,
+    },
+    input: {
+      minHeight: minTouchSize,
+      borderWidth: 1,
+      borderColor: palette.hairline,
+      borderRadius: 10,
+      paddingHorizontal: spacing.md,
+      color: palette.ink,
+      marginTop: 4,
+    },
+    primaryButton: {
+      alignSelf: 'stretch',
+      minHeight: minTouchSize,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 999,
+      paddingHorizontal: spacing.lg,
+      backgroundColor: palette.signalBlue,
+      marginTop: spacing.md,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.4,
+    },
+    primaryButtonLabel: {
+      color: palette.onSignalBlue,
+      fontWeight: '700',
+      fontSize: 16,
+    },
+    secondaryButton: {
+      alignSelf: 'stretch',
+      minHeight: minTouchSize,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 999,
+      paddingHorizontal: spacing.lg,
+      borderWidth: 1,
+      borderColor: palette.hairline,
+      backgroundColor: palette.canvasElevated,
+      marginTop: spacing.md,
+    },
+    secondaryButtonLabel: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: palette.ink,
+    },
+    skipLink: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: palette.inkSecondary,
+      textAlign: 'center',
+      marginTop: spacing.sm,
+      minHeight: 44,
+      textAlignVertical: 'center',
+    },
+    identityRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      minHeight: 44,
+      paddingVertical: spacing.sm,
+    },
+    identityArrow: {
+      fontSize: 15,
+      color: palette.signalBlue,
+      fontWeight: '700',
+    },
+    emptyText: {
+      fontSize: 15,
+      color: palette.inkSecondary,
+      paddingVertical: spacing.md,
+    },
+    candidateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: 44,
+      paddingVertical: spacing.sm,
+    },
+    candidateRowSelected: {
+      backgroundColor: withAlpha(palette.signalBlue, 0.08),
+    },
+    candidateRowDisabled: {
+      opacity: 0.5,
+    },
+    candidateText: {
+      flex: 1,
+      gap: 2,
+    },
+    candidateMeta: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: palette.inkSecondary,
+      ...tabularNumerals,
+    },
+    alreadyAddedBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: 999,
+      backgroundColor: palette.canvasElevated,
+    },
+    alreadyAddedLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: palette.inkSecondary,
+    },
+    summaryGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: spacing.xl,
+    },
+    summaryStat: {
+      alignItems: 'center',
+      gap: 2,
+      minWidth: 100,
+    },
+    summaryValue: {
+      fontSize: 34,
+      fontWeight: '700',
+      color: palette.signalBlue,
+    },
+  });
+}

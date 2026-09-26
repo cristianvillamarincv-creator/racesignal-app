@@ -4,8 +4,16 @@ import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
 import { supabase } from '@/lib/supabaseClient';
+import { withTimeout } from '@/lib/timeout';
 
 WebBrowser.maybeCompleteAuthSession();
+
+/** supabase-js has no built-in request timeout — a stalled connection would otherwise leave a
+ *  caller awaiting one of these calls indefinitely (the confirmed cause of the onboarding
+ *  "Saving your race history…" spinner never recovering). 20s is generous for a real but slow
+ *  connection/cold Supabase edge function, and short enough that a genuine stall surfaces as a
+ *  recoverable error well before an athlete gives up and force-quits. */
+const AUTH_CALL_TIMEOUT_MS = 20000;
 
 /** The exact redirect used for BOTH Google OAuth and the magic-link email, so there's only ever
  *  one URL that needs to be registered in Supabase's Auth > URL Configuration allowlist. */
@@ -19,7 +27,7 @@ interface AuthResult {
   userId: string | null;
 }
 
-interface AuthContextValue {
+export interface AuthContextValue {
   /** True once the initial session read has resolved. */
   isReady: boolean;
   session: Session | null;
@@ -38,7 +46,11 @@ interface AuthContextValue {
   signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+// Exported (in addition to the useAuth hook below) so a second, alternate provider —
+// PreviewAuthProvider (lib/previewAuthContext.tsx) — can supply this same context with a stub
+// value for Developer Preview (see lib/devPreview.tsx): no real session, every auth action a
+// safety-net error. This never changes real AuthProvider's own behavior.
+export const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
  * Two sign-in methods, both only reached at the END of onboarding (after discovery + selection):
@@ -111,7 +123,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const code = parsed.searchParams.get('code');
     if (code) {
       console.log('[Auth] found a PKCE code, exchanging for a session…');
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      let data: Awaited<ReturnType<typeof supabase.auth.exchangeCodeForSession>>['data'];
+      let error: Awaited<ReturnType<typeof supabase.auth.exchangeCodeForSession>>['error'];
+      try {
+        ({ data, error } = await withTimeout(supabase.auth.exchangeCodeForSession(code), AUTH_CALL_TIMEOUT_MS, 'exchangeCodeForSession'));
+      } catch (err) {
+        console.warn('[Auth] exchangeCodeForSession did not complete:', err);
+        return {
+          error: 'Sign-in is taking longer than expected — check your connection and try again.',
+          userId: null,
+        };
+      }
       if (error) {
         console.warn('[Auth] exchangeCodeForSession failed:', error.message);
         return {
@@ -131,7 +153,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const refreshToken = fragmentParams.get('refresh_token');
     if (accessToken && refreshToken) {
       console.log('[Auth] found implicit-flow tokens in the redirect fragment, setting session…');
-      const { data, error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      let data: Awaited<ReturnType<typeof supabase.auth.setSession>>['data'];
+      let error: Awaited<ReturnType<typeof supabase.auth.setSession>>['error'];
+      try {
+        ({ data, error } = await withTimeout(
+          supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }),
+          AUTH_CALL_TIMEOUT_MS,
+          'setSession',
+        ));
+      } catch (err) {
+        console.warn('[Auth] setSession did not complete:', err);
+        return {
+          error: 'Sign-in is taking longer than expected — check your connection and try again.',
+          userId: null,
+        };
+      }
       if (error) {
         console.warn('[Auth] setSession failed:', error.message);
         return { error: `Sign-in didn’t complete — session setup failed (${error.message}).`, userId: null };

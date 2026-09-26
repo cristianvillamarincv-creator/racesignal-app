@@ -1,41 +1,36 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
-import { ActionSheetIOS, Pressable, View, type ColorValue } from 'react-native';
+import { useState } from 'react';
+import { Pressable, View } from 'react-native';
 
+import { AddRaceSheet, type AddRaceChoice } from '@/components/AddRaceSheet';
 import { Avatar } from '@/components/Avatar';
+import { SignalMark } from '@/components/SignalMark';
+import { TabIconImage } from '@/components/TabIconImage';
+import { useBrandPalette } from '@/lib/brandTheme';
 import { RaceFilterProvider, useRaceFilter } from '@/lib/raceFilterContext';
 import { useAthleteRaces } from '@/lib/racesContext';
-import { colors } from '@/lib/theme';
 
 /**
  * The one global entry point for adding a race, reachable from every tab (P0-7) — not a tab-bar
  * redesign, just a header affordance next to the existing avatar button. Order matches what's most
  * useful most often: most athletes have existing public results to recover before they'd type one
  * in by hand, and an upcoming race (which drives the Races tab's countdown) is a more common ad-hoc
- * action than backfilling a historical result manually.
+ * action than backfilling a historical result manually. Opens the brand-themed `AddRaceSheet`
+ * (owned by the caller, `TabsNavigator`) rather than the native `ActionSheetIOS` chooser.
  */
-function HeaderAddButton() {
-  const router = useRouter();
+function HeaderAddButton({ onPress }: { onPress: () => void }) {
+  const palette = useBrandPalette();
   return (
     <Pressable
-      onPress={() => {
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options: ['Find past races', 'Add upcoming race', 'Add manually', 'Cancel'],
-            cancelButtonIndex: 3,
-          },
-          (index) => {
-            if (index === 0) router.push('/find-races');
-            else if (index === 1) router.push('/race/add?mode=upcoming');
-            else if (index === 2) router.push('/race/add?mode=completed');
-          },
-        );
-      }}
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel="Add a race"
       hitSlop={8}
       style={{ marginLeft: 16, minWidth: 44, minHeight: 44, alignItems: 'flex-start', justifyContent: 'center' }}>
-      <Ionicons name="add-circle-outline" size={28} color={colors.accent} />
+      {/* A plain plus, not the circled variant — paired with search-outline's bare-glyph weight
+          rather than adding a second circular shape next to the profile avatar. */}
+      <Ionicons name="add" size={26} color={palette.signalBlue} />
     </Pressable>
   );
 }
@@ -57,6 +52,7 @@ function initialsFor(name: string | null): string {
 function HeaderSearchButton() {
   const router = useRouter();
   const { requestSearchFocus } = useRaceFilter();
+  const palette = useBrandPalette();
   return (
     <Pressable
       onPress={() => {
@@ -67,7 +63,7 @@ function HeaderSearchButton() {
       accessibilityLabel="Search races by name"
       hitSlop={8}
       style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-      <Ionicons name="search-outline" size={22} color={colors.textSecondary} />
+      <Ionicons name="search-outline" size={22} color={palette.inkSecondary} />
     </Pressable>
   );
 }
@@ -96,20 +92,6 @@ function HeaderRightGroup() {
   );
 }
 
-function TabIcon({
-  filledName,
-  outlineName,
-  color,
-  focused,
-}: {
-  filledName: keyof typeof Ionicons.glyphMap;
-  outlineName: keyof typeof Ionicons.glyphMap;
-  color: ColorValue;
-  focused: boolean;
-}) {
-  return <Ionicons name={focused ? filledName : outlineName} size={24} color={color} />;
-}
-
 export default function TabsLayout() {
   return (
     <RaceFilterProvider>
@@ -119,49 +101,62 @@ export default function TabsLayout() {
 }
 
 function TabsNavigator() {
+  const palette = useBrandPalette();
+  const router = useRouter();
+  const [isAddSheetVisible, setAddSheetVisible] = useState(false);
+
+  function handleAddRaceSelect(choice: AddRaceChoice) {
+    setAddSheetVisible(false);
+    if (choice === 'find') router.push('/find-races');
+    else if (choice === 'upcoming') router.push('/race/add?mode=upcoming');
+    else if (choice === 'manual') router.push('/race/add?mode=completed');
+  }
+
   return (
-    <Tabs
-      screenOptions={{
-        headerLeft: () => <HeaderAddButton />,
-        headerRight: () => <HeaderRightGroup />,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textSecondary,
-        tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border },
-        headerStyle: { backgroundColor: colors.background },
-        headerTintColor: colors.textPrimary,
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Races',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon filledName="flag" outlineName="flag-outline" color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="stats"
-        options={{
-          title: 'Stats',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon filledName="trophy" outlineName="trophy-outline" color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="ask"
-        options={{
-          title: 'Signal',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              filledName="sparkles"
-              outlineName="sparkles-outline"
-              color={color}
-              focused={focused}
-            />
-          ),
-        }}
-      />
-    </Tabs>
+    <>
+      <Tabs
+        screenOptions={{
+          headerLeft: () => <HeaderAddButton onPress={() => setAddSheetVisible(true)} />,
+          headerRight: () => <HeaderRightGroup />,
+          tabBarActiveTintColor: palette.signalBlue,
+          tabBarInactiveTintColor: palette.inkSecondary,
+          tabBarStyle: { backgroundColor: palette.headerBackground, borderTopColor: palette.hairline },
+          headerStyle: { backgroundColor: palette.headerBackground },
+          headerTintColor: palette.ink,
+        }}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Races',
+            // Final supplied production glyph (mobile/src/assets/races-tab-icon.png), tinted the
+            // same way as the Signal tab's own mark — size matches SignalMark's 22px so none of the
+            // three tab icons visually dominates the others.
+            tabBarIcon: ({ color }) => <TabIconImage source={require('../../assets/races-tab-icon.png')} color={color} size={22} />,
+          }}
+        />
+        <Tabs.Screen
+          name="stats"
+          options={{
+            title: 'Stats',
+            // Optical sizing only — the supplied glyph itself is unchanged, this just carries
+            // similar visual weight to the Races icon (22px) and the Signal mark (22px).
+            tabBarIcon: ({ color }) => <TabIconImage source={require('../../assets/stats-tab-icon.png')} color={color} size={24} />,
+          }}
+        />
+        <Tabs.Screen
+          name="ask"
+          options={{
+            title: 'Signal',
+            // The app's own proprietary Signal mark, not a generic AI-sparkle glyph — this is the
+            // single most persistent "AI chatbot" tell in the app's chrome, so it uses the same mark
+            // as the Signal module and app icon rather than an icon-library symbol.
+            tabBarIcon: ({ color }) => <SignalMark color={color} size={22} />,
+          }}
+        />
+      </Tabs>
+      {/* Rendered as a sibling of the Tabs navigator (not inside a single screen) so it can present
+          on top of whichever tab is currently active. */}
+      <AddRaceSheet visible={isAddSheetVisible} onClose={() => setAddSheetVisible(false)} onSelect={handleAddRaceSelect} />
+    </>
   );
 }

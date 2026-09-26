@@ -3,15 +3,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BuildHistoryEmptyState } from '@/components/BuildHistoryEmptyState';
-import { Card } from '@/components/Card';
+import { CompactFilterBar, type CompactFilterOption } from '@/components/CompactFilterBar';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
-import { FilterChip } from '@/components/FilterChip';
+import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { RaceRow } from '@/components/races/RaceRow';
 import { UpcomingCarousel } from '@/components/races/UpcomingCarousel';
 import { SectionHeader } from '@/components/SectionHeader';
-import type { Race } from '@/fixtures/races';
+import type { Race, SportCategory } from '@/fixtures/races';
+import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
 import { getAllHighlightsUnfiltered, pickPrimaryHighlight } from '@/lib/highlights';
 import { ALL_SPORTS, ALL_YEARS, useRaceFilter } from '@/lib/raceFilterContext';
 import {
@@ -24,7 +25,7 @@ import {
   yearOf,
 } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
-import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
+import { minTouchSize, spacing } from '@/lib/theme';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - spacing.lg * 2;
@@ -39,6 +40,8 @@ const CAROUSEL_CARD_WIDTH = SCREEN_WIDTH - spacing.lg * 2;
 export default function RacesScreen() {
   const router = useRouter();
   const races = useAthleteRaces();
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const { sportFilter, setSportFilter, yearFilter, setYearFilter, searchFocusRequestId } = useRaceFilter();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
@@ -71,6 +74,25 @@ export default function RacesScreen() {
   const years = useMemo(() => getAvailableYears(races.data), [races.data]);
   const allHighlights = useMemo(() => getAllHighlightsUnfiltered(races.data), [races.data]);
   const isSearching = searchQuery.trim().length > 0;
+
+  const sportLabel = sportFilter === ALL_SPORTS ? 'All sports' : capitalize(sportFilter);
+  const yearLabel = yearFilter === ALL_YEARS ? 'All years' : `${yearFilter}`;
+  const sportOptions: CompactFilterOption[] = [
+    { key: ALL_SPORTS, label: 'All sports', selected: sportFilter === ALL_SPORTS },
+    ...sports.map((option) => ({ key: option, label: capitalize(option), selected: sportFilter === option })),
+  ];
+  const yearOptions: CompactFilterOption[] = [
+    { key: ALL_YEARS, label: 'All years', selected: yearFilter === ALL_YEARS },
+    ...years.map((option) => ({ key: `${option}`, label: `${option}`, selected: yearFilter === option })),
+  ];
+
+  function selectSport(key: string) {
+    setSportFilter(key === ALL_SPORTS ? ALL_SPORTS : (key as SportCategory));
+  }
+
+  function selectYear(key: string) {
+    setYearFilter(key === ALL_YEARS ? ALL_YEARS : Number(key));
+  }
 
   const upcomingAll = useMemo(() => getUpcomingRaces(races.data), [races.data]);
   const upcomingFiltered = useMemo(() => {
@@ -129,7 +151,7 @@ export default function RacesScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   placeholder="Search races by name"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={palette.inkSecondary}
                   style={styles.searchInput}
                   accessibilityLabel="Search races by name"
                   autoCorrect={false}
@@ -148,43 +170,17 @@ export default function RacesScreen() {
               </View>
             ) : null}
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterRow}>
-              <FilterChip
-                label="All sports"
-                selected={sportFilter === ALL_SPORTS}
-                onPress={() => setSportFilter(ALL_SPORTS)}
-              />
-              {sports.map((sport) => (
-                <FilterChip
-                  key={sport}
-                  label={capitalize(sport)}
-                  selected={sportFilter === sport}
-                  onPress={() => setSportFilter(sport)}
-                />
-              ))}
-            </ScrollView>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.filterRow}>
-              <FilterChip
-                label="All years"
-                selected={yearFilter === ALL_YEARS}
-                onPress={() => setYearFilter(ALL_YEARS)}
-              />
-              {years.map((year) => (
-                <FilterChip
-                  key={year}
-                  label={`${year}`}
-                  selected={yearFilter === year}
-                  onPress={() => setYearFilter(year)}
-                />
-              ))}
-            </ScrollView>
+            {/* The one shared filter treatment — identical component/behavior to Stats. Removing
+                the two horizontal chip rows in favor of this one compact line also means the
+                athlete reaches "Upcoming" noticeably faster when scrolling down. */}
+            <CompactFilterBar
+              sportLabel={sportLabel}
+              yearLabel={yearLabel}
+              sportOptions={sportOptions}
+              yearOptions={yearOptions}
+              onSelectSport={selectSport}
+              onSelectYear={selectYear}
+            />
 
             {premiumHint ? <Text style={styles.premiumHint}>{premiumHint}</Text> : null}
 
@@ -212,7 +208,7 @@ export default function RacesScreen() {
             ) : upcomingFiltered.length > 0 ? (
               <View style={styles.section}>
                 <SectionHeader title="Upcoming" />
-                <Card>
+                <View style={styles.rowsGroup}>
                   {upcomingFiltered.map((race, index) => (
                     <RaceRow
                       key={race.id}
@@ -222,7 +218,7 @@ export default function RacesScreen() {
                       isLast={index === upcomingFiltered.length - 1}
                     />
                   ))}
-                </Card>
+                </View>
               </View>
             ) : null}
 
@@ -234,10 +230,13 @@ export default function RacesScreen() {
                   subtitle={isSearching ? 'Try a different name.' : 'Nothing matches this filter yet.'}
                 />
               ) : (
-                yearGroups.map((group) => (
-                  <View key={group.year} style={styles.yearGroup}>
+                yearGroups.map((group, index) => (
+                  <View key={group.year} style={[styles.yearGroup, index === 0 && styles.firstYearGroup]}>
                     <Text style={styles.yearHeader}>{group.year}</Text>
-                    <Card>
+                    <View style={styles.yearHeaderRule}>
+                      <HairlineRule color={palette.hairline} />
+                    </View>
+                    <View style={styles.rowsGroup}>
                       {group.races.map((race, index) => (
                         <RaceRow
                           key={race.id}
@@ -247,7 +246,7 @@ export default function RacesScreen() {
                           isLast={index === group.races.length - 1}
                         />
                       ))}
-                    </Card>
+                    </View>
                   </View>
                 ))
               )}
@@ -263,73 +262,94 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    padding: spacing.lg,
-    gap: spacing.lg,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  searchInput: {
-    flex: 1,
-    minHeight: minTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: spacing.md,
-    color: colors.textPrimary,
-  },
-  cancelButton: {
-    minHeight: minTouchSize,
-    paddingHorizontal: spacing.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelButtonLabel: {
-    ...typography.body,
-    color: colors.accent,
-    fontWeight: '600',
-  },
-  filterRow: {
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  premiumHint: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  addRaceButton: {
-    minHeight: 44,
-    paddingHorizontal: spacing.lg,
-    justifyContent: 'center',
-    borderRadius: 999,
-    backgroundColor: colors.accent,
-  },
-  addRaceButtonLabel: {
-    color: colors.background,
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  section: {
-    gap: spacing.sm,
-  },
-  yearGroup: {
-    gap: spacing.xs,
-  },
-  yearHeader: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    marginTop: spacing.sm,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.accent,
-  },
-});
+function createStyles(palette: BrandPalette) {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: palette.canvas,
+    },
+    content: {
+      padding: spacing.lg,
+      gap: spacing.lg,
+    },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    searchInput: {
+      flex: 1,
+      minHeight: minTouchSize,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: palette.hairline,
+      borderRadius: 10,
+      paddingHorizontal: spacing.md,
+      color: palette.ink,
+    },
+    cancelButton: {
+      minHeight: minTouchSize,
+      paddingHorizontal: spacing.xs,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cancelButtonLabel: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: palette.signalBlue,
+    },
+    premiumHint: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: palette.inkSecondary,
+    },
+    addRaceButton: {
+      minHeight: 44,
+      paddingHorizontal: spacing.lg,
+      justifyContent: 'center',
+      borderRadius: 999,
+      backgroundColor: palette.signalBlue,
+    },
+    addRaceButtonLabel: {
+      color: palette.onSignalBlue,
+      fontWeight: '700',
+      fontSize: 15,
+    },
+    section: {
+      gap: spacing.sm,
+    },
+    rowsGroup: {
+      gap: 0,
+    },
+    yearGroup: {
+      gap: 0,
+      // Real editorial separation BETWEEN one year's races and the next year's — per physical-
+      // device review, spacing.xxl + spacing.sm (40) read as too much dead space between the final
+      // race of one year and the next year heading. spacing.xl (24) keeps a deliberate section
+      // break (clearly more than a row-to-row gap, which relies on RaceRow's own internal padding
+      // with no extra gap here) without the previous oversized whitespace. Individual race rows and
+      // achievement-pill spacing (RaceRow.tsx) are untouched.
+      marginTop: spacing.xl,
+    },
+    // The first year group sits directly under the "Completed" section label, which already carries
+    // its own marginBottom — stacking the full inter-year gap on top of that made the top of the
+    // list oversized. A large 32px/800 year number still has enough visual mass to read as its own
+    // disconnected block even at a small gap, so this pulls it up slightly closer to "Completed"
+    // rather than relying on the section-header spacing alone.
+    firstYearGroup: {
+      marginTop: -4,
+    },
+    // A year is a bigger structural moment than a mid-page section label (SectionHeader's 17px) —
+    // sized closer to a real editorial section break, not just another line of text. Kept tight to
+    // the hairline/first race below it so "Completed" → year → first race reads as one section.
+    yearHeader: {
+      fontSize: 32,
+      fontWeight: '800',
+      color: palette.ink,
+      marginBottom: 2,
+      ...tabularNumerals,
+    },
+    yearHeaderRule: {
+      marginBottom: 2,
+    },
+  });
+}

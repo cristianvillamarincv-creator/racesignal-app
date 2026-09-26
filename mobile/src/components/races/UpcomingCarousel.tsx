@@ -3,7 +3,8 @@ import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, StyleShe
 
 import { RaceCountdownCard } from '@/components/race/RaceCountdownCard';
 import type { Race } from '@/fixtures/races';
-import { colors, spacing } from '@/lib/theme';
+import { useBrandPalette } from '@/lib/brandTheme';
+import { spacing } from '@/lib/theme';
 
 interface UpcomingCarouselProps {
   races: Race[];
@@ -18,6 +19,7 @@ interface UpcomingCarouselProps {
  * cue that more than one card existed to swipe to.
  */
 export function UpcomingCarousel({ races, cardWidth, onOpenRace }: UpcomingCarouselProps) {
+  const palette = useBrandPalette();
   const [activeIndex, setActiveIndex] = useState(0);
   const pageWidth = cardWidth + spacing.md;
 
@@ -45,7 +47,14 @@ export function UpcomingCarousel({ races, cardWidth, onOpenRace }: UpcomingCarou
       {races.length > 1 ? (
         <View style={styles.dots} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           {races.map((race, index) => (
-            <View key={race.id} style={[styles.dot, index === activeIndex && styles.dotActive]} />
+            <View
+              key={race.id}
+              style={[
+                styles.dot,
+                { backgroundColor: palette.hairline },
+                index === activeIndex && { backgroundColor: palette.signalBlue, width: 16 },
+              ]}
+            />
           ))}
         </View>
       ) : null}
@@ -67,10 +76,5 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: colors.border,
-  },
-  dotActive: {
-    backgroundColor: colors.accent,
-    width: 16,
   },
 });

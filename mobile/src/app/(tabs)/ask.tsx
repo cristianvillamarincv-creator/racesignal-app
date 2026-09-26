@@ -1,18 +1,23 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
-import { Card } from '@/components/Card';
 import { ErrorState } from '@/components/ErrorState';
+import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { SectionHeader } from '@/components/SectionHeader';
+import { SignalMark } from '@/components/SignalMark';
+import { SignalModule } from '@/components/SignalModule';
 import { useAuth } from '@/lib/auth';
+import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { fetchRecentSignalConversations, type SignalConversationRow } from '@/lib/db/signal';
 import { formatRelativeDate } from '@/lib/format';
+import { AppIcon } from '@/lib/icons';
 import { getSuggestedPrompts } from '@/lib/signalContext';
 import { getNextRace } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
-import { colors, spacing, typography } from '@/lib/theme';
+import { minTouchSize, spacing } from '@/lib/theme';
 
 /**
  * Signal tab (Step 5, V1) — the minimal real landing, not the mocked chat this used to be. No
@@ -25,6 +30,8 @@ export default function AskScreen() {
   const router = useRouter();
   const races = useAthleteRaces();
   const { session } = useAuth();
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const [recentConversations, setRecentConversations] = useState<SignalConversationRow[]>([]);
 
   // Refetch on focus (not just mount) — this tab stays mounted across tab switches, so a
@@ -65,141 +72,235 @@ export default function AskScreen() {
     router.push(raceId ? { pathname: '/signal', params: { raceId } } : '/signal');
   }
 
+  // Same construction results/[id].tsx uses for its own Signal module — a lighter tinted border in
+  // light mode, unchanged in dark, so the module carries itself without a heavy card outline.
+  const signalModuleColors = {
+    ink: palette.ink,
+    inkSecondary: palette.inkSecondary,
+    signalBlue: palette.signalBlue,
+    surfaceTint: withAlpha(palette.signalBlue, 0.08),
+    badgeTint: withAlpha(palette.signalBlue, 0.18),
+    borderTint: withAlpha(palette.signalBlue, palette.statusBarStyle === 'dark' ? 0.1 : 0.18),
+    onSignalBlue: palette.onSignalBlue,
+  };
+
+  // A quiet in-module divider — a hairline tinted toward signalBlue rather than the neutral
+  // palette.hairline, so the three prompt rows read as belonging to one branded surface rather than
+  // borrowing the plain editorial hairline used for history lists elsewhere on this screen.
+  const suggestionDividerColor = withAlpha(palette.signalBlue, palette.statusBarStyle === 'dark' ? 0.16 : 0.14);
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
-        <Text style={typography.title}>Signal</Text>
-        <Text style={styles.subcopy}>
-          Signal is your performance analyst — it reads your race history, splits, and rankings to
-          answer what your data is actually telling you.
-        </Text>
-
+        {/* 1 — Next race: the most prominent thing on this screen. The analytical question is the
+            entry point itself — athlete-specific, interrogative, forward-looking — rather than a
+            separate generic "what Signal is" paragraph above it. */}
         {nextRace ? (
-          <Pressable
-            onPress={() => openSignal(nextRace.id)}
-            accessibilityRole="button"
-            accessibilityLabel={`Ask Signal about ${nextRace.name}`}>
-            <Card>
-              <Text style={typography.label}>YOUR NEXT RACE</Text>
-              <Text style={styles.nextRaceName}>{nextRace.name}</Text>
-              <Text style={styles.nextRaceCta}>Ask Signal about this race →</Text>
-            </Card>
-          </Pressable>
+          <View style={styles.nextRaceBlock}>
+            <Text style={styles.kicker}>Your next race</Text>
+            <SignalModule
+              title={`What does my history suggest for ${nextRace.name}?`}
+              supportingText="See how your history and recent form line up with what's ahead."
+              onPress={() => openSignal(nextRace.id)}
+              colors={signalModuleColors}
+            />
+          </View>
         ) : null}
 
-        <View style={styles.suggestionRow}>
-          {suggestions.map((suggestion) => (
-            <Pressable
-              key={suggestion}
-              onPress={() => openSignal()}
-              accessibilityRole="button"
-              accessibilityLabel={suggestion}
-              style={styles.suggestionChip}>
-              <Text style={styles.suggestionLabel}>{suggestion}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Pressable
-          onPress={() => openSignal()}
-          accessibilityRole="button"
-          accessibilityLabel="Ask Signal"
-          style={styles.askButton}>
-          <Text style={styles.askButtonLabel}>Ask Signal</Text>
-        </Pressable>
-
+        {/* 2 — Recent Signals: completed analysis HISTORY. Deliberately unboxed/editorial — the
+            distinction from the Prompt Actions module below comes from typography and a quiet
+            chevron, not from suddenly wrapping history in cards. The Signal mark appears once here,
+            subtly, as a section-level accent (not repeated per row) marking this as Signal's own
+            record of past analyses. Title is the primary text; the relative timestamp is clearly
+            secondary, smaller and quieter — there's no snippet/preview field in signal_conversations
+            to show beyond that. */}
         {recentConversations.length > 0 ? (
           <View style={styles.recentSection}>
-            <Text style={typography.label}>RECENT SIGNALS</Text>
-            {recentConversations.map((conversation) => (
-              <Pressable
-                key={conversation.id}
-                onPress={() => router.push({ pathname: '/signal', params: { conversationId: conversation.id } })}
-                accessibilityRole="button"
-                accessibilityLabel={`Reopen conversation: ${conversation.title}`}
-                style={styles.recentRow}>
-                <Text style={styles.recentTitle} numberOfLines={1}>
-                  {conversation.title}
-                </Text>
-                <Text style={styles.recentMeta}>{formatRelativeDate(conversation.updated_at)}</Text>
-              </Pressable>
+            <View style={styles.recentHeaderRow}>
+              <SignalMark color={palette.inkSecondary} size={14} />
+              <View style={styles.recentHeaderTitle}>
+                <SectionHeader title="Recent Signals" />
+              </View>
+            </View>
+            {recentConversations.map((conversation, index) => (
+              <View key={conversation.id}>
+                <Pressable
+                  onPress={() => router.push({ pathname: '/signal', params: { conversationId: conversation.id } })}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Reopen conversation: ${conversation.title}`}
+                  style={styles.recentRow}>
+                  <View style={styles.recentTextBlock}>
+                    <Text style={styles.recentTitle} numberOfLines={1}>
+                      {conversation.title}
+                    </Text>
+                    <Text style={styles.recentMeta}>{formatRelativeDate(conversation.updated_at)}</Text>
+                  </View>
+                  <AppIcon name="chevron-right" size={16} color={palette.inkSecondary} />
+                </Pressable>
+                {index < recentConversations.length - 1 ? <HairlineRule color={palette.hairline} /> : null}
+              </View>
             ))}
           </View>
         ) : null}
+
+        {/* 3 — Things worth asking: ACTIONS, grouped into one Signal-Blue-tinted Prompt Actions
+            module — a single surface (not three separate pills) so the three prompts read as one
+            intentional "things I can ask" unit, visibly distinct from the plain history list above
+            it. Restrained hairlines separate the rows *within* the module only; each row keeps a
+            comfortable touch target and its own chevron. */}
+        {suggestions.length > 0 ? (
+          <View style={styles.suggestionsBlock}>
+            <Text style={styles.kicker}>Things worth asking</Text>
+            <View style={styles.suggestionsModule}>
+              {suggestions.map((suggestion, index) => (
+                <View key={suggestion}>
+                  <Pressable
+                    onPress={() => openSignal()}
+                    accessibilityRole="button"
+                    accessibilityLabel={suggestion}
+                    style={styles.suggestionRow}>
+                    <Text style={styles.suggestionLabel}>{suggestion}</Text>
+                    <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
+                  </Pressable>
+                  {index < suggestions.length - 1 ? <HairlineRule color={suggestionDividerColor} /> : null}
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
+        {/* 4 — Free-form "Ask Signal" entry: last, most secondary/quiet — deliberately plain (no
+            card, no fill, no border) so it never competes with the next-race module above it. */}
+        <Pressable
+          onPress={() => openSignal()}
+          accessibilityRole="button"
+          accessibilityLabel="Ask Signal anything"
+          style={styles.askAnythingRow}>
+          <SignalMark color={palette.signalBlue} size={16} />
+          <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
+          <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
+        </Pressable>
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    padding: spacing.lg,
-    gap: spacing.lg,
-  },
-  subcopy: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
-  nextRaceName: {
-    ...typography.subtitle,
-    marginTop: spacing.xs,
-  },
-  nextRaceCta: {
-    ...typography.body,
-    color: colors.accent,
-    fontWeight: '600',
-    marginTop: spacing.sm,
-  },
-  suggestionRow: {
-    gap: spacing.sm,
-  },
-  suggestionChip: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  suggestionLabel: {
-    ...typography.body,
-    fontWeight: '600',
-  },
-  askButton: {
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    backgroundColor: colors.accent,
-  },
-  askButtonLabel: {
-    ...typography.body,
-    fontWeight: '700',
-    color: colors.background,
-  },
-  recentSection: {
-    gap: spacing.xs,
-  },
-  recentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 44,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  recentTitle: {
-    ...typography.body,
-    flex: 1,
-  },
-  recentMeta: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-});
+interface Styles {
+  screen: ViewStyle;
+  content: ViewStyle;
+  nextRaceBlock: ViewStyle;
+  kicker: TextStyle;
+  suggestionsBlock: ViewStyle;
+  suggestionsModule: ViewStyle;
+  suggestionRow: ViewStyle;
+  suggestionLabel: TextStyle;
+  askAnythingRow: ViewStyle;
+  askAnythingLabel: TextStyle;
+  recentSection: ViewStyle;
+  recentHeaderRow: ViewStyle;
+  recentHeaderTitle: ViewStyle;
+  recentRow: ViewStyle;
+  recentTextBlock: ViewStyle;
+  recentTitle: TextStyle;
+  recentMeta: TextStyle;
+}
+
+function createStyles(palette: BrandPalette): Styles {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: palette.canvas,
+    },
+    content: {
+      padding: spacing.lg,
+      // Real vertical rhythm between the four sections — each section then sets its own tighter
+      // internal spacing, so the page reads as distinct blocks of differing weight rather than
+      // uniform slots stacked in a row.
+      gap: spacing.xxl,
+    },
+    // 1 — Next race: the analytical entry point itself, most prominent on the screen.
+    nextRaceBlock: {
+      gap: spacing.sm,
+    },
+    kicker: {
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.6,
+      color: palette.inkSecondary,
+    },
+    // 3 — Things worth asking: ONE grouped, Signal-Blue-tinted Prompt Actions module — the tinted
+    // surface + border is what signals "these are actions", not per-row pills.
+    suggestionsBlock: {
+      gap: spacing.sm,
+    },
+    suggestionsModule: {
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: withAlpha(palette.signalBlue, palette.statusBarStyle === 'dark' ? 0.14 : 0.18),
+      backgroundColor: withAlpha(palette.signalBlue, 0.08),
+      paddingHorizontal: spacing.md,
+      overflow: 'hidden',
+    },
+    suggestionRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: 48,
+      paddingVertical: spacing.sm,
+    },
+    suggestionLabel: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: '500',
+      color: palette.ink,
+    },
+    // 4 — Ask Signal: a quiet, single action row — deliberately plain (no card, no fill, no
+    // border) so it never reads as a second SignalModule-weight block next to the next-race card.
+    askAnythingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: minTouchSize,
+    },
+    askAnythingLabel: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: '600',
+      color: palette.signalBlue,
+    },
+    // 2 — Recent Signals: analysis HISTORY — unboxed editorial list, title-primary/timestamp-
+    // secondary, with a single subtle section-level Signal mark (not repeated per row).
+    recentSection: {
+      gap: spacing.xs,
+    },
+    recentHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    recentHeaderTitle: {
+      flex: 1,
+    },
+    recentRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      minHeight: 44,
+      paddingVertical: spacing.sm,
+    },
+    recentTextBlock: {
+      flex: 1,
+      gap: 2,
+    },
+    recentTitle: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: palette.ink,
+    },
+    recentMeta: {
+      fontSize: 12,
+      color: palette.inkSecondary,
+    },
+  });
+}

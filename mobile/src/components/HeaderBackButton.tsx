@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Pressable, type ColorValue } from 'react-native';
 
-import { colors } from '@/lib/theme';
+import { useBrandPalette } from '@/lib/brandTheme';
 
 /**
  * The one standardized Back control for every pushed stack screen (Settings, Find My Races,
@@ -16,9 +16,8 @@ import { colors } from '@/lib/theme';
  * fallback destination; a screen with no back history (shouldn't happen for anything this is used
  * on) just renders an inert button rather than jumping somewhere arbitrary.
  *
- * `color` defaults to the app-wide accent (every current call site) — a screen using a different
- * token system (e.g. results/[id].tsx's "Race Morning Precision" palette) can override it locally
- * without this component needing to know about that palette.
+ * `color` defaults to the brand palette's `signalBlue` (the app's one interactive color) — any
+ * screen can still override it locally without this component needing to know why.
  *
  * `circular` (default false — every existing call site is unaffected) renders the button as a
  * single, unified ~44x44 circle — the same element is both the visual circle and the full tappable
@@ -26,7 +25,7 @@ import { colors } from '@/lib/theme';
  * "ghost container") around it.
  */
 export function HeaderBackButton({
-  color = colors.accent,
+  color,
   circular = false,
   circleBackground,
 }: {
@@ -35,6 +34,9 @@ export function HeaderBackButton({
   circleBackground?: ColorValue;
 }) {
   const router = useRouter();
+  const palette = useBrandPalette();
+  const resolvedColor = color ?? palette.signalBlue;
+  const resolvedCircleBackground = circleBackground ?? palette.canvasElevated;
   return (
     <Pressable
       onPress={() => {
@@ -45,10 +47,10 @@ export function HeaderBackButton({
       hitSlop={circular ? 0 : 8}
       style={
         circular
-          ? { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: circleBackground }
+          ? { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: resolvedCircleBackground }
           : { marginLeft: 8, minWidth: 44, minHeight: 44, alignItems: 'flex-start', justifyContent: 'center' }
       }>
-      <Ionicons name="chevron-back" size={circular ? 20 : 26} color={color} />
+      <Ionicons name="chevron-back" size={circular ? 20 : 26} color={resolvedColor} />
     </Pressable>
   );
 }

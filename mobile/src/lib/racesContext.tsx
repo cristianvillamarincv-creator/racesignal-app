@@ -23,7 +23,7 @@ export interface ManualRaceInput {
   bib?: string;
 }
 
-interface AthleteRacesContextValue {
+export interface AthleteRacesContextValue {
   isLoading: boolean;
   isError: boolean;
   data: Race[];
@@ -42,7 +42,11 @@ interface AthleteRacesContextValue {
   applyImportedRaces: (rows: RaceRow[]) => void;
 }
 
-const AthleteRacesContext = createContext<AthleteRacesContextValue | null>(null);
+// Exported (in addition to the useAthleteRaces hook below) so a second, alternate provider —
+// PreviewAthleteRacesProvider (lib/previewRacesContext.tsx) — can supply this same context with an
+// in-memory fixture-backed value for Developer Preview (see lib/devPreview.tsx), letting every real
+// screen that calls useAthleteRaces() work unmodified under either provider.
+export const AthleteRacesContext = createContext<AthleteRacesContextValue | null>(null);
 
 /**
  * Single source of truth for the authenticated athlete's persisted races — replaces the A.3

@@ -1,7 +1,8 @@
 import * as Linking from 'expo-linking';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -9,10 +10,17 @@ import {
   Text,
   TextInput,
   View,
+  type TextStyle,
+  type ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Card } from '@/components/Card';
+import { HairlineRule } from '@/components/HairlineRule';
+import { RaceLineMotif } from '@/components/RaceLineMotif';
+import { SignalMark } from '@/components/SignalMark';
 import { useAuth } from '@/lib/auth';
+import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
+import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import {
   fetchImportedProviderResultIds,
   fetchOnboardingCompletedAt,
@@ -20,6 +28,7 @@ import {
   markOnboardingComplete,
   upsertAthleteProfile,
 } from '@/lib/db/races';
+import { formatRaceDate } from '@/lib/format';
 import { AppIcon } from '@/lib/icons';
 import { normalizeNameForQuery } from '@/lib/nameNormalization';
 import { clearOnboardingDraft, loadOnboardingDraft, saveOnboardingDraft } from '@/lib/onboardingDraft';
@@ -34,7 +43,7 @@ import {
 } from '@/lib/raceDiscovery';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { isSupabaseConfigured } from '@/lib/supabaseClient';
-import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
+import { minTouchSize, spacing } from '@/lib/theme';
 
 /**
  * B.1: value before signup. Racing name -> discovery (unauthenticated) -> the athlete bulk-selects
@@ -54,6 +63,12 @@ import { colors, minTouchSize, spacing, typography } from '@/lib/theme';
  * written by markOnboardingComplete once runImport reaches its terminal state) — not an
  * AsyncStorage flag and not "does a profile row exist," both of which we've seen fail to reflect
  * reality. See lib/appPhase.tsx.
+ *
+ * Visual language: "Race Morning Precision" (brandTheme.ts), matching results/[id].tsx and the
+ * already-migrated Races tab (RaceRow.tsx) — cool dark / technical-paper light canvas, large
+ * editorial headlines, hairline rules instead of boxed cards, and signalBlue as the one
+ * interactive color. This is a presentation-only pass — every handler above/below stays wired
+ * exactly as before; only JSX composition and styling changed.
  */
 type Step =
   | 'restoring'
@@ -92,9 +107,19 @@ function unavailableCopy(reason: UnavailableReason): string {
 
 interface OnboardingFlowProps {
   onComplete: () => void;
+  /** Developer Preview's "Replay onboarding (simulated)" mode (see lib/devPreview.tsx and
+   *  _layout.tsx) — false/omitted for the real flow, which is completely unaffected. When true,
+   *  the magic-link send/resend handlers never call the real `requestMagicLink()`, and CheckEmailStep
+   *  shows an extra dev-only button that hands off to `onSimulatedComplete` instead of any real
+   *  auth/import code path. */
+  simulateAuth?: boolean;
+  /** Only meaningful when `simulateAuth` is true — called when the tester taps CheckEmailStep's
+   *  "Simulate tapping the magic link" button. Never calls completeAuthFromUrl, resumeFromDraftAndImport,
+   *  or runImport; the real auth/import code stays completely unexercised for the simulated case. */
+  onSimulatedComplete?: () => void;
 }
 
-export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
+export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedComplete }: OnboardingFlowProps) {
   const { session, requestMagicLink, completeAuthFromUrl } = useAuth();
   const { applyImportedRaces } = useAthleteRaces();
 
@@ -137,8 +162,19 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const [totalSelectedForRun, setTotalSelectedForRun] = useState(0);
 
   const processedUrlRef = useRef<string | null>(null);
+  // Guards against two overlapping runImport calls both succeeding and inserting the same races
+  // twice — e.g. a cold-start resume and the warm Linking listener both firing for the same
+  // completed sign-in, or a retry started while a still-hung prior attempt hasn't yet given up.
+  const importInFlightRef = useRef(false);
   const selectedCount = selectedIds.size;
   const canRetryImport = retryFetchCandidates.length > 0 || retryInsertRows.length > 0;
+
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
+  // The shared ScrollView below has no native header reserving space above it — every step's
+  // content must clear the status bar itself on notched/Dynamic-Island devices, the same
+  // insets.top-aware approach results/[id].tsx uses for its own floating-header layout.
+  const insets = useSafeAreaInsets();
 
   // Cold start: the app may have been relaunched by tapping a magic link or returning from the
   // Google browser sheet after the JS context was lost (Android especially). Recover any pending
@@ -211,19 +247,31 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
    * — there is nothing to import.
    */
   async function resumeReturningUser(userId: string) {
-    await clearOnboardingDraft();
-    const completedAt = await fetchOnboardingCompletedAt(userId);
-    if (completedAt) {
-      onComplete();
-      return;
+    try {
+      await clearOnboardingDraft();
+      const completedAt = await fetchOnboardingCompletedAt(userId);
+      if (completedAt) {
+        onComplete();
+        return;
+      }
+      // Authenticated, but either this athlete genuinely never finished onboarding, OR the check
+      // above timed out/failed and returned null indistinguishably from "not onboarded" (see
+      // fetchOnboardingCompletedAt's doc comment) — both land here safely: resume the normal flow
+      // from the top. They're already signed in, so proceedFromCandidates/skipDiscovery will skip
+      // straight to import once reached, instead of asking them to sign in again. Worst case for
+      // the timeout scenario is a redundant re-search, never data loss or a stuck screen.
+      setIsReturningUserFlow(false);
+      setAuthError(null);
+      setStep('identity');
+    } catch (err) {
+      // fetchOnboardingCompletedAt/clearOnboardingDraft are both already internally safe and
+      // shouldn't throw — this is a last-resort net so a genuinely authenticated athlete is never
+      // left on an indefinite spinner if something here still goes wrong.
+      console.warn('[Onboarding] resumeReturningUser failed unexpectedly:', err);
+      setIsReturningUserFlow(false);
+      setAuthError('Signed in, but something went wrong loading your account. Please try again.');
+      setStep('identity');
     }
-    // Authenticated, but this athlete genuinely never finished onboarding (e.g. a prior attempt
-    // was abandoned before ever importing a race). Resume the normal flow from the top — they're
-    // already signed in, so proceedFromCandidates/skipDiscovery will skip straight to import
-    // once reached, instead of asking them to sign in again.
-    setIsReturningUserFlow(false);
-    setAuthError(null);
-    setStep('identity');
   }
 
   function startReturningUserSignIn() {
@@ -237,45 +285,64 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     processedUrlRef.current = url;
 
     setStep('importing');
-    const { error, userId } = await completeAuthFromUrl(url);
-    if (!userId) {
-      setAuthError(error ?? 'Sign-in did not complete. Please try again.');
+    try {
+      const { error, userId } = await completeAuthFromUrl(url);
+      if (!userId) {
+        setAuthError(error ?? 'Sign-in did not complete. Please try again.');
+        setStep(isReturningUserFlow ? 'emailForm' : 'save');
+        return;
+      }
+      await resumeFromDraftAndImport(userId);
+    } catch (err) {
+      // A safety net, not the primary fix — completeAuthFromUrl and fetchOnboardingCompletedAt are
+      // already timeout-bounded and internally caught (see lib/auth.tsx, lib/db/races.ts), so this
+      // should rarely fire. It exists so ANY unexpected failure in this chain still lands on a
+      // recoverable screen instead of leaving the athlete stuck on the importing spinner forever —
+      // selections/draft state are untouched, so retrying from here is safe.
+      console.warn('[Onboarding] processAuthRedirect failed unexpectedly:', err);
+      setAuthError('Something went wrong finishing sign-in. Please try again.');
       setStep(isReturningUserFlow ? 'emailForm' : 'save');
-      return;
     }
-    await resumeFromDraftAndImport(userId);
   }
 
   async function restorePendingAuth() {
-    const draft = await loadOnboardingDraft();
-    if (!draft) {
-      setStep('identity');
-      return;
-    }
-
-    // Restore visible state immediately so a "sign-in never completed" fallback below lands on
-    // the athlete's actual selections, not a blank screen.
-    setRacingName(draft.racingName);
-    setBirthYearHint(draft.birthYearHint);
-    setCandidates(draft.candidates);
-    setSelectedIds(new Set(draft.selectedResultIds));
-
-    let athleteId = session?.user.id ?? null;
-    if (!athleteId) {
-      const initialUrl = await Linking.getInitialURL();
-      if (initialUrl?.includes('auth-callback') && processedUrlRef.current !== initialUrl) {
-        processedUrlRef.current = initialUrl;
-        const { userId } = await completeAuthFromUrl(initialUrl);
-        athleteId = userId;
+    let draft: Awaited<ReturnType<typeof loadOnboardingDraft>> = null;
+    try {
+      draft = await loadOnboardingDraft();
+      if (!draft) {
+        setStep('identity');
+        return;
       }
-    }
 
-    if (athleteId) {
-      await resumeFromDraftAndImport(athleteId);
-    } else {
-      // Sign-in never completed (e.g. they cancelled, or the email hasn't been tapped yet) — land
-      // back on their restored selections rather than making them search again.
-      setStep(draft.candidates.length > 0 ? 'candidates' : 'identity');
+      // Restore visible state immediately so a "sign-in never completed" fallback below lands on
+      // the athlete's actual selections, not a blank screen.
+      setRacingName(draft.racingName);
+      setBirthYearHint(draft.birthYearHint);
+      setCandidates(draft.candidates);
+      setSelectedIds(new Set(draft.selectedResultIds));
+
+      let athleteId = session?.user.id ?? null;
+      if (!athleteId) {
+        const initialUrl = await Linking.getInitialURL();
+        if (initialUrl?.includes('auth-callback') && processedUrlRef.current !== initialUrl) {
+          processedUrlRef.current = initialUrl;
+          const { userId } = await completeAuthFromUrl(initialUrl);
+          athleteId = userId;
+        }
+      }
+
+      if (athleteId) {
+        await resumeFromDraftAndImport(athleteId);
+      } else {
+        // Sign-in never completed (e.g. they cancelled, or the email hasn't been tapped yet) —
+        // land back on their restored selections rather than making them search again.
+        setStep(draft.candidates.length > 0 ? 'candidates' : 'identity');
+      }
+    } catch (err) {
+      // Same safety-net reasoning as processAuthRedirect. Selections were already restored above
+      // (or never existed), so falling back here never loses anything real.
+      console.warn('[Onboarding] restorePendingAuth failed unexpectedly:', err);
+      setStep(draft && draft.candidates.length > 0 ? 'candidates' : 'identity');
     }
   }
 
@@ -413,6 +480,15 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setAuthError(null);
     const trimmed = email.trim();
     if (!trimmed) return;
+    if (simulateAuth) {
+      // Developer Preview: never touches Supabase Auth (and never persists a draft that a real,
+      // later onboarding session could pick up) — jumps straight to the real "check your email"
+      // screen composition, as if the send had succeeded, so it can be reviewed without spending a
+      // real magic-link send/rate-limit attempt.
+      setStep('checkEmail');
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      return;
+    }
     setIsSendingLink(true);
     await persistDraft();
     const { error } = await requestMagicLink(trimmed);
@@ -428,6 +504,10 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   async function handleResendMagicLink() {
     if (resendCooldown > 0 || isSendingLink) return;
     setAuthError(null);
+    if (simulateAuth) {
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      return;
+    }
     setIsSendingLink(true);
     await persistDraft();
     const { error } = await requestMagicLink(email.trim());
@@ -462,6 +542,17 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     rowsAlreadyFetched: Record<string, unknown>[] = [],
     totalSelectedOverride?: number,
   ) {
+    // Two overlapping runImport calls (e.g. a cold-start resume and the warm deep-link listener
+    // both firing for the same completed sign-in, or a Retry tapped while a prior call is still
+    // hung mid-fetch) could both reach insertConfirmedRaces and save the same races twice — nothing
+    // in the insert path itself de-duplicates that. This guard makes overlap impossible: a second
+    // call while one is already running is dropped rather than run concurrently.
+    if (importInFlightRef.current) {
+      console.warn('[Import] runImport called while an import is already in flight — ignoring this call.');
+      return;
+    }
+    importInFlightRef.current = true;
+
     const totalSelected = totalSelectedOverride ?? candidatesToFetch.length + rowsAlreadyFetched.length;
     console.log(
       '[Import] runImport start — athleteId=',
@@ -481,6 +572,22 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     setAthleteIdForRetry(athleteId);
     setTotalSelectedForRun(totalSelected);
 
+    try {
+      await runImportBody(athleteId, name, birthYear, candidatesToFetch, totalSelected, providerAthleteName, rowsAlreadyFetched);
+    } finally {
+      importInFlightRef.current = false;
+    }
+  }
+
+  async function runImportBody(
+    athleteId: string,
+    name: string,
+    birthYear: string,
+    candidatesToFetch: CandidateRace[],
+    totalSelected: number,
+    providerAthleteName: string | undefined,
+    rowsAlreadyFetched: Record<string, unknown>[],
+  ) {
     const normalizedName = normalizeNameForQuery(name);
     try {
       await upsertAthleteProfile(athleteId, normalizedName, birthYear.trim() ? Number(birthYear.trim()) : undefined);
@@ -605,10 +712,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.lg }]}
+        keyboardShouldPersistTaps="handled">
         {!isSupabaseConfigured ? (
           <View style={styles.centeredStep}>
-            <Text style={typography.title}>Supabase isn&apos;t configured yet.</Text>
+            <Text style={styles.headline}>Supabase isn&apos;t configured yet.</Text>
             <Text style={styles.subcopy}>
               Copy mobile/.env.example to mobile/.env, fill in your project&apos;s URL and anon key,
               and restart the app — see supabase/README.md.
@@ -616,10 +725,22 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
           </View>
         ) : step === 'restoring' ? (
           <View style={styles.centeredStep}>
-            <ActivityIndicator size="large" color={colors.accent} />
+            <ActivityIndicator size="large" color={palette.signalBlue} />
           </View>
         ) : (
           <>
+            {/* Shown for the entire duration of a simulated replay — never confusable with a real
+                auth test. Present above every step's content, not just CheckEmailStep, since
+                handleSendMagicLink already fast-forwards straight past the emailForm step's own
+                copy for the simulated case. */}
+            {simulateAuth ? (
+              <View style={styles.devPreviewBanner}>
+                <Text style={styles.devPreviewBannerLabel}>
+                  Developer Preview — simulated sign-in, no email sent
+                </Text>
+              </View>
+            ) : null}
+
             {step === 'identity' ? (
               <IdentityStep
                 racingName={racingName}
@@ -632,7 +753,7 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
             {step === 'searching' ? (
               <View style={styles.centeredStep}>
-                <ActivityIndicator size="large" color={colors.accent} />
+                <ActivityIndicator size="large" color={palette.signalBlue} />
                 <Text style={styles.subcopy}>Searching public race-result sources…</Text>
               </View>
             ) : null}
@@ -719,12 +840,14 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                     setStep('save');
                   }
                 }}
+                simulateAuth={simulateAuth}
+                onSimulatedComplete={onSimulatedComplete}
               />
             ) : null}
 
             {step === 'importing' ? (
               <View style={styles.centeredStep}>
-                <ActivityIndicator size="large" color={colors.accent} />
+                <ActivityIndicator size="large" color={palette.signalBlue} />
                 <Text style={styles.subcopy}>
                   {importProgress.total > 0
                     ? `Fetching result ${importProgress.done + 1} of ${importProgress.total}…`
@@ -752,6 +875,13 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   );
 }
 
+/**
+ * "Find your race history" — the flow's front door. A subtle brand cue and a very-low-opacity
+ * RaceLineMotif sit behind the headline (the only screen in this flow that gets the motif — it
+ * reads as atmosphere on the opening moment, not a repeated decoration), one strong editorial
+ * headline, the racing-name field in the shared quiet form language, a single signalBlue primary
+ * action, and "Already have an account?" as a quiet secondary text action beneath it.
+ */
 function IdentityStep({
   racingName,
   onChangeRacingName,
@@ -765,10 +895,33 @@ function IdentityStep({
   onContinue: () => void;
   onSignIn: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
+  const disabled = racingName.trim().length === 0;
+  // A pure function — safe to call directly with no provider required, so this entry point can
+  // decide whether to render at all before ever touching DevPreviewContext. Always false (and
+  // therefore this whole link never renders) in any release/TestFlight build.
+  const devPreviewAvailable = isDevPreviewAvailable();
+  const devPreview = useDevPreview();
+
+  function showDevPreviewChoice() {
+    Alert.alert('Developer preview', 'Design QA without real Supabase auth/email.', [
+      { text: 'Browse app with sample data', onPress: () => devPreview.enterBrowse() },
+      { text: 'Replay onboarding (simulated)', onPress: () => devPreview.enterOnboardingReplay() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
   return (
     <View style={styles.stepGap}>
-      <Text style={typography.display}>Let&apos;s find your race history.</Text>
-      <Text style={styles.subcopy}>Just your racing name to start — we&apos;ll search before you sign in.</Text>
+      <View style={styles.heroMotifWrap}>
+        <RaceLineMotif tintColor={palette.ink} opacity={0.04} style={{ left: '30%' }} />
+        <View style={styles.brandMarkWrap}>
+          <SignalMark color={palette.signalBlue} size={20} />
+        </View>
+        <Text style={styles.headline}>Let&apos;s find your race history.</Text>
+        <Text style={styles.subcopy}>Just your racing name to start — we&apos;ll search before you sign in.</Text>
+      </View>
 
       <Field label="What name do you race under?" value={racingName} onChangeText={onChangeRacingName} />
 
@@ -776,20 +929,34 @@ function IdentityStep({
 
       <Pressable
         onPress={onContinue}
-        disabled={racingName.trim().length === 0}
+        disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel="Search"
-        style={[styles.primaryButton, racingName.trim().length === 0 && styles.primaryButtonDisabled]}>
+        style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]}>
         <Text style={styles.primaryButtonLabel}>Search</Text>
       </Pressable>
 
-      <Pressable onPress={onSignIn} accessibilityRole="button" accessibilityLabel="Already have an account? Sign in">
-        <Text style={styles.skipLink}>Already have an account? Sign in</Text>
-      </Pressable>
+      <View style={styles.secondaryActionsGroup}>
+        <Pressable onPress={onSignIn} accessibilityRole="button" accessibilityLabel="Already have an account? Sign in">
+          <Text style={styles.secondaryLink}>Already have an account? Sign in</Text>
+        </Pressable>
+
+        {devPreviewAvailable ? (
+          <Pressable onPress={showDevPreviewChoice} accessibilityRole="button" accessibilityLabel="Developer preview">
+            <Text style={styles.devPreviewEntryLink}>Developer preview</Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
 
+/**
+ * Multiple athlete matches — the explanatory copy and optional hint fields stay exactly as they
+ * were; each candidate is now a clean editorial row (name + trailing chevron, hairline divider
+ * between rows) rather than a rounded rectangular card, matching the archive-row language used
+ * elsewhere in the app.
+ */
 function DisambiguationStep({
   name,
   identities,
@@ -809,9 +976,12 @@ function DisambiguationStep({
   onSelect: (identity: AthleteIdentity) => void;
   onBack: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
+
   return (
     <View style={styles.stepGap}>
-      <Text style={typography.title}>We found more than one athlete named {name}.</Text>
+      <Text style={styles.headline}>We found more than one athlete named {name}.</Text>
       <Text style={styles.subcopy}>
         A race you remember, or your birth year, can help you tell them apart below — we don&apos;t use
         these to search, just as a hint for you.
@@ -825,25 +995,57 @@ function DisambiguationStep({
         keyboardType="number-pad"
       />
 
-      {identities.map((identity) => (
-        <Pressable
-          key={identity.providerAthleteId}
-          onPress={() => onSelect(identity)}
-          accessibilityRole="button"
-          accessibilityLabel={`This is me: ${identity.displayName}`}
-          style={styles.identityRow}>
-          <Text style={typography.body}>{identity.displayName}</Text>
-          <Text style={styles.identityArrow}>→</Text>
-        </Pressable>
-      ))}
+      <View style={styles.rowsGroup}>
+        <HairlineRule color={palette.hairline} />
+        {identities.map((identity, index) => (
+          <Pressable
+            key={identity.providerAthleteId}
+            onPress={() => onSelect(identity)}
+            accessibilityRole="button"
+            accessibilityLabel={`This is me: ${identity.displayName}`}
+            style={[styles.identityRow, index < identities.length - 1 && styles.rowDivider]}>
+            <Text style={styles.identityName}>{identity.displayName}</Text>
+            <AppIcon name="chevron-right" size={18} color={palette.inkSecondary} />
+          </Pressable>
+        ))}
+      </View>
 
-      <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-        <Text style={styles.skipLink}>Back</Text>
-      </Pressable>
+      <View style={styles.secondaryActionsGroup}>
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+          <Text style={styles.secondaryLink}>Back</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
+interface CandidateYearGroup {
+  year: number;
+  items: CandidateRace[];
+}
+
+/** Groups the already-fetched candidate list by year for DISPLAY only — the same shape the Races
+ *  tab's own year sections use (see (tabs)/index.tsx's groupCompletedRacesByYear) — purely a
+ *  presentational grouping; it never touches fetching, selection state, or ordering of
+ *  `selectedIds`. */
+function groupCandidatesByYear(list: CandidateRace[]): CandidateYearGroup[] {
+  const byYear = new Map<number, CandidateRace[]>();
+  for (const candidate of list) {
+    const bucket = byYear.get(candidate.eventYear);
+    if (bucket) bucket.push(candidate);
+    else byYear.set(candidate.eventYear, [candidate]);
+  }
+  return Array.from(byYear.entries())
+    .sort(([a], [b]) => b - a)
+    .map(([year, items]) => ({ year, items }));
+}
+
+/**
+ * "We found N races" — the genuinely satisfying moment: RaceSignal recovered the athlete's racing
+ * history. Checkbox state/toggle behavior is untouched; candidates are grouped by year (display
+ * only) and each row reuses RaceRow.tsx's own date-block/name/meta styling so a race here reads as
+ * the same kind of object it will once it lands on the Races tab.
+ */
 function CandidatesStep({
   athleteName,
   candidates,
@@ -865,55 +1067,49 @@ function CandidatesStep({
   onBack: () => void;
   onSearchAgain: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const selectedCount = selectedIds.size;
+  const groups = useMemo(() => groupCandidatesByYear(candidates), [candidates]);
+  // This is the flow's one long, scrollable step — its primary action and trailing secondary
+  // links need real clearance from the home indicator, not just the shared ScrollView's fixed
+  // bottom padding.
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.stepGap}>
-      <Text style={typography.title}>We found {candidates.length} race{candidates.length === 1 ? '' : 's'}</Text>
+      <Text style={styles.headline}>
+        We found {candidates.length} race{candidates.length === 1 ? '' : 's'}
+      </Text>
       <Text style={styles.subcopy}>
         Select the ones that are you, {athleteName}. Nothing unselected is imported — you can always
         add more later.
       </Text>
 
       {candidates.length === 0 ? (
-        <Card>
-          <Text style={typography.body}>No public race history found for that profile.</Text>
-        </Card>
+        <View style={styles.emptyBlock}>
+          <HairlineRule color={palette.hairline} />
+          <Text style={[styles.subcopy, styles.emptyText]}>No public race history found for that profile.</Text>
+        </View>
       ) : (
-        candidates.map((candidate) => {
-          const alreadyImported = alreadyImportedIds.has(candidate.providerResultId);
-          const selected = selectedIds.has(candidate.providerResultId);
-          return (
-            <Pressable
-              key={candidate.providerResultId}
-              onPress={() => onToggle(candidate.providerResultId)}
-              disabled={alreadyImported}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: selected, disabled: alreadyImported }}
-              accessibilityLabel={`${candidate.eventName}, ${candidate.eventYear}${alreadyImported ? ', already added' : ''}`}
-              style={[
-                styles.candidateRow,
-                selected && styles.candidateRowSelected,
-                alreadyImported && styles.candidateRowDisabled,
-              ]}>
-              <AppIcon
-                name={alreadyImported ? 'check-circle' : selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                size={22}
-                color={alreadyImported ? colors.textMuted : selected ? colors.accent : colors.textMuted}
+        groups.map((group) => (
+          <View key={group.year} style={styles.candidateYearGroup}>
+            <Text style={styles.yearHeader}>{group.year}</Text>
+            <HairlineRule color={palette.hairline} />
+            {group.items.map((candidate, index) => (
+              <CandidateRow
+                key={candidate.providerResultId}
+                candidate={candidate}
+                selected={selectedIds.has(candidate.providerResultId)}
+                alreadyImported={alreadyImportedIds.has(candidate.providerResultId)}
+                onToggle={onToggle}
+                isLast={index === group.items.length - 1}
+                palette={palette}
+                styles={styles}
               />
-              <View style={styles.candidateText}>
-                <Text style={typography.body}>{candidate.eventName}</Text>
-                <Text style={styles.candidateMeta}>
-                  {candidate.eventDate ?? candidate.eventYear} · {candidate.category}
-                </Text>
-              </View>
-              {alreadyImported ? (
-                <View style={styles.alreadyAddedBadge}>
-                  <Text style={styles.alreadyAddedLabel}>Already added</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        })
+            ))}
+          </View>
+        ))
       )}
 
       <Pressable
@@ -925,18 +1121,85 @@ function CandidatesStep({
         <Text style={styles.primaryButtonLabel}>Add {selectedCount} race{selectedCount === 1 ? '' : 's'}</Text>
       </Pressable>
 
-      <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-        <Text style={styles.skipLink}>Back</Text>
-      </Pressable>
+      <View style={[styles.secondaryActionsGroup, { paddingBottom: insets.bottom }]}>
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+          <Text style={styles.secondaryLink}>Back</Text>
+        </Pressable>
 
-      <Pressable onPress={onSearchAgain} accessibilityRole="button" accessibilityLabel="Search again">
-        <Text style={styles.skipLink}>Search again</Text>
-      </Pressable>
+        <Pressable onPress={onSearchAgain} accessibilityRole="button" accessibilityLabel="Search again">
+          <Text style={styles.secondaryLink}>Search again</Text>
+        </Pressable>
 
-      <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Continue without importing">
-        <Text style={styles.skipLink}>Continue without importing</Text>
-      </Pressable>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Continue without importing">
+          <Text style={styles.secondaryLink}>Continue without importing</Text>
+        </Pressable>
+      </View>
     </View>
+  );
+}
+
+/** A single discovered race, styled to match RaceRow.tsx's own date-block/name/meta values
+ *  exactly (same font sizes, weights and colors) so it reads as the same kind of object it will
+ *  once it lands on the Races tab. The checkbox itself keeps its exact toggle/disabled behavior —
+ *  only its fill/border colors are restyled, matching RacePrepChecklist's checkbox language. */
+function CandidateRow({
+  candidate,
+  selected,
+  alreadyImported,
+  onToggle,
+  isLast,
+  palette,
+  styles,
+}: {
+  candidate: CandidateRace;
+  selected: boolean;
+  alreadyImported: boolean;
+  onToggle: (id: string) => void;
+  isLast: boolean;
+  palette: BrandPalette;
+  styles: Styles;
+}) {
+  const dateDisplay = candidate.eventDate
+    ? formatRaceDate(candidate.eventDate)
+    : ({ precision: 'year' as const, year: String(candidate.eventYear) });
+  const metaLine = alreadyImported ? `${candidate.category} · Already added` : candidate.category;
+
+  return (
+    <Pressable
+      onPress={() => onToggle(candidate.providerResultId)}
+      disabled={alreadyImported}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected, disabled: alreadyImported }}
+      accessibilityLabel={`${candidate.eventName}, ${candidate.eventYear}${alreadyImported ? ', already added' : ''}`}
+      style={[styles.candidateRow, !isLast && styles.rowDivider, alreadyImported && styles.candidateRowDisabled]}>
+      <View style={styles.checkboxSlot}>
+        {alreadyImported ? (
+          <AppIcon name="check-circle" size={20} color={palette.inkSecondary} />
+        ) : (
+          <View style={[styles.checkbox, selected && styles.checkboxChecked]}>
+            {selected ? <Text style={styles.checkmark}>✓</Text> : null}
+          </View>
+        )}
+      </View>
+      <View style={styles.candidateDateBlock}>
+        {dateDisplay.precision === 'year' ? (
+          <Text style={styles.candidateDateYear}>{dateDisplay.year}</Text>
+        ) : (
+          <>
+            <Text style={styles.candidateDateMonth}>{dateDisplay.month}</Text>
+            <Text style={styles.candidateDateDay}>{dateDisplay.day}</Text>
+          </>
+        )}
+      </View>
+      <View style={styles.candidateDetails}>
+        <Text style={styles.candidateName} numberOfLines={1}>
+          {candidate.eventName}
+        </Text>
+        <Text style={styles.candidateMeta} numberOfLines={1}>
+          {metaLine}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -945,6 +1208,10 @@ function CandidatesStep({
  * would just be a broken action; only the email path is offered until that's revisited ahead of
  * App Store release. `handleGoogleSignIn` and the Google UI remain in this file, just unrendered,
  * so re-enabling later is a small diff rather than rebuilding the flow.
+ *
+ * This and every other auth state below (EmailFormStep, CheckEmailStep) share one composition: a
+ * subtle brand cue, a strong state-specific headline, concise copy, the input/action where needed,
+ * and a quiet text-link Back — never a second, differently-styled "auth design system."
  */
 function SaveStep({
   selectedCount,
@@ -957,9 +1224,15 @@ function SaveStep({
   onUseEmail: () => void;
   onBack: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
+
   return (
     <View style={styles.stepGap}>
-      <Text style={typography.title}>
+      <View style={styles.brandMarkWrap}>
+        <SignalMark color={palette.signalBlue} size={20} />
+      </View>
+      <Text style={styles.headline}>
         Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
       </Text>
       <Text style={styles.subcopy}>Your racing name stays what you typed — this just saves it to your account.</Text>
@@ -974,9 +1247,11 @@ function SaveStep({
         <Text style={styles.primaryButtonLabel}>Continue with email</Text>
       </Pressable>
 
-      <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-        <Text style={styles.skipLink}>Back</Text>
-      </Pressable>
+      <View style={styles.secondaryActionsGroup}>
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+          <Text style={styles.secondaryLink}>Back</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -998,10 +1273,18 @@ function EmailFormStep({
   onSendLink: () => void;
   onBack: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const disabled = email.trim().length === 0 || isSending;
+
   return (
     <View style={styles.stepGap}>
-      <Text style={typography.title}>Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.</Text>
+      <View style={styles.brandMarkWrap}>
+        <SignalMark color={palette.signalBlue} size={20} />
+      </View>
+      <Text style={styles.headline}>
+        Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
+      </Text>
       <Text style={styles.subcopy}>We&apos;ll email you a link — no password, nothing to type.</Text>
 
       <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
@@ -1017,9 +1300,11 @@ function EmailFormStep({
         <Text style={styles.primaryButtonLabel}>{isSending ? 'Sending…' : 'Send magic link'}</Text>
       </Pressable>
 
-      <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-        <Text style={styles.skipLink}>Back</Text>
-      </Pressable>
+      <View style={styles.secondaryActionsGroup}>
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+          <Text style={styles.secondaryLink}>Back</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1032,6 +1317,8 @@ function CheckEmailStep({
   onResend,
   onChangeEmail,
   onBack,
+  simulateAuth,
+  onSimulatedComplete,
 }: {
   email: string;
   error: string | null;
@@ -1040,11 +1327,19 @@ function CheckEmailStep({
   onResend: () => void;
   onChangeEmail: () => void;
   onBack: () => void;
+  simulateAuth?: boolean;
+  onSimulatedComplete?: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const resendDisabled = resendCooldown > 0 || isSending;
+
   return (
     <View style={styles.stepGap}>
-      <Text style={typography.title}>Check your email</Text>
+      <View style={styles.brandMarkWrap}>
+        <SignalMark color={palette.signalBlue} size={20} />
+      </View>
+      <Text style={styles.headline}>Check your email</Text>
       <Text style={styles.subcopy}>
         We sent a sign-in link to {email}. Tap it on this phone to come back here automatically.
       </Text>
@@ -1062,13 +1357,28 @@ function CheckEmailStep({
         </Text>
       </Pressable>
 
-      <Pressable onPress={onChangeEmail} accessibilityRole="button" accessibilityLabel="Use a different email">
-        <Text style={styles.skipLink}>Use a different email</Text>
-      </Pressable>
+      {/* Dev-only affordance, styled distinctly (dashed hairline, warning-toned label) so it never
+          reads as a real action — tapping it never calls completeAuthFromUrl/resumeFromDraftAndImport/
+          runImport; it only hands off to the caller's onSimulatedComplete (see _layout.tsx). */}
+      {simulateAuth ? (
+        <Pressable
+          onPress={onSimulatedComplete}
+          accessibilityRole="button"
+          accessibilityLabel="Simulate tapping the magic link — Developer Preview"
+          style={styles.simulateLinkButton}>
+          <Text style={styles.simulateLinkButtonLabel}>Simulate tapping the magic link — Developer Preview</Text>
+        </Pressable>
+      ) : null}
 
-      <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-        <Text style={styles.skipLink}>Back</Text>
-      </Pressable>
+      <View style={styles.secondaryActionsGroup}>
+        <Pressable onPress={onChangeEmail} accessibilityRole="button" accessibilityLabel="Use a different email">
+          <Text style={styles.secondaryLink}>Use a different email</Text>
+        </Pressable>
+
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+          <Text style={styles.secondaryLink}>Back</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -1092,6 +1402,8 @@ function SummaryStep({
   onRetry: () => void;
   onEnterApp: () => void;
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   const fade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -1101,20 +1413,21 @@ function SummaryStep({
   const yearLabel = yearRange ? (yearRange.min === yearRange.max ? `${yearRange.min}` : `${yearRange.min} → ${yearRange.max}`) : null;
 
   return (
-    <Animated.View style={[styles.centeredStep, { opacity: fade }]}>
-      <Text style={typography.display}>
+    <Animated.View style={[styles.summaryStep, { opacity: fade }]}>
+      <SignalMark color={palette.signalBlue} size={22} />
+      <Text style={styles.headline}>
         {imported > 0 ? `We found ${imported} race${imported === 1 ? '' : 's'}` : "You're all set."}
       </Text>
       {/* A restrained "you found something real" accent — tied to the same imported>0 condition
-          already driving this branch, not to any PR/podium-specific check, per the AHA moment
-          being simply "we found your racing history." */}
-      {imported > 0 ? <View style={styles.achievementRule} /> : null}
+          already driving this branch. Deliberately signalBlue, not gold: nothing here is an
+          earned achievement (no PR/podium check), it's simply "we found your racing history." */}
+      {imported > 0 ? <View style={styles.accentRule} /> : null}
       {yearLabel ? <Text style={styles.yearRange}>{yearLabel}</Text> : null}
       {error ? <Text style={styles.message}>{error}</Text> : null}
       {imported > 0 ? (
         <View style={styles.summaryGrid}>
-          <SummaryStat label="Races added" value={imported} />
-          <SummaryStat label="AG podiums" value={podiums} />
+          <SummaryStat label="Races added" value={imported} styles={styles} />
+          <SummaryStat label="AG podiums" value={podiums} styles={styles} />
         </View>
       ) : !error ? (
         <Text style={styles.subcopy}>
@@ -1138,8 +1451,8 @@ function SummaryStep({
         onPress={onEnterApp}
         accessibilityRole="button"
         accessibilityLabel="Explore my racing history"
-        style={canRetry ? styles.googleButton : styles.primaryButton}>
-        <Text style={canRetry ? styles.googleButtonLabel : styles.primaryButtonLabel}>
+        style={canRetry ? styles.secondaryButton : styles.primaryButton}>
+        <Text style={canRetry ? styles.secondaryButtonLabel : styles.primaryButtonLabel}>
           {canRetry ? 'Continue anyway' : imported > 0 ? 'Explore my racing history' : 'Enter app'}
         </Text>
       </Pressable>
@@ -1147,15 +1460,21 @@ function SummaryStep({
   );
 }
 
-function SummaryStat({ label, value }: { label: string; value: number }) {
+function SummaryStat({ label, value, styles }: { label: string; value: number; styles: Styles }) {
   return (
     <View style={styles.summaryStat}>
       <Text style={styles.summaryValue}>{value}</Text>
-      <Text style={typography.label}>{label.toUpperCase()}</Text>
+      <Text style={styles.summaryLabel}>{label.toUpperCase()}</Text>
     </View>
   );
 }
 
+/**
+ * Shared refined form-field language for this whole flow: a non-shouting normal-case label in
+ * inkSecondary, and a hairline-bottom-border input rather than a heavy full outline box — the same
+ * "Race Morning Precision" form philosophy as the Add Race screen's own redesign elsewhere in this
+ * pass.
+ */
 function Field({
   label,
   value,
@@ -1169,13 +1488,16 @@ function Field({
   keyboardType?: 'default' | 'email-address' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences';
 }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
+
   return (
-    <View>
-      <Text style={typography.label}>{label.toUpperCase()}</Text>
+    <View style={styles.fieldWrap}>
+      <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={palette.inkSecondary}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         style={styles.input}
@@ -1185,157 +1507,369 @@ function Field({
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    flexGrow: 1,
-    padding: spacing.lg,
-    paddingTop: spacing.xxl,
-    justifyContent: 'center',
-  },
-  stepGap: {
-    gap: spacing.md,
-  },
-  centeredStep: {
-    alignItems: 'center',
-    gap: spacing.lg,
-    paddingVertical: spacing.xxl,
-  },
-  subcopy: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
-  message: {
-    ...typography.caption,
-    color: colors.warning,
-  },
-  input: {
-    minHeight: minTouchSize,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: spacing.md,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  primaryButton: {
-    alignSelf: 'stretch',
-    minHeight: minTouchSize,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.accent,
-    marginTop: spacing.md,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.4,
-  },
-  primaryButtonLabel: {
-    color: colors.background,
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  googleButton: {
-    alignSelf: 'stretch',
-    flexDirection: 'row',
-    gap: spacing.sm,
-    minHeight: minTouchSize,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 999,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceElevated,
-    marginTop: spacing.md,
-  },
-  googleButtonLabel: {
-    ...typography.body,
-    fontWeight: '700',
-  },
-  skipLink: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    minHeight: 44,
-    textAlignVertical: 'center',
-  },
-  identityRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceElevated,
-  },
-  identityArrow: {
-    ...typography.body,
-    color: colors.accent,
-    fontWeight: '700',
-  },
-  candidateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 44,
-    padding: spacing.sm,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  candidateRowSelected: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accentMuted,
-  },
-  candidateRowDisabled: {
-    opacity: 0.5,
-  },
-  candidateText: {
-    flex: 1,
-    gap: 2,
-  },
-  candidateMeta: {
-    ...typography.caption,
-  },
-  alreadyAddedBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceElevated,
-  },
-  alreadyAddedLabel: {
-    ...typography.label,
-    color: colors.textMuted,
-  },
-  summaryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.xl,
-  },
-  summaryStat: {
-    alignItems: 'center',
-    gap: 2,
-    minWidth: 100,
-  },
-  summaryValue: {
-    ...typography.display,
-    color: colors.achievement,
-  },
-  achievementRule: {
-    width: 48,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.achievement,
-  },
-  yearRange: {
-    ...typography.subtitle,
-    color: colors.textSecondary,
-  },
-});
+interface Styles {
+  screen: ViewStyle;
+  content: ViewStyle;
+  stepGap: ViewStyle;
+  centeredStep: ViewStyle;
+  summaryStep: ViewStyle;
+  heroMotifWrap: ViewStyle;
+  brandMarkWrap: ViewStyle;
+  headline: TextStyle;
+  subcopy: TextStyle;
+  message: TextStyle;
+  fieldWrap: ViewStyle;
+  fieldLabel: TextStyle;
+  input: TextStyle & ViewStyle;
+  primaryButton: ViewStyle;
+  primaryButtonDisabled: ViewStyle;
+  primaryButtonLabel: TextStyle;
+  secondaryButton: ViewStyle;
+  secondaryButtonLabel: TextStyle;
+  secondaryLink: TextStyle;
+  secondaryActionsGroup: ViewStyle;
+  devPreviewEntryLink: TextStyle;
+  devPreviewBanner: ViewStyle;
+  devPreviewBannerLabel: TextStyle;
+  simulateLinkButton: ViewStyle;
+  simulateLinkButtonLabel: TextStyle;
+  rowsGroup: ViewStyle;
+  rowDivider: ViewStyle;
+  identityRow: ViewStyle;
+  identityName: TextStyle;
+  candidateYearGroup: ViewStyle;
+  yearHeader: TextStyle;
+  candidateRow: ViewStyle;
+  candidateRowDisabled: ViewStyle;
+  checkboxSlot: ViewStyle;
+  checkbox: ViewStyle;
+  checkboxChecked: ViewStyle;
+  checkmark: TextStyle;
+  candidateDateBlock: ViewStyle;
+  candidateDateMonth: TextStyle;
+  candidateDateDay: TextStyle;
+  candidateDateYear: TextStyle;
+  candidateDetails: ViewStyle;
+  candidateName: TextStyle;
+  candidateMeta: TextStyle;
+  emptyBlock: ViewStyle;
+  emptyText: TextStyle;
+  summaryGrid: ViewStyle;
+  summaryStat: ViewStyle;
+  summaryValue: TextStyle;
+  summaryLabel: TextStyle;
+  accentRule: ViewStyle;
+  yearRange: TextStyle;
+}
+
+function createStyles(palette: BrandPalette): Styles {
+  return StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: palette.canvas,
+    },
+    content: {
+      flexGrow: 1,
+      padding: spacing.lg,
+      // paddingTop is set inline per-render (insets.top + a fixed gap) — there's no native header
+      // reserving space above this shared ScrollView, so every step must clear the status bar
+      // itself. Deliberately NOT justifyContent: 'center' here: that centered every step's content
+      // vertically regardless of length, which read as arbitrary placement on short steps (a
+      // headline + one field + a button, floating in the middle of the screen). Steps now flow
+      // top-anchored instead, matching results/[id].tsx and the rest of the redesigned app.
+      gap: spacing.lg,
+    },
+    stepGap: {
+      gap: spacing.lg,
+    },
+    // Transient loading/spinner-only states ONLY (restoring, searching, importing, and the
+    // Supabase-not-configured message) — vertically centered because there's nothing to anchor to
+    // and the state is momentary. Real content states never use this (see summaryStep below).
+    centeredStep: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.lg,
+      paddingVertical: spacing.xxl,
+    },
+    // Summary is a real, top-anchored content state like every other step (same rhythm as
+    // stepGap) — its icon/headline/stats stay horizontally centered for the celebratory look, but
+    // it no longer floats vertically mid-screen the way the transient centeredStep states do.
+    summaryStep: {
+      alignItems: 'center',
+      gap: spacing.lg,
+    },
+    heroMotifWrap: {
+      position: 'relative',
+      overflow: 'hidden',
+      // Matches stepGap's own sibling gap so the headline-to-subcopy rhythm here is identical to
+      // every other short state (Save/EmailForm/CheckEmail/Summary) — this previously used a
+      // tighter spacing.sm, which made Identity's headline sit noticeably closer to its subcopy
+      // than everywhere else in the flow.
+      gap: spacing.lg,
+      paddingVertical: spacing.xs,
+    },
+    brandMarkWrap: {
+      marginBottom: spacing.xs,
+    },
+    headline: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: palette.ink,
+    },
+    subcopy: {
+      fontSize: 16,
+      lineHeight: 22,
+      color: palette.inkSecondary,
+    },
+    message: {
+      fontSize: 14,
+      color: palette.danger,
+    },
+    fieldWrap: {
+      gap: spacing.xs,
+    },
+    fieldLabel: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: palette.inkSecondary,
+    },
+    input: {
+      minHeight: minTouchSize,
+      borderBottomWidth: 1,
+      borderBottomColor: palette.hairline,
+      paddingVertical: spacing.sm,
+      fontSize: 17,
+      color: palette.ink,
+      backgroundColor: 'transparent',
+    },
+    primaryButton: {
+      alignSelf: 'stretch',
+      minHeight: minTouchSize + 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 14,
+      paddingHorizontal: spacing.lg,
+      backgroundColor: palette.signalBlue,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.4,
+    },
+    primaryButtonLabel: {
+      color: palette.onSignalBlue,
+      fontWeight: '700',
+      fontSize: 16,
+    },
+    secondaryButton: {
+      alignSelf: 'stretch',
+      minHeight: minTouchSize + 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 14,
+      paddingHorizontal: spacing.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: palette.hairline,
+    },
+    secondaryButtonLabel: {
+      color: palette.signalBlue,
+      fontWeight: '700',
+      fontSize: 16,
+    },
+    secondaryLink: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: palette.signalBlue,
+      textAlign: 'center',
+      minHeight: 44,
+      textAlignVertical: 'center',
+    },
+    // Groups a step's quiet secondary actions (Back, "Search again," "Continue without
+    // importing," etc.) into one visually distinct cluster directly beneath the primary action —
+    // the same relative position across every step — with a tighter internal gap than the
+    // stepGap spacing used between the primary action and headline/content above it.
+    secondaryActionsGroup: {
+      gap: spacing.xs,
+    },
+    // Deliberately quieter/smaller than secondaryLink — a tertiary, dev-only action that must
+    // never compete visually with "Already have an account? Sign in" above it.
+    devPreviewEntryLink: {
+      fontSize: 12,
+      fontWeight: '500',
+      color: palette.inkSecondary,
+      textAlign: 'center',
+      minHeight: 32,
+      textAlignVertical: 'center',
+    },
+    // A quiet kicker-style banner shown for the whole duration of a simulated onboarding replay —
+    // never confusable with a real auth test.
+    devPreviewBanner: {
+      paddingVertical: spacing.xs,
+    },
+    devPreviewBannerLabel: {
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+      color: palette.danger,
+    },
+    // A dashed hairline sets this dev-only action apart from every real primary/secondary action
+    // in this flow, which all use solid fills or plain text links.
+    simulateLinkButton: {
+      alignSelf: 'stretch',
+      minHeight: minTouchSize,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 14,
+      paddingHorizontal: spacing.lg,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: palette.danger,
+    },
+    simulateLinkButtonLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: palette.danger,
+      textAlign: 'center',
+    },
+    rowsGroup: {
+      gap: 0,
+    },
+    rowDivider: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: palette.hairline,
+    },
+    identityRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      minHeight: 44,
+      paddingVertical: spacing.sm,
+    },
+    identityName: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: palette.ink,
+    },
+    candidateYearGroup: {
+      gap: 0,
+      marginTop: spacing.xxl + spacing.sm,
+    },
+    yearHeader: {
+      fontSize: 32,
+      fontWeight: '800',
+      color: palette.ink,
+      marginBottom: spacing.md,
+      ...tabularNumerals,
+    },
+    candidateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      minHeight: 44,
+      paddingVertical: spacing.sm,
+    },
+    candidateRowDisabled: {
+      opacity: 0.6,
+    },
+    checkboxSlot: {
+      width: 22,
+      height: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: palette.hairline,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    checkboxChecked: {
+      backgroundColor: palette.signalBlue,
+      borderColor: palette.signalBlue,
+    },
+    checkmark: {
+      color: palette.onSignalBlue,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    candidateDateBlock: {
+      width: 44,
+      alignItems: 'center',
+    },
+    candidateDateMonth: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: palette.inkSecondary,
+    },
+    candidateDateDay: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: palette.ink,
+      ...tabularNumerals,
+    },
+    candidateDateYear: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: palette.ink,
+      ...tabularNumerals,
+    },
+    candidateDetails: {
+      flex: 1,
+      gap: 2,
+    },
+    candidateName: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: palette.ink,
+    },
+    candidateMeta: {
+      fontSize: 13,
+      fontWeight: '500',
+      color: palette.inkSecondary,
+    },
+    emptyBlock: {
+      gap: spacing.sm,
+    },
+    emptyText: {
+      marginTop: spacing.sm,
+    },
+    summaryGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: spacing.xl,
+    },
+    summaryStat: {
+      alignItems: 'center',
+      gap: 2,
+      minWidth: 100,
+    },
+    summaryValue: {
+      fontSize: 34,
+      fontWeight: '700',
+      color: palette.ink,
+      ...tabularNumerals,
+    },
+    summaryLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.6,
+      color: palette.inkSecondary,
+    },
+    accentRule: {
+      width: 48,
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: palette.signalBlue,
+    },
+    yearRange: {
+      fontSize: 17,
+      fontWeight: '600',
+      color: palette.inkSecondary,
+      ...tabularNumerals,
+    },
+  });
+}

@@ -1,4 +1,12 @@
 import { supabase } from '@/lib/supabaseClient';
+import { withTimeout } from '@/lib/timeout';
+
+// None of these queries previously had a timeout bound — the same gap found and fixed across
+// lib/db/races.ts (Step 6.5 QA audit). fetchSignalConversationWithMessages specifically drives a
+// visible loading spinner when reopening a past conversation; createSignalConversation/
+// appendSignalTurn sit inside signal.tsx's send-message try/finally, so a true hang there would
+// leave the send button disabled indefinitely even though the reply is already on screen.
+const SIGNAL_QUERY_TIMEOUT_MS = 20000;
 
 export interface SignalConversationRow {
   id: string;
@@ -23,11 +31,11 @@ const MESSAGE_COLUMNS = 'id, conversation_id, role, text, created_at';
 /** Created lazily — only after a conversation's first successful exchange (see signal.tsx) — so
  *  an opened-but-abandoned chat never shows up in "Recent Signals". */
 export async function createSignalConversation(athleteId: string, title: string, seedRaceId?: string): Promise<SignalConversationRow> {
-  const { data, error } = await supabase
-    .from('signal_conversations')
-    .insert({ athlete_id: athleteId, title, seed_race_id: seedRaceId ?? null })
-    .select(CONVERSATION_COLUMNS)
-    .single();
+  const { data, error } = await withTimeout(
+    supabase.from('signal_conversations').insert({ athlete_id: athleteId, title, seed_race_id: seedRaceId ?? null }).select(CONVERSATION_COLUMNS).single(),
+    SIGNAL_QUERY_TIMEOUT_MS,
+    'createSignalConversation',
+  );
   if (error) throw error;
   return data as unknown as SignalConversationRow;
 }
@@ -37,54 +45,68 @@ export async function createSignalConversation(athleteId: string, title: string,
  *  Screenshot bytes are never part of `userText`/`assistantText` — only the model's own "From your
  *  uploaded evidence" description (already plain text) is ever persisted here. */
 export async function appendSignalTurn(conversationId: string, userText: string, assistantText: string): Promise<void> {
-  const { error: insertError } = await supabase.from('signal_messages').insert([
-    { conversation_id: conversationId, role: 'user', text: userText },
-    { conversation_id: conversationId, role: 'assistant', text: assistantText },
-  ]);
+  const { error: insertError } = await withTimeout(
+    supabase.from('signal_messages').insert([
+      { conversation_id: conversationId, role: 'user', text: userText },
+      { conversation_id: conversationId, role: 'assistant', text: assistantText },
+    ]),
+    SIGNAL_QUERY_TIMEOUT_MS,
+    'appendSignalTurn (insert)',
+  );
   if (insertError) throw insertError;
 
-  const { error: updateError } = await supabase
-    .from('signal_conversations')
-    .update({ updated_at: new Date().toISOString() })
-    .eq('id', conversationId);
+  const { error: updateError } = await withTimeout(
+    supabase.from('signal_conversations').update({ updated_at: new Date().toISOString() }).eq('id', conversationId),
+    SIGNAL_QUERY_TIMEOUT_MS,
+    'appendSignalTurn (touch updated_at)',
+  );
   if (updateError) throw updateError;
 }
 
 /** Soft-fails to an empty list — the Signal tab's "Recent Signals" section is a secondary
  *  convenience, not core functionality; a read failure here shouldn't break the tab. */
 export async function fetchRecentSignalConversations(athleteId: string, limit = 5): Promise<SignalConversationRow[]> {
-  const { data, error } = await supabase
-    .from('signal_conversations')
-    .select(CONVERSATION_COLUMNS)
-    .eq('athlete_id', athleteId)
-    .order('updated_at', { ascending: false })
-    .limit(limit);
-  if (error) {
-    console.warn('[db/signal] fetchRecentSignalConversations failed:', error.message);
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from('signal_conversations').select(CONVERSATION_COLUMNS).eq('athlete_id', athleteId).order('updated_at', { ascending: false }).limit(limit),
+      SIGNAL_QUERY_TIMEOUT_MS,
+      'fetchRecentSignalConversations',
+    );
+    if (error) {
+      console.warn('[db/signal] fetchRecentSignalConversations failed:', error.message);
+      return [];
+    }
+    return (data ?? []) as unknown as SignalConversationRow[];
+  } catch (err) {
+    console.warn('[db/signal] fetchRecentSignalConversations did not complete:', err);
     return [];
   }
-  return (data ?? []) as unknown as SignalConversationRow[];
 }
 
 export async function fetchSignalConversationWithMessages(
   conversationId: string,
 ): Promise<{ conversation: SignalConversationRow; messages: SignalMessageRow[] } | null> {
-  const { data: conversation, error: conversationError } = await supabase
-    .from('signal_conversations')
-    .select(CONVERSATION_COLUMNS)
-    .eq('id', conversationId)
-    .maybeSingle();
-  if (conversationError || !conversation) return null;
+  try {
+    const { data: conversation, error: conversationError } = await withTimeout(
+      supabase.from('signal_conversations').select(CONVERSATION_COLUMNS).eq('id', conversationId).maybeSingle(),
+      SIGNAL_QUERY_TIMEOUT_MS,
+      'fetchSignalConversationWithMessages (conversation)',
+    );
+    if (conversationError || !conversation) return null;
 
-  const { data: messages, error: messagesError } = await supabase
-    .from('signal_messages')
-    .select(MESSAGE_COLUMNS)
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true });
-  if (messagesError) return null;
+    const { data: messages, error: messagesError } = await withTimeout(
+      supabase.from('signal_messages').select(MESSAGE_COLUMNS).eq('conversation_id', conversationId).order('created_at', { ascending: true }),
+      SIGNAL_QUERY_TIMEOUT_MS,
+      'fetchSignalConversationWithMessages (messages)',
+    );
+    if (messagesError) return null;
 
-  return {
-    conversation: conversation as unknown as SignalConversationRow,
-    messages: (messages ?? []) as unknown as SignalMessageRow[],
-  };
+    return {
+      conversation: conversation as unknown as SignalConversationRow,
+      messages: (messages ?? []) as unknown as SignalMessageRow[],
+    };
+  } catch (err) {
+    console.warn('[db/signal] fetchSignalConversationWithMessages did not complete:', err);
+    return null;
+  }
 }

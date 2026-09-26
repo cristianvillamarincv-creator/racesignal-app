@@ -11,6 +11,9 @@ import {
 } from '@/lib/db/races';
 import { dbRowToRace, type RaceRow } from '@/lib/raceMapping';
 import { supabase } from '@/lib/supabaseClient';
+import { withTimeout } from '@/lib/timeout';
+
+const RACING_NAME_TIMEOUT_MS = 20000;
 
 export interface ManualRaceInput {
   eventName: string;
@@ -88,13 +91,21 @@ export function AthleteRacesProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setIsLoading(false);
       });
 
-    supabase
-      .from('athlete_profiles')
-      .select('racing_name')
-      .eq('id', athleteId)
-      .maybeSingle()
+    // Supabase's query builder is a PromiseLike, not a real Promise (no .catch()) — routing it
+    // through withTimeout both bounds it and gives it real Promise semantics. This one doesn't
+    // drive isLoading/isError (a failure here only means the displayed racing name falls back to
+    // null, never a blocking spinner), but a rejection was previously completely unhandled —
+    // silently swallowed with no visibility at all. Logged, not silent.
+    withTimeout(
+      supabase.from('athlete_profiles').select('racing_name').eq('id', athleteId).maybeSingle(),
+      RACING_NAME_TIMEOUT_MS,
+      'racing_name fetch',
+    )
       .then(({ data: profile }) => {
         if (!cancelled) setRacingName(profile?.racing_name ?? null);
+      })
+      .catch((err) => {
+        if (!cancelled) console.warn('[racesContext] racing_name fetch failed:', err);
       });
 
     return () => {

@@ -13,57 +13,13 @@ import { HighlightCard } from '@/components/stats/HighlightCard';
 import type { Race, SportCategory } from '@/fixtures/races';
 import { type BrandPalette, tabularNumerals, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { formatFinishTime } from '@/lib/format';
-import { getAllHighlights, pickTopHighlights, type Highlight } from '@/lib/highlights';
+import { getAllHighlights, pickTopHighlights } from '@/lib/highlights';
 import { ALL_SPORTS, ALL_YEARS, useRaceFilter } from '@/lib/raceFilterContext';
 import { getAvailableSports, getAvailableYears } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { getAggregateStats, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
+import { isDistanceCanonicalForStats, isHighlightCanonicalForStats } from '@/lib/statsPresentation';
 import { minTouchSize, spacing } from '@/lib/theme';
-
-/**
- * Recognized, standard race-distance labels — DISPLAY grouping only, so Personal Bests reads as a
- * set of comparable peer achievements. Spellings match exactly what highlights.ts's
- * `canonicalDistanceLabel`/`CANONICAL_DISTANCE_ALIASES` table produces (this list is intentionally
- * NOT a copy of that table — it's a presentation allowlist over its OUTPUT). Per physical-device
- * review, anything real but not in this set (a noncanonical/free-typed label, e.g. a live-data
- * "Overall Results"/"Infinite Mile") is excluded from this screen entirely for V1 — never silently
- * promoted into the grid as a peer of 5K/10K/Half Marathon/etc., and no longer even shown in a
- * quieter subsection here (an athlete's full history, canonical or not, still lives on Races/Result
- * Detail — this exclusion is presentation-only on Stats, never a change to the underlying data).
- */
-const CANONICAL_DISTANCE_DISPLAY_LABELS = new Set<string>([
-  '5K',
-  '10K',
-  '15K',
-  'Half Marathon',
-  'Marathon',
-  'Sprint',
-  'Olympic',
-  '70.3',
-  '140.6',
-]);
-
-/**
- * Matches exactly the three label shapes `lib/highlights.ts`'s `distancePRHighlight()` produces —
- * `"${groupKey} PR"`, `"${groupKey} PR Performance"`, `"First recorded ${groupKey}"` — each of which
- * embeds the same distance/category grouping key Personal Bests validates above. Any OTHER
- * highlight label (age-group podium, notable age-group finish, course best, fastest split, etc.)
- * doesn't match any of these and is left alone: this only ever validates a highlight that is
- * *itself* a distance/category PR, never every highlight on the screen.
- */
-const DISTANCE_TIED_HIGHLIGHT_LABEL_PATTERNS = [/^(.+) PR$/, /^(.+) PR Performance$/, /^First recorded (.+)$/];
-
-/** Presentation-only filter, mirroring the exact principle already applied to Personal Bests: a
- *  PR-type highlight tied to a noncanonical/unrecognized distance (e.g. a live-data "Infinite Mile
- *  PR" or "Overall Results PR") is excluded from Stats — never deleted from the underlying race
- *  record, never remapped, never invented a canonical spelling for. */
-function isHighlightCanonicalForStats(highlight: Highlight): boolean {
-  for (const pattern of DISTANCE_TIED_HIGHLIGHT_LABEL_PATTERNS) {
-    const match = highlight.label.match(pattern);
-    if (match) return CANONICAL_DISTANCE_DISPLAY_LABELS.has(match[1]!);
-  }
-  return true;
-}
 
 export default function StatsScreen() {
   const router = useRouter();
@@ -101,7 +57,7 @@ export default function StatsScreen() {
   // peer of 5K/10K/Half Marathon/etc. See the allowlist's own comment above. The Snapshot's own
   // "Personal Bests" count reflects this same canonical-only set, so the two don't disagree.
   const canonicalPersonalBests = useMemo(
-    () => personalBests.filter((pb) => CANONICAL_DISTANCE_DISPLAY_LABELS.has(pb.distanceLabel)),
+    () => personalBests.filter((pb) => isDistanceCanonicalForStats(pb.distanceLabel)),
     [personalBests],
   );
   const personalBestsCount = canonicalPersonalBests.length;
@@ -198,8 +154,8 @@ export default function StatsScreen() {
             {/* Personal Bests — a Record Board: a 2-column grid of compact record modules, each
                 its own restrained bordered/tinted module. The section itself communicates
                 achievement collectively, so no per-row trophy icon and no gold anywhere here.
-                Only canonical distances render here at all (see CANONICAL_DISTANCE_DISPLAY_LABELS'
-                comment above) — a noncanonical PB doesn't get a quieter subsection anymore either,
+                Only canonical distances render here at all (see lib/statsPresentation.ts's
+                CANONICAL_DISTANCE_DISPLAY_LABELS) — a noncanonical PB doesn't get a quieter subsection either,
                 per physical-device review; it's simply not part of this screen's presentation. */}
             <View style={styles.section}>
               <SectionHeader title="Personal bests" />

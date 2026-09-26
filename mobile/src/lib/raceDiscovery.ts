@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabaseClient';
+import { withTimeout } from '@/lib/timeout';
 
 /**
  * Thin client for the `race-discovery` Edge Function. Mirrors (but does not import — separate
@@ -6,6 +7,12 @@ import { supabase } from '@/lib/supabaseClient';
  * work before the athlete signs in; `detail` requires a session (supabase-js attaches the current
  * session's access token automatically once one exists — see lib/auth.tsx).
  */
+
+// This edge-function call has no built-in timeout — unlike lib/signal.ts's invoke(), this one was
+// never given retry/timeout tuning, so a stalled connection here left onboarding's "searching"
+// step (and Find My Races' equivalent) spinning indefinitely with no recovery (Step 6.5 QA
+// finding). 20s matches the same bound already used for every Supabase call in lib/db/races.ts.
+const DISCOVERY_CALL_TIMEOUT_MS = 20000;
 
 export interface AthleteIdentity {
   providerAthleteId: string;
@@ -57,12 +64,21 @@ export type UnavailableReason =
 export type DiscoveryResult<T> = { available: true; data: T } | { available: false; reason: UnavailableReason };
 
 async function invoke<T>(body: Record<string, unknown>): Promise<DiscoveryResult<T>> {
-  const { data, error } = await supabase.functions.invoke('race-discovery', { body });
-  if (error) {
-    console.warn('[raceDiscovery] functions.invoke failed for action', body.action, '—', error.message ?? error);
+  try {
+    const { data, error } = await withTimeout(
+      supabase.functions.invoke('race-discovery', { body }),
+      DISCOVERY_CALL_TIMEOUT_MS,
+      `race-discovery:${body.action}`,
+    );
+    if (error) {
+      console.warn('[raceDiscovery] functions.invoke failed for action', body.action, '—', error.message ?? error);
+      return { available: false, reason: 'network_error' };
+    }
+    return data as DiscoveryResult<T>;
+  } catch (err) {
+    console.warn('[raceDiscovery] functions.invoke did not complete for action', body.action, '—', err);
     return { available: false, reason: 'network_error' };
   }
-  return data as DiscoveryResult<T>;
 }
 
 export function searchAthletes(racingName: string): Promise<DiscoveryResult<AthleteIdentity[]>> {

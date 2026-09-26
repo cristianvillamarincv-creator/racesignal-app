@@ -37,3 +37,18 @@ export function categoryPlaceholderFor(sport: SportCategory | null): string | un
   if (sport === 'triathlon') return 'e.g. Sprint, Olympic, 70.3';
   return undefined;
 }
+
+/** Explicit H/M/S fields -> total seconds — replaces free-text "H:MM:SS" parsing (ambiguous:
+ *  "1:30" could mean 1h30m or 1m30s). An all-blank set of fields means "no finish time," not zero;
+ *  a partially-filled set (e.g. minutes only) treats the blank fields as 0. Only applies for a
+ *  completed race — there's no additional required field beyond event name + sport for either mode
+ *  at the save gate; a completed race with no finish time entered is a valid, saveable state (see
+ *  results/[id].tsx's own handling of a manual completed race with no result). */
+export function hmsToSeconds(hours: string, minutes: string, seconds: string): number | undefined {
+  if (!hours.trim() && !minutes.trim() && !seconds.trim()) return undefined;
+  const h = Number(hours.trim() || '0');
+  const m = Number(minutes.trim() || '0');
+  const s = Number(seconds.trim() || '0');
+  if ([h, m, s].some((n) => Number.isNaN(n) || n < 0)) return undefined;
+  return h * 3600 + m * 60 + s;
+}

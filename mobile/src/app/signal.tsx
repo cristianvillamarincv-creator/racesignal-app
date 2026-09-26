@@ -28,6 +28,7 @@ import { appendSignalTurn, createSignalConversation, fetchSignalConversationWith
 import { AppIcon } from '@/lib/icons';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
 import { sendSignalMessage, type SignalChatTurn, type SignalImageAttachment, type SignalUnavailableReason } from '@/lib/signal';
+import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -42,26 +43,6 @@ interface StagedImage {
   base64: string;
   previewUri: string;
   mediaType: SignalImageAttachment['mediaType'];
-}
-
-// Mirrors the server-side MAX_IMAGE_BASE64_LENGTH in supabase/functions/signal/index.ts — checked
-// client-side too so a too-large screenshot is caught before spending a round trip on it.
-const MAX_IMAGE_BASE64_LENGTH = 6_000_000;
-
-/**
- * The picker's own `mimeType` is the real format of the picked asset — never assume JPEG. Physical
- * testing found a picked screenshot can genuinely be PNG (Anthropic rejected a PNG sent labeled
- * "image/jpeg"), so this must reflect what the asset actually is, with a safe extension-based
- * fallback only when the picker doesn't report a (supported) mimeType at all.
- */
-function resolveMediaType(asset: ImagePicker.ImagePickerAsset): SignalImageAttachment['mediaType'] {
-  if (asset.mimeType === 'image/jpeg' || asset.mimeType === 'image/png' || asset.mimeType === 'image/webp') {
-    return asset.mimeType;
-  }
-  const uri = asset.uri.toLowerCase();
-  if (uri.endsWith('.png')) return 'image/png';
-  if (uri.endsWith('.webp')) return 'image/webp';
-  return 'image/jpeg';
 }
 
 const THINKING_STATUSES = ['Reading your race history…', 'Analyzing splits…', 'Thinking…'];
@@ -211,12 +192,12 @@ export default function SignalScreen() {
     const asset = result.assets[0];
     if (!asset?.base64) return;
 
-    if (asset.base64.length > MAX_IMAGE_BASE64_LENGTH) {
+    if (exceedsSignalImageSizeLimit(asset.base64.length)) {
       Alert.alert('Image too large', 'Please choose a smaller screenshot (or crop it) and try again.');
       return;
     }
 
-    setStagedImage({ base64: asset.base64, previewUri: asset.uri, mediaType: resolveMediaType(asset) });
+    setStagedImage({ base64: asset.base64, previewUri: asset.uri, mediaType: resolveSignalImageMediaType(asset) });
     if (inputText.trim().length === 0) {
       setInputText('Analyze this screenshot');
     }

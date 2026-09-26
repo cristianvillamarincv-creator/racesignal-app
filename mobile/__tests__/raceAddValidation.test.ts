@@ -1,5 +1,5 @@
 import type { Race } from '@/fixtures/races';
-import { canSaveManualRace, categoryPlaceholderFor, initialSportForManualRace } from '@/lib/manualRaceForm';
+import { canSaveManualRace, categoryPlaceholderFor, hmsToSeconds, initialSportForManualRace } from '@/lib/manualRaceForm';
 
 describe('initialSportForManualRace', () => {
   it('starts unselected (null) for a brand-new manual race', () => {
@@ -27,6 +27,35 @@ describe('canSaveManualRace', () => {
 
   it('is true once a name and a sport are both present', () => {
     expect(canSaveManualRace({ eventName: 'Sporting Life 10K', sport: 'running', isSaving: false })).toBe(true);
+  });
+
+  it('has no completed-vs-upcoming distinction — mode is not part of the save gate at all', () => {
+    // canSaveManualRace's own signature has no `mode` parameter — a completed race with no finish
+    // time entered is a valid, saveable state (see results/[id].tsx's own handling of exactly that
+    // case), so name+sport is the entire gate regardless of Upcoming vs Already completed.
+    const base = { eventName: 'Sporting Life 10K', sport: 'running' as const, isSaving: false };
+    expect(canSaveManualRace(base)).toBe(true);
+  });
+});
+
+describe('hmsToSeconds', () => {
+  it('returns undefined when all three fields are blank (no finish time, not zero)', () => {
+    expect(hmsToSeconds('', '', '')).toBeUndefined();
+    expect(hmsToSeconds('  ', ' ', '')).toBeUndefined();
+  });
+
+  it('treats blank fields as zero once at least one field is filled', () => {
+    expect(hmsToSeconds('', '30', '')).toBe(30 * 60);
+    expect(hmsToSeconds('1', '', '')).toBe(3600);
+  });
+
+  it('computes total seconds correctly for a fully-specified time', () => {
+    expect(hmsToSeconds('1', '30', '45')).toBe(1 * 3600 + 30 * 60 + 45);
+  });
+
+  it('rejects negative or non-numeric values', () => {
+    expect(hmsToSeconds('-1', '0', '0')).toBeUndefined();
+    expect(hmsToSeconds('abc', '0', '0')).toBeUndefined();
   });
 });
 

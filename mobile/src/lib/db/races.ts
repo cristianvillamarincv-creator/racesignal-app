@@ -12,12 +12,20 @@ const RACE_COLUMNS =
   'id, athlete_id, import_status, race_status, provider, provider_result_id, provider_athlete_name, source_url, import_method, source_notes, event_date, event_year, date_precision, event_name, location, sport, category, finish_seconds, bib, overall_rank_place, overall_rank_field, gender_rank_place, gender_rank_field, age_group_rank_place, age_group_rank_field, age_group_category, splits, checklist_completed';
 
 export async function fetchConfirmedRaces(athleteId: string): Promise<RaceRow[]> {
-  const { data, error } = await supabase
-    .from('races')
-    .select(RACE_COLUMNS)
-    .eq('athlete_id', athleteId)
-    .eq('import_status', 'confirmed')
-    .order('event_year', { ascending: false });
+  // Drives every screen's isLoading (Races/Stats/Signal/both detail screens) via
+  // AthleteRacesProvider — this was the one query on that critical path still missing the same
+  // withTimeout bound its sibling fetchOnboardingCompletedAt already had, so a stalled connection
+  // here left the loading skeleton spinning indefinitely with no recovery (Step 6.5 QA finding).
+  const { data, error } = await withTimeout(
+    supabase
+      .from('races')
+      .select(RACE_COLUMNS)
+      .eq('athlete_id', athleteId)
+      .eq('import_status', 'confirmed')
+      .order('event_year', { ascending: false }),
+    QUERY_TIMEOUT_MS,
+    'fetchConfirmedRaces',
+  );
 
   if (error) throw error;
   return (data ?? []) as unknown as RaceRow[];
@@ -62,12 +70,16 @@ export async function insertConfirmedRaces(rows: Record<string, unknown>[]): Pro
   const resultIds = rows.map((row) => row.provider_result_id as string);
   console.log('[db/races] insertConfirmedRaces:', rows.length, 'row(s) for athlete', athleteId, 'provider', provider);
 
-  const { data: existing, error: selectError } = await supabase
-    .from('races')
-    .select('id, provider_result_id, import_status')
-    .eq('athlete_id', athleteId)
-    .eq('provider', provider)
-    .in('provider_result_id', resultIds);
+  const { data: existing, error: selectError } = await withTimeout(
+    supabase
+      .from('races')
+      .select('id, provider_result_id, import_status')
+      .eq('athlete_id', athleteId)
+      .eq('provider', provider)
+      .in('provider_result_id', resultIds),
+    QUERY_TIMEOUT_MS,
+    'insertConfirmedRaces (duplicate check)',
+  );
   if (selectError) {
     console.warn('[db/races] pre-insert duplicate-check SELECT failed:', selectError.message, selectError.code);
     throw selectError;
@@ -95,7 +107,11 @@ export async function insertConfirmedRaces(rows: Record<string, unknown>[]): Pro
   const persisted: RaceRow[] = [];
 
   if (toInsert.length > 0) {
-    const { data: inserted, error: insertError } = await supabase.from('races').insert(toInsert).select(RACE_COLUMNS);
+    const { data: inserted, error: insertError } = await withTimeout(
+      supabase.from('races').insert(toInsert).select(RACE_COLUMNS),
+      QUERY_TIMEOUT_MS,
+      'insertConfirmedRaces (insert)',
+    );
     if (insertError && insertError.code !== '23505') {
       console.warn('[db/races] INSERT failed:', insertError.message, 'code=', insertError.code, 'details=', insertError.details, 'hint=', insertError.hint);
       throw insertError;
@@ -105,7 +121,11 @@ export async function insertConfirmedRaces(rows: Record<string, unknown>[]): Pro
   }
 
   for (const { id, row } of toRevive) {
-    const { data: revived, error: reviveError } = await supabase.from('races').update(row).eq('id', id).select(RACE_COLUMNS).maybeSingle();
+    const { data: revived, error: reviveError } = await withTimeout(
+      supabase.from('races').update(row).eq('id', id).select(RACE_COLUMNS).maybeSingle(),
+      QUERY_TIMEOUT_MS,
+      'insertConfirmedRaces (revive)',
+    );
     if (reviveError) {
       console.warn('[db/races] reviving removed race', id, 'failed:', reviveError.message, reviveError.code);
       throw reviveError;
@@ -119,7 +139,11 @@ export async function insertConfirmedRaces(rows: Record<string, unknown>[]): Pro
 }
 
 export async function insertManualRace(row: Record<string, unknown>): Promise<RaceRow> {
-  const { data, error } = await supabase.from('races').insert(row).select(RACE_COLUMNS).single();
+  const { data, error } = await withTimeout(
+    supabase.from('races').insert(row).select(RACE_COLUMNS).single(),
+    QUERY_TIMEOUT_MS,
+    'insertManualRace',
+  );
   if (error) throw error;
   return data as unknown as RaceRow;
 }
@@ -128,7 +152,11 @@ export async function insertManualRace(row: Record<string, unknown>): Promise<Ra
  *  Race.isManual) so the UI never offers this path for them, but this scopes the UPDATE by
  *  provider too as a second guard against editing an imported race by id alone. */
 export async function updateManualRace(raceId: string, row: Record<string, unknown>): Promise<RaceRow> {
-  const { data, error } = await supabase.from('races').update(row).eq('id', raceId).eq('provider', 'manual').select(RACE_COLUMNS).single();
+  const { data, error } = await withTimeout(
+    supabase.from('races').update(row).eq('id', raceId).eq('provider', 'manual').select(RACE_COLUMNS).single(),
+    QUERY_TIMEOUT_MS,
+    'updateManualRace',
+  );
   if (error) throw error;
   return data as unknown as RaceRow;
 }
@@ -137,29 +165,36 @@ export async function updateManualRace(raceId: string, row: Record<string, unkno
  *  `provider = 'manual'` — Sportstats imports are always completed results — but this still scopes
  *  by provider too, same defensive pattern as updateManualRace. */
 export async function updateRaceChecklist(raceId: string, completedItemIds: string[]): Promise<RaceRow> {
-  const { data, error } = await supabase
-    .from('races')
-    .update({ checklist_completed: completedItemIds })
-    .eq('id', raceId)
-    .eq('provider', 'manual')
-    .select(RACE_COLUMNS)
-    .single();
+  const { data, error } = await withTimeout(
+    supabase
+      .from('races')
+      .update({ checklist_completed: completedItemIds })
+      .eq('id', raceId)
+      .eq('provider', 'manual')
+      .select(RACE_COLUMNS)
+      .single(),
+    QUERY_TIMEOUT_MS,
+    'updateRaceChecklist',
+  );
   if (error) throw error;
   return data as unknown as RaceRow;
 }
 
 export async function removeRace(raceId: string): Promise<void> {
-  const { error } = await supabase
-    .from('races')
-    .update({ import_status: 'removed', updated_at: new Date().toISOString() })
-    .eq('id', raceId);
+  const { error } = await withTimeout(
+    supabase.from('races').update({ import_status: 'removed', updated_at: new Date().toISOString() }).eq('id', raceId),
+    QUERY_TIMEOUT_MS,
+    'removeRace',
+  );
   if (error) throw error;
 }
 
 export async function upsertAthleteProfile(athleteId: string, racingName: string, birthYear?: number): Promise<void> {
-  const { error } = await supabase
-    .from('athlete_profiles')
-    .upsert({ id: athleteId, racing_name: racingName, birth_year: birthYear ?? null }, { onConflict: 'id' });
+  const { error } = await withTimeout(
+    supabase.from('athlete_profiles').upsert({ id: athleteId, racing_name: racingName, birth_year: birthYear ?? null }, { onConflict: 'id' }),
+    QUERY_TIMEOUT_MS,
+    'upsertAthleteProfile',
+  );
   if (error) {
     console.warn('[db/races] athlete_profiles upsert failed:', error.message, error.code);
     throw error;
@@ -170,8 +205,16 @@ export async function upsertAthleteProfile(athleteId: string, racingName: string
  *  name can never overwrite the athlete's primary/authoritative racing name. */
 export async function updateAthleteBirthYearHint(athleteId: string, birthYear?: number): Promise<void> {
   if (birthYear === undefined) return;
-  const { error } = await supabase.from('athlete_profiles').update({ birth_year: birthYear }).eq('id', athleteId);
-  if (error) console.warn('[db/races] birth_year update failed:', error.message);
+  try {
+    const { error } = await withTimeout(
+      supabase.from('athlete_profiles').update({ birth_year: birthYear }).eq('id', athleteId),
+      QUERY_TIMEOUT_MS,
+      'updateAthleteBirthYearHint',
+    );
+    if (error) console.warn('[db/races] birth_year update failed:', error.message);
+  } catch (err) {
+    console.warn('[db/races] birth_year update did not complete:', err);
+  }
 }
 
 /**
@@ -183,11 +226,16 @@ export async function updateAthleteBirthYearHint(athleteId: string, birthYear?: 
  * race count.
  */
 export async function markOnboardingComplete(athleteId: string): Promise<void> {
-  const { error } = await supabase
-    .from('athlete_profiles')
-    .update({ onboarding_completed_at: new Date().toISOString() })
-    .eq('id', athleteId);
-  if (error) console.warn('[db/races] markOnboardingComplete failed:', error.message);
+  try {
+    const { error } = await withTimeout(
+      supabase.from('athlete_profiles').update({ onboarding_completed_at: new Date().toISOString() }).eq('id', athleteId),
+      QUERY_TIMEOUT_MS,
+      'markOnboardingComplete',
+    );
+    if (error) console.warn('[db/races] markOnboardingComplete failed:', error.message);
+  } catch (err) {
+    console.warn('[db/races] markOnboardingComplete did not complete:', err);
+  }
 }
 
 /** Read once at app launch to classify a signed-in athlete as done-with-onboarding or not. Also
@@ -215,16 +263,25 @@ export async function fetchOnboardingCompletedAt(athleteId: string): Promise<str
 /** Existing confirmed provider_result_ids for one athlete/provider — used to mark discovery
  *  candidates "Already added" before the athlete can select them again. */
 export async function fetchImportedProviderResultIds(athleteId: string, provider: string): Promise<Set<string>> {
-  const { data, error } = await supabase
-    .from('races')
-    .select('provider_result_id')
-    .eq('athlete_id', athleteId)
-    .eq('provider', provider)
-    .eq('import_status', 'confirmed')
-    .not('provider_result_id', 'is', null);
-  if (error) {
-    console.warn('[db/races] fetchImportedProviderResultIds failed:', error.message);
+  try {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('races')
+        .select('provider_result_id')
+        .eq('athlete_id', athleteId)
+        .eq('provider', provider)
+        .eq('import_status', 'confirmed')
+        .not('provider_result_id', 'is', null),
+      QUERY_TIMEOUT_MS,
+      'fetchImportedProviderResultIds',
+    );
+    if (error) {
+      console.warn('[db/races] fetchImportedProviderResultIds failed:', error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((row) => row.provider_result_id as string));
+  } catch (err) {
+    console.warn('[db/races] fetchImportedProviderResultIds did not complete:', err);
     return new Set();
   }
-  return new Set((data ?? []).map((row) => row.provider_result_id as string));
 }

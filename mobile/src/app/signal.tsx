@@ -26,10 +26,13 @@ import { type BrandPalette, useBrandPalette } from '@/lib/brandTheme';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { appendSignalTurn, createSignalConversation, fetchSignalConversationWithMessages } from '@/lib/db/signal';
 import { AppIcon } from '@/lib/icons';
+import { usePremium } from '@/lib/premium';
+import { PAYWALL_RESULT, presentPremiumPaywall } from '@/lib/purchases';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
 import { sendSignalMessage, type SignalChatTurn, type SignalImageAttachment, type SignalUnavailableReason } from '@/lib/signal';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
+import { formatSignalUsageLabel } from '@/lib/signalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -80,11 +83,15 @@ function splitParagraphs(text: string): string[] {
 
 const REASON_MESSAGES: Record<SignalUnavailableReason, string> = {
   unauthorized: 'Please sign in again to use Signal.',
-  rate_limited: "You've reached today's Signal limit — please try again tomorrow.",
+  // Never actually shown — 'rate_limited' is handled specially in sendMessage (paywall for a free
+  // athlete, a plain "used up this month" note for premium) before this lookup is ever reached.
+  // Kept populated only because REASON_MESSAGES must cover every SignalUnavailableReason.
+  rate_limited: "You've used all your Signal asks for this month.",
   bad_request: "Signal couldn't understand that — please try again.",
   forbidden: "Signal couldn't access that race.",
   model_error: "Signal couldn't respond just now — please try again.",
   network_error: 'Network issue reaching Signal — please try again.',
+  service_unavailable: "Signal couldn't check your subscription status just now — please try again.",
 };
 
 /**
@@ -124,6 +131,11 @@ export default function SignalScreen() {
   const [isSending, setIsSending] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState(THINKING_STATUSES[0]);
   const [errorText, setErrorText] = useState<string | null>(null);
+  // Set from the signal Edge Function's own response after each successful reply (never computed
+  // or trusted client-side — see lib/signalUsage.ts). Null until the first reply of this screen
+  // instance, so nothing renders before there's a real server-confirmed count to show.
+  const [usageLabel, setUsageLabel] = useState<string | null>(null);
+  const { isPremium, refresh: refreshPremiumStatus } = usePremium();
   const scrollRef = useRef<ScrollView>(null);
   // A synchronous, ref-based single-flight guard — `isSending` state alone isn't enough, since a
   // rapid double-invocation (e.g. two near-simultaneous events) can both read the pre-update value
@@ -269,10 +281,38 @@ export default function SignalScreen() {
         // deliberately not shown here: it was useful while chasing real device failures, but an
         // athlete-facing error should stay short and friendly, never expose implementation
         // details. It's still logged via console.warn in sendSignalMessage for developer use.
+        if (result.reason === 'rate_limited' && !isPremium) {
+          // A free athlete who's exhausted their monthly allowance sees the RevenueCat paywall
+          // itself, not a generic error (Step 8.5) — presentPremiumPaywall's own "×" close button
+          // is what makes this dismissible. isPremium here only decides WHICH message/paywall the
+          // UI shows after the server has already said no; the allowance itself is enforced
+          // entirely server-side (see supabase/functions/signal/index.ts) regardless of this flag.
+          const paywallResult = await presentPremiumPaywall();
+          if (paywallResult === PAYWALL_RESULT.PURCHASED || paywallResult === PAYWALL_RESULT.RESTORED) {
+            await refreshPremiumStatus();
+            // Drop the just-added user turn so retrying doesn't duplicate it — sendMessage always
+            // re-appends it fresh.
+            setMessages((current) => current.slice(0, -1));
+            isSendingRef.current = false;
+            setIsSending(false);
+            await sendMessage(trimmed);
+            return;
+          }
+          setErrorText(
+            "You've used your free Signal asks for this month. Upgrade to RaceSignal Premium any time to keep asking.",
+          );
+          return;
+        }
+        if (result.reason === 'rate_limited') {
+          // Already premium and still hit the (40/month) cap — no paywall to offer.
+          setErrorText("You've used all your Signal asks for this month — more become available next month.");
+          return;
+        }
         setErrorText(REASON_MESSAGES[result.reason]);
         return;
       }
       setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: 'assistant', text: result.data.reply }]);
+      setUsageLabel(formatSignalUsageLabel(result.data.remaining, result.data.cap, result.data.isPremium));
 
       // Persist this turn — lazily creates the conversation on the first successful exchange, so
       // an abandoned chat with no real reply never shows up in "Recent Signals". A failure here is
@@ -423,6 +463,8 @@ export default function SignalScreen() {
           </View>
         ) : null}
 
+        {usageLabel ? <Text style={styles.usageLabel}>{usageLabel}</Text> : null}
+
         <View style={styles.inputBar}>
           <Pressable
             onPress={pickImage}
@@ -487,6 +529,7 @@ interface Styles {
   suggestionChip: ViewStyle;
   suggestionLabel: TextStyle;
   errorText: TextStyle;
+  usageLabel: TextStyle;
   stagedImageRow: ViewStyle;
   stagedImageThumb: ImageStyle;
   stagedImageLabel: TextStyle;
@@ -622,6 +665,12 @@ function createStyles(palette: BrandPalette): Styles {
     errorText: {
       fontSize: 13,
       color: palette.danger,
+    },
+    usageLabel: {
+      fontSize: 12,
+      color: palette.inkSecondary,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xs,
     },
     stagedImageRow: {
       flexDirection: 'row',

@@ -12,12 +12,14 @@ import { deleteAccount } from '@/lib/deleteAccount';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { AppIcon } from '@/lib/icons';
 import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLinks';
+import { usePremium } from '@/lib/premium';
+import { presentPremiumPaywall } from '@/lib/purchases';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
-// Subscription (Step 8 RevenueCat work) and Blocked Users (not a genuine V1 requirement) stay
-// fully hidden until they're real. Privacy/Support each become a real functioning link the moment
-// their URL is filled in (lib/legalLinks.ts) — until then they fall back to the same visibly
+// Blocked Users (not a genuine V1 requirement) stays fully hidden until it's real. Privacy/Support
+// each become a real functioning link the moment their URL is filled in (lib/legalLinks.ts) —
+// until then they fall back to the same visibly
 // subdued, clearly non-interactive InertRow used since Step 6, rather than reading as broken.
 const ACCOUNT_ROWS: { label: string; url: string }[] = [
   { label: 'Privacy', url: PRIVACY_POLICY_URL },
@@ -34,10 +36,28 @@ export default function SettingsScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
   const { enterOnboardingReplayFromSettings } = useDevPreview();
   const showDevTools = isDevPreviewAvailable();
+  const { isPremium, refresh: refreshPremiumStatus, restorePurchases } = usePremium();
+
+  async function handleUpgradePress() {
+    await presentPremiumPaywall();
+    await refreshPremiumStatus();
+  }
+
+  async function handleRestorePress() {
+    if (isRestoring) return;
+    setIsRestoring(true);
+    const restored = await restorePurchases();
+    setIsRestoring(false);
+    Alert.alert(
+      restored ? 'Purchases restored' : 'Nothing to restore',
+      restored ? 'Your RaceSignal Premium subscription is active on this device.' : 'No active RaceSignal Premium purchase was found for this account.',
+    );
+  }
 
   async function handleSignOut() {
     if (isSigningOut) return;
@@ -110,6 +130,23 @@ export default function SettingsScreen() {
           <ActionRow
             label="Find my races"
             onPress={() => router.push('/find-races')}
+            styles={styles}
+            palette={palette}
+          />
+        </View>
+
+        <View style={styles.section}>
+          <SectionHeader title="Subscription" />
+          <HairlineRule color={palette.hairline} />
+          {isPremium ? (
+            <StatusRow label="RaceSignal Premium" value="Active" styles={styles} />
+          ) : (
+            <ActionRow label="Upgrade to RaceSignal Premium" onPress={handleUpgradePress} styles={styles} palette={palette} />
+          )}
+          <HairlineRule color={palette.hairline} />
+          <ActionRow
+            label={isRestoring ? 'Restoring…' : 'Restore Purchases'}
+            onPress={handleRestorePress}
             styles={styles}
             palette={palette}
           />
@@ -227,6 +264,19 @@ function InertRow({ label, styles }: { label: string; styles: Styles }) {
   );
 }
 
+/** Same shape as InertRow (a non-interactive status line), for a real, current state rather than
+ *  a placeholder — the premium athlete's subscription state (Step 8.8). Deliberately not a full
+ *  subscription-management screen; that's handled by Apple's own App Store subscription settings,
+ *  reachable from Restore Purchases if needed. */
+function StatusRow({ label, value, styles }: { label: string; value: string; styles: Styles }) {
+  return (
+    <View style={styles.statusRow} accessibilityRole="text" accessibilityLabel={`${label}, ${value}`}>
+      <Text style={styles.statusLabel}>{label}</Text>
+      <Text style={styles.statusValue}>{value}</Text>
+    </View>
+  );
+}
+
 interface Styles {
   screen: ViewStyle;
   content: ViewStyle;
@@ -239,6 +289,9 @@ interface Styles {
   inertRow: ViewStyle;
   inertLabel: TextStyle;
   inertValue: TextStyle;
+  statusRow: ViewStyle;
+  statusLabel: TextStyle;
+  statusValue: TextStyle;
   signOutRow: ViewStyle;
   signOutLabel: TextStyle;
   signOutLabelDisabled: TextStyle;
@@ -303,6 +356,22 @@ function createStyles(palette: BrandPalette): Styles {
     inertValue: {
       fontSize: 13,
       color: palette.inkSecondary,
+    },
+    statusRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      minHeight: minTouchSize,
+    },
+    statusLabel: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: palette.ink,
+    },
+    statusValue: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: palette.signalBlue,
     },
     signOutRow: {
       minHeight: minTouchSize,

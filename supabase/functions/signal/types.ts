@@ -109,7 +109,12 @@ export type SignalUnavailableReason =
   | 'rate_limited'
   | 'bad_request'
   | 'forbidden'
-  | 'model_error';
+  | 'model_error'
+  /** RevenueCat's entitlement lookup itself failed (timeout, network error, non-2xx, malformed
+   *  body) — distinct from a genuine "no active premium entitlement" result. Never counted as
+   *  free-tier and never consumes an ask; the caller should retry. See index.ts's
+   *  resolveEntitlementStatus. */
+  | 'service_unavailable';
 
 export type SignalResponse<T> =
   | { available: true; data: T }
@@ -125,4 +130,10 @@ export type SignalResponse<T> =
 
 export interface SignalReplyPayload {
   reply: string;
+  /** Asks left in the current calendar-month window AFTER this one was consumed — lets the
+   *  mobile client render "X of Y Signal asks remaining this month" without a second round-trip.
+   *  See index.ts's currentMonthWindow() for the exact reset boundary. */
+  remaining: number;
+  cap: number;
+  isPremium: boolean;
 }

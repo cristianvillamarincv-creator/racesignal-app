@@ -13,7 +13,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { buildSystemPrompt } from './systemPrompt.ts';
-import type { SignalChatTurn, SignalContext, SignalRequestBody, SignalResponse, SignalUnavailableReason } from './types.ts';
+import type { SignalChatTurn, SignalContext, SignalReplyPayload, SignalRequestBody, SignalResponse, SignalUnavailableReason } from './types.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -21,10 +21,10 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Every Signal call has real per-request $ cost against a paid model API with no paywall in front
-// of it yet — this cap is the one non-negotiable cost control for now, independent of any future
-// subscription gating. Per-athlete, not per-IP (see migrations/0005_signal_rate_limit.sql).
-const DAILY_REQUEST_CAP = Number(Deno.env.get('SIGNAL_DAILY_REQUEST_CAP') ?? '20');
+// Step 8.4 — the locked V1 monthly allowance. Free/premium status is resolved server-side against
+// RevenueCat (see resolveEntitlementStatus below); a client-supplied "isPremium" is never trusted.
+const FREE_MONTHLY_CAP = Number(Deno.env.get('SIGNAL_FREE_MONTHLY_CAP') ?? '3');
+const PREMIUM_MONTHLY_CAP = Number(Deno.env.get('SIGNAL_PREMIUM_MONTHLY_CAP') ?? '40');
 
 // A few MB of base64 text, decoded — defense-in-depth alongside the client's own resize/compress
 // step (see mobile's image-attachment flow); this function must not blindly forward an
@@ -71,25 +71,119 @@ async function requireAuthenticatedUser(req: Request): Promise<{ id: string } | 
   return { id: data.user.id };
 }
 
-async function checkAndIncrementRateLimit(athleteId: string): Promise<boolean> {
-  const today = new Date().toISOString().slice(0, 10);
-  const client = serviceRoleClient();
+/**
+ * The monthly reset boundary, exact and deterministic: the first day of the CURRENT UTC calendar
+ * month (e.g. "2026-09-01"), used as signal_rate_limit's window_date. There is no cron/reset job —
+ * a request made in a new month simply writes a new row (window_date changed, and it's part of the
+ * table's primary key), starting fresh at count 1. The boundary is midnight UTC on the 1st.
+ */
+function currentMonthWindow(): string {
+  return `${new Date().toISOString().slice(0, 7)}-01`;
+}
 
-  const { data: existing } = await client
-    .from('signal_rate_limit')
-    .select('request_count')
-    .eq('athlete_id', athleteId)
-    .eq('window_date', today)
-    .maybeSingle();
+/**
+ * Atomically reserves one ask in the bucket for `tier` ('free' or 'premium') if the athlete is
+ * still under `cap` for THAT bucket specifically — free and premium usage are separate counters on
+ * the same row (see migrations/0008_signal_separate_tier_allowance.sql), so upgrading mid-month
+ * always starts premium's counter at 0, never "40 minus whatever free already used." Concurrent
+ * requests from the same athlete still serialize on the row via INSERT ... ON CONFLICT DO
+ * UPDATE ... WHERE, so two simultaneous requests at cap-1 can't both squeeze through. Returns the
+ * new count for that tier's bucket, or null if its cap was already reached (nothing was written).
+ */
+async function reserveSignalAsk(athleteId: string, windowDate: string, tier: 'free' | 'premium', cap: number): Promise<number | null> {
+  const { data, error } = await serviceRoleClient().rpc('reserve_signal_ask', {
+    p_athlete_id: athleteId,
+    p_window_date: windowDate,
+    p_tier: tier,
+    p_cap: cap,
+  });
+  if (error) {
+    console.warn('[signal] reserve_signal_ask failed —', error.message);
+    return null;
+  }
+  return data as number | null;
+}
 
-  const currentCount = existing?.request_count ?? 0;
-  if (currentCount >= DAILY_REQUEST_CAP) return false;
+/** Gives back a slot reserved by reserveSignalAsk (same tier) when the model call itself then
+ *  fails — only a genuinely successful reply should consume an ask. Best-effort: a failure here
+ *  just means the athlete's count is one higher than it should be, never a crash of the response
+ *  we already owe them. */
+async function releaseSignalAsk(athleteId: string, windowDate: string, tier: 'free' | 'premium'): Promise<void> {
+  const { error } = await serviceRoleClient().rpc('release_signal_ask', { p_athlete_id: athleteId, p_window_date: windowDate, p_tier: tier });
+  if (error) console.warn('[signal] release_signal_ask failed —', error.message);
+}
 
-  await client
-    .from('signal_rate_limit')
-    .upsert({ athlete_id: athleteId, window_date: today, request_count: currentCount + 1 }, { onConflict: 'athlete_id,window_date' });
+type EntitlementStatus = 'premium' | 'free' | 'error';
 
-  return true;
+// Bounds the RevenueCat lookup the same way MODEL_TIMEOUT_MS bounds the Anthropic call — a hung
+// request here must still let this function return a clean, retriable response.
+const REVENUECAT_TIMEOUT_MS = 8_000;
+
+/**
+ * Server-side premium check against RevenueCat's REST API — the one place a "premium" decision is
+ * actually made. Uses RaceSignal's existing PUBLIC iOS SDK key (REVENUECAT_PUBLIC_API_KEY) rather
+ * than a privileged secret key: RevenueCat's subscriber-lookup endpoint is designed to be safely
+ * callable with a public key scoped to reading/writing only the one app_user_id passed in — the
+ * same key the mobile SDK itself already uses, not a new credential. The RevenueCat App User ID is
+ * always the same Supabase auth user id already verified above (see lib/premium.tsx client-side),
+ * so no separate identity mapping is needed. A client-supplied isPremium flag is never read or
+ * trusted anywhere in this function.
+ *
+ * Returns 'error' — never silently 'free' — for anything that isn't a genuine, successful "no
+ * active premium entitlement" result: missing key, timeout, network error, non-2xx, or a
+ * malformed body. The caller must treat 'error' as a recoverable failure (no ask reserved, no
+ * paywall shown), never as evidence the athlete is on the free tier.
+ */
+async function resolveEntitlementStatus(athleteId: string): Promise<EntitlementStatus> {
+  const publicKey = Deno.env.get('REVENUECAT_PUBLIC_API_KEY');
+  if (!publicKey) {
+    console.warn('[signal] REVENUECAT_PUBLIC_API_KEY is not set — cannot resolve entitlement status.');
+    return 'error';
+  }
+
+  const timeoutController = new AbortController();
+  const timeoutHandle = setTimeout(() => timeoutController.abort(), REVENUECAT_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(athleteId)}`, {
+      headers: { Authorization: `Bearer ${publicKey}` },
+      signal: timeoutController.signal,
+    });
+  } catch (err) {
+    const reason = (err as Error).name === 'AbortError' ? `timed out after ${REVENUECAT_TIMEOUT_MS}ms` : (err as Error).message;
+    console.warn('[signal] RevenueCat subscriber lookup failed to complete —', reason);
+    return 'error';
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+
+  if (!res.ok) {
+    console.warn('[signal] RevenueCat subscriber lookup returned a non-2xx status —', res.status);
+    return 'error';
+  }
+
+  let data: { subscriber?: { entitlements?: Record<string, { expires_date: string | null }> } };
+  try {
+    data = await res.json();
+  } catch (err) {
+    console.warn('[signal] RevenueCat subscriber lookup returned a malformed body —', (err as Error).message);
+    return 'error';
+  }
+
+  const entitlement = data.subscriber?.entitlements?.['premium'];
+  if (!entitlement) return 'free';
+  if (!entitlement.expires_date) return 'premium'; // non-expiring entitlement
+  return new Date(entitlement.expires_date).getTime() > Date.now() ? 'premium' : 'free';
+}
+
+/** Fire-and-forget cost instrumentation for one successful reply — never blocks or fails the
+ *  athlete's response if the insert itself fails. No prompt/response text or image bytes are
+ *  logged, only token counts and flags (see migrations/0007). */
+async function logSignalUsage(athleteId: string, inputTokens: number, outputTokens: number, hadImage: boolean, wasPremium: boolean): Promise<void> {
+  const { error } = await serviceRoleClient()
+    .from('signal_usage_log')
+    .insert({ athlete_id: athleteId, input_tokens: inputTokens, output_tokens: outputTokens, had_image: hadImage, was_premium: wasPremium });
+  if (error) console.warn('[signal] logSignalUsage failed —', error.message);
 }
 
 /** The one server-side trust boundary: a client-supplied seed race must actually belong to the
@@ -134,7 +228,7 @@ interface AnthropicContentBlock {
   source?: { type: 'base64'; media_type: string; data: string };
 }
 
-type ModelResult = { reply: string } | { error: string };
+type ModelResult = { reply: string; inputTokens: number; outputTokens: number } | { error: string };
 
 /** Truncates a raw error string to something safe to log and to return as `detail` — Anthropic's
  *  own error bodies describe what's wrong with OUR request (bad model name, bad key format,
@@ -243,7 +337,8 @@ async function callModel(systemPrompt: string, history: SignalChatTurn[], messag
     return { error: safeDetail(detail) };
   }
 
-  return { reply: text };
+  const usage = (data as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+  return { reply: text, inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0 };
 }
 
 Deno.serve(async (req) => {
@@ -310,15 +405,38 @@ Deno.serve(async (req) => {
       if (!owned) return unavailable('forbidden');
     }
 
-    if (!(await checkAndIncrementRateLimit(user.id))) {
-      return unavailable('rate_limited');
+    // Everything above this point is validation/ownership — none of it consumes an ask. Premium
+    // status is resolved fresh, server-side, on every request (never cached, never client-trusted).
+    const entitlementStatus = await resolveEntitlementStatus(user.id);
+    if (entitlementStatus === 'error') {
+      // RevenueCat itself couldn't be reached/parsed — this is NOT "treat as free tier". No ask is
+      // reserved, and the client must show a plain retriable error, never the premium paywall.
+      return unavailable('service_unavailable');
     }
+    const isPremium = entitlementStatus === 'premium';
+    const tier: 'free' | 'premium' = isPremium ? 'premium' : 'free';
+    const cap = isPremium ? PREMIUM_MONTHLY_CAP : FREE_MONTHLY_CAP;
+    const windowDate = currentMonthWindow();
+
+    const reservedCount = await reserveSignalAsk(user.id, windowDate, tier, cap);
+    if (reservedCount === null) return unavailable('rate_limited');
 
     const systemPrompt = buildSystemPrompt(context);
     const result = await callModel(systemPrompt, history, message, image);
-    if ('error' in result) return unavailable('model_error', result.error);
+    if ('error' in result) {
+      // The model call itself failed after the ask was reserved — give the slot back. Only a
+      // genuinely successful reply should count against the athlete's monthly allowance.
+      await releaseSignalAsk(user.id, windowDate, tier);
+      return unavailable('model_error', result.error);
+    }
 
-    return json({ available: true, data: { reply: result.reply } } satisfies SignalResponse<{ reply: string }>);
+    await logSignalUsage(user.id, result.inputTokens, result.outputTokens, !!image, isPremium);
+
+    const remaining = Math.max(cap - reservedCount, 0);
+    return json({
+      available: true,
+      data: { reply: result.reply, remaining, cap, isPremium },
+    } satisfies SignalResponse<SignalReplyPayload>);
   } catch (err) {
     const detail = `Unhandled exception: ${(err as Error).message}`;
     console.warn('[signal]', detail);

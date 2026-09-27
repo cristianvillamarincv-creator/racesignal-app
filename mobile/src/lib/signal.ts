@@ -18,7 +18,16 @@ export interface SignalImageAttachment {
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp';
 }
 
-export type SignalUnavailableReason = 'unauthorized' | 'rate_limited' | 'bad_request' | 'forbidden' | 'model_error' | 'network_error';
+export type SignalUnavailableReason =
+  | 'unauthorized'
+  | 'rate_limited'
+  | 'bad_request'
+  | 'forbidden'
+  | 'model_error'
+  | 'network_error'
+  /** RevenueCat's entitlement lookup itself failed server-side — distinct from "no active
+   *  premium." Never shown as the paywall; a plain retriable error instead (see signal.tsx). */
+  | 'service_unavailable';
 
 export type SignalResult<T> =
   | { available: true; data: T }
@@ -32,12 +41,22 @@ export type SignalResult<T> =
       detail?: string;
     };
 
+export interface SignalReplyPayload {
+  reply: string;
+  /** Asks left in the current calendar-month window after this one was consumed, and the cap it
+   *  was measured against (3 free / 40 premium) — see signal_usage.ts's formatSignalUsageLabel and
+   *  supabase/functions/signal/index.ts's currentMonthWindow for the exact reset boundary. */
+  remaining: number;
+  cap: number;
+  isPremium: boolean;
+}
+
 export function sendSignalMessage(
   context: SignalContext,
   history: SignalChatTurn[],
   message: string,
   image?: SignalImageAttachment,
-): Promise<SignalResult<{ reply: string }>> {
+): Promise<SignalResult<SignalReplyPayload>> {
   return invoke({ context, history, message, image });
 }
 

@@ -12,7 +12,9 @@ import { AppPhaseProvider, useAppPhase } from '@/lib/appPhase';
 import { AuthProvider } from '@/lib/auth';
 import { useBrandPalette } from '@/lib/brandTheme';
 import { DevPreviewProvider, useDevPreview } from '@/lib/devPreview';
+import { PurchasesIdentityBridge } from '@/lib/premium';
 import { PreviewAuthProvider } from '@/lib/previewAuthContext';
+import { PreviewPremiumProvider } from '@/lib/previewPremiumContext';
 import { PreviewAthleteRacesProvider } from '@/lib/previewRacesContext';
 import { AthleteRacesProvider } from '@/lib/racesContext';
 
@@ -79,12 +81,14 @@ function RootLayoutBody() {
     // mechanism, not just omitting the Stack.Screen entries, is required here).
     return (
       <PreviewAuthProvider>
-        <PreviewAthleteRacesProvider>
-          <View style={styles.previewOverlayContainer}>
-            <AppStack preview />
-            <ExitPreviewButton onExit={exit} />
-          </View>
-        </PreviewAthleteRacesProvider>
+        <PreviewPremiumProvider>
+          <PreviewAthleteRacesProvider>
+            <View style={styles.previewOverlayContainer}>
+              <AppStack preview />
+              <ExitPreviewButton onExit={exit} />
+            </View>
+          </PreviewAthleteRacesProvider>
+        </PreviewPremiumProvider>
       </PreviewAuthProvider>
     );
   }
@@ -99,23 +103,27 @@ function RootLayoutBody() {
     // fixture-backed Tabs preview as the "Browse app with sample data" entry point.
     return (
       <PreviewAuthProvider>
-        <PreviewAthleteRacesProvider>
-          <View style={styles.previewOverlayContainer}>
-            <OnboardingFlow onComplete={() => {}} simulateAuth onSimulatedComplete={enterBrowse} />
-            <ExitPreviewButton onExit={exit} />
-          </View>
-        </PreviewAthleteRacesProvider>
+        <PreviewPremiumProvider>
+          <PreviewAthleteRacesProvider>
+            <View style={styles.previewOverlayContainer}>
+              <OnboardingFlow onComplete={() => {}} simulateAuth onSimulatedComplete={enterBrowse} />
+              <ExitPreviewButton onExit={exit} />
+            </View>
+          </PreviewAthleteRacesProvider>
+        </PreviewPremiumProvider>
       </PreviewAuthProvider>
     );
   }
 
   return (
     <AuthProvider>
-      <AppPhaseProvider>
-        <AthleteRacesProvider>
-          <RootNavigator />
-        </AthleteRacesProvider>
-      </AppPhaseProvider>
+      <PurchasesIdentityBridge>
+        <AppPhaseProvider>
+          <AthleteRacesProvider>
+            <RootNavigator />
+          </AthleteRacesProvider>
+        </AppPhaseProvider>
+      </PurchasesIdentityBridge>
     </AuthProvider>
   );
 }

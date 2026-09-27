@@ -3,10 +3,24 @@ import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { isRetryableAuthError } from '@/lib/authRetry';
 import { supabase } from '@/lib/supabaseClient';
 import { withTimeout } from '@/lib/timeout';
 
 WebBrowser.maybeCompleteAuthSession();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Exactly one retry, only for a confirmed transient network-layer failure (see authRetry.ts) —
+// matches lib/signal.ts's identical one-retry pattern for the same class of problem. Safe to
+// resend the same code/tokens: AuthRetryableFetchError means the request never reached (or never
+// got a decision from) the server, so nothing was consumed server-side yet. The OUTER caller
+// (OnboardingFlow's processedUrlRef) already guarantees completeAuthFromUrl itself is never
+// invoked twice for the same redirect URL, so this retry can never cause a duplicate
+// session/import — it only re-attempts the one already-deduped call.
+const AUTH_RETRY_DELAY_MS = 400;
 
 /** supabase-js has no built-in request timeout — a stalled connection would otherwise leave a
  *  caller awaiting one of these calls indefinitely (the confirmed cause of the onboarding
@@ -127,6 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       let error: Awaited<ReturnType<typeof supabase.auth.exchangeCodeForSession>>['error'];
       try {
         ({ data, error } = await withTimeout(supabase.auth.exchangeCodeForSession(code), AUTH_CALL_TIMEOUT_MS, 'exchangeCodeForSession'));
+        if (error && isRetryableAuthError(error)) {
+          console.warn('[Auth] exchangeCodeForSession hit a transient network error, retrying once:', error.message);
+          await sleep(AUTH_RETRY_DELAY_MS);
+          ({ data, error } = await withTimeout(supabase.auth.exchangeCodeForSession(code), AUTH_CALL_TIMEOUT_MS, 'exchangeCodeForSession'));
+        }
       } catch (err) {
         console.warn('[Auth] exchangeCodeForSession did not complete:', err);
         return {
@@ -161,6 +180,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           AUTH_CALL_TIMEOUT_MS,
           'setSession',
         ));
+        if (error && isRetryableAuthError(error)) {
+          console.warn('[Auth] setSession hit a transient network error, retrying once:', error.message);
+          await sleep(AUTH_RETRY_DELAY_MS);
+          ({ data, error } = await withTimeout(
+            supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }),
+            AUTH_CALL_TIMEOUT_MS,
+            'setSession',
+          ));
+        }
       } catch (err) {
         console.warn('[Auth] setSession did not complete:', err);
         return {

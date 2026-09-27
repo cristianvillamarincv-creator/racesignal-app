@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { HairlineRule } from '@/components/HairlineRule';
@@ -8,17 +8,22 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { useAppPhase } from '@/lib/appPhase';
 import { useAuth } from '@/lib/auth';
 import { type BrandPalette, useBrandPalette } from '@/lib/brandTheme';
+import { deleteAccount } from '@/lib/deleteAccount';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { AppIcon } from '@/lib/icons';
+import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLinks';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
-// Privacy and Support become real functionality in Step 7 — shown now as visibly subdued, clearly
-// non-interactive placeholders (InertRow) rather than hidden entirely, per physical-device review.
-// Subscription (Step 8 RevenueCat work) and Blocked Users (not a genuine V1 requirement) stay fully
-// hidden until they're real — four identical "Coming soon" rows read as a dead product, but two
-// clearly-labeled upcoming rows read as intentional.
-const PLACEHOLDER_ROWS: string[] = ['Privacy', 'Support'];
+// Subscription (Step 8 RevenueCat work) and Blocked Users (not a genuine V1 requirement) stay
+// fully hidden until they're real. Privacy/Support each become a real functioning link the moment
+// their URL is filled in (lib/legalLinks.ts) — until then they fall back to the same visibly
+// subdued, clearly non-interactive InertRow used since Step 6, rather than reading as broken.
+const ACCOUNT_ROWS: { label: string; url: string }[] = [
+  { label: 'Privacy', url: PRIVACY_POLICY_URL },
+  { label: 'Terms of Use', url: TERMS_OF_USE_URL },
+  { label: 'Support', url: SUPPORT_URL },
+];
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -27,6 +32,8 @@ export default function SettingsScreen() {
   const { racingName } = useAthleteRaces();
   const displayName = racingName ?? session?.user.email ?? 'Athlete';
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
   const { enterOnboardingReplayFromSettings } = useDevPreview();
@@ -42,6 +49,40 @@ export default function SettingsScreen() {
       console.warn('[Settings] sign out failed:', err);
       setIsSigningOut(false);
     }
+  }
+
+  async function handleDeleteAccountConfirmed() {
+    if (isDeletingAccount) return;
+    setIsDeletingAccount(true);
+    setDeleteError(null);
+    const result = await deleteAccount();
+    if (!result.available) {
+      console.warn('[Settings] account deletion failed:', result.reason);
+      setDeleteError('Something went wrong deleting your account. Please try again.');
+      setIsDeletingAccount(false);
+      return;
+    }
+    // The server-side account is gone; clear the local session/state the same way sign-out does
+    // so the app returns to a genuinely signed-out state regardless of what supabase-js's own
+    // client-side session cache still holds.
+    try {
+      await signOut();
+    } catch {
+      // The account is already deleted server-side — a local sign-out failure here doesn't leave
+      // a usable session behind, so it's safe to proceed to resetToOnboarding regardless.
+    }
+    resetToOnboarding();
+  }
+
+  function handleDeleteAccountPress() {
+    Alert.alert(
+      'Delete your account?',
+      'This permanently deletes your RaceSignal account and all of your race history, Signal conversations, and account data. This can’t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: handleDeleteAccountConfirmed },
+      ],
+    );
   }
 
   return (
@@ -74,18 +115,20 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {PLACEHOLDER_ROWS.length > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader title="Account" />
-            <HairlineRule color={palette.hairline} />
-            {PLACEHOLDER_ROWS.map((row, index) => (
-              <View key={row}>
-                <InertRow label={row} styles={styles} />
-                {index < PLACEHOLDER_ROWS.length - 1 ? <HairlineRule color={palette.hairline} /> : null}
-              </View>
-            ))}
-          </View>
-        ) : null}
+        <View style={styles.section}>
+          <SectionHeader title="Account" />
+          <HairlineRule color={palette.hairline} />
+          {ACCOUNT_ROWS.map((row, index) => (
+            <View key={row.label}>
+              {row.url ? (
+                <ActionRow label={row.label} onPress={() => Linking.openURL(row.url)} styles={styles} palette={palette} />
+              ) : (
+                <InertRow label={row.label} styles={styles} />
+              )}
+              {index < ACCOUNT_ROWS.length - 1 ? <HairlineRule color={palette.hairline} /> : null}
+            </View>
+          ))}
+        </View>
 
         {/* Sign out — a quiet destructive utility link, exactly like results/[id].tsx's "Remove
             this race": plain Pressable+Text, danger-colored, no button chrome. */}
@@ -99,6 +142,24 @@ export default function SettingsScreen() {
             {isSigningOut ? 'Signing out…' : 'Sign out'}
           </Text>
         </Pressable>
+
+        {/* Delete account — Apple 5.1.1(v): account creation requires an in-app path to delete
+            it, not merely sign out. Kept as its own quiet destructive row (same visual language
+            as Sign out, not a heavier button) but clearly separate from it, with an explicit
+            destructive confirmation before anything happens. */}
+        <View>
+          <Pressable
+            onPress={handleDeleteAccountPress}
+            disabled={isDeletingAccount}
+            accessibilityRole="button"
+            accessibilityLabel="Delete account"
+            style={styles.signOutRow}>
+            <Text style={[styles.signOutLabel, isDeletingAccount && styles.signOutLabelDisabled]}>
+              {isDeletingAccount ? 'Deleting account…' : 'Delete account'}
+            </Text>
+          </Pressable>
+          {deleteError ? <Text style={styles.deleteErrorText}>{deleteError}</Text> : null}
+        </View>
 
         {/* Testing infrastructure, not V1 product UI — gated by isDevPreviewAvailable() (both
             __DEV__ and the explicit EXPO_PUBLIC_ENABLE_DEV_PREVIEW opt-in), so this can never render
@@ -181,6 +242,7 @@ interface Styles {
   signOutRow: ViewStyle;
   signOutLabel: TextStyle;
   signOutLabelDisabled: TextStyle;
+  deleteErrorText: TextStyle;
   devSection: ViewStyle;
   devSectionLabel: TextStyle;
   devRow: ViewStyle;
@@ -253,6 +315,11 @@ function createStyles(palette: BrandPalette): Styles {
     },
     signOutLabelDisabled: {
       opacity: 0.5,
+    },
+    deleteErrorText: {
+      fontSize: 13,
+      color: palette.danger,
+      marginTop: spacing.xs,
     },
     devSection: {
       marginTop: spacing.md,

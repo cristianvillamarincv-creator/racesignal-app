@@ -15,3 +15,7 @@ verify_jwt = false
 # above, this relies on the platform gateway's own JWT verification (true is also the default;
 # explicit here for contrast with the function right above it).
 verify_jwt = true
+
+[functions.delete-account]
+# Every action requires a signed-in athlete, same as `signal`.
+verify_jwt = true

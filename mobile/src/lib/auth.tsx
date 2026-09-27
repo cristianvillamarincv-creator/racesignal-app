@@ -150,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn('[Auth] exchangeCodeForSession did not complete:', err);
         return {
-          error: 'Sign-in is taking longer than expected — check your connection and try again.',
+          error: 'Sign-in is taking longer than expected. Check your connection and try again.',
           userId: null,
         };
       }
@@ -195,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn('[Auth] setSession did not complete:', err);
         return {
-          error: 'Sign-in is taking longer than expected — check your connection and try again.',
+          error: 'Sign-in is taking longer than expected. Check your connection and try again.',
           userId: null,
         };
       }

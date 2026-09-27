@@ -89,7 +89,7 @@ export default function StatsScreen() {
 
   function openRace(race: Race) {
     if (race.locked) {
-      setPremiumHint(`${race.name} — full result is Premium.`);
+      setPremiumHint(`${race.name}: full result is Premium.`);
       return;
     }
     router.push(`/results/${race.id}`);

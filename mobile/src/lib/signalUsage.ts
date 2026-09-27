@@ -5,5 +5,5 @@
  * never computed or trusted client-side.
  */
 export function formatSignalUsageLabel(remaining: number, cap: number, isPremium: boolean): string {
-  return isPremium ? `${remaining} of ${cap} Signal asks remaining this month` : `${remaining} of ${cap} free Signal asks remaining this month`;
+  return isPremium ? `Premium · ${remaining} of ${cap} Signal asks left` : `Free plan · ${remaining} of ${cap} Signal asks left`;
 }

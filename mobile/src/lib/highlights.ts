@@ -231,7 +231,7 @@ export function getAllHighlightsUnfiltered(races: Race[]): Highlight[] {
   const courseBestHighlights: Highlight[] = getCourseBests(races).map((race) => ({
     race,
     icon: 'flag-checkered',
-    label: `Course best — ${race.name}`,
+    label: `Course best: ${race.name}`,
   }));
 
   const podiumHighlights: Highlight[] = getAgeGroupPodiums(races).map((race) => {

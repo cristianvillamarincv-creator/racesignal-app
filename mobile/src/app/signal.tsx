@@ -22,7 +22,7 @@ import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SignalMark } from '@/components/SignalMark';
 import { useAuth } from '@/lib/auth';
-import { type BrandPalette, useBrandPalette } from '@/lib/brandTheme';
+import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { appendSignalTurn, createSignalConversation, fetchSignalConversationWithMessages } from '@/lib/db/signal';
 import { AppIcon } from '@/lib/icons';
@@ -59,11 +59,11 @@ const THINKING_STATUSES = ['Reading your race history…', 'Analyzing splits…'
 // is one, not a live one.
 const PREVIEW_SAMPLE_QUESTION = 'What does my history suggest for my next race?';
 const PREVIEW_SAMPLE_ANALYSIS = [
-  'Your Olympic-distance form has been trending in the right direction: 2:30:43 at the Niagara Falls Barrelman (Sep 2025) — labeled a PR — and 2:30:59 at Wasaga Beach three weeks earlier are your two fastest results at that distance, and the Niagara Falls run split (41:27, 4:08/km) is your fastest off-the-bike 10K-equivalent this season.',
-  'At 70.3, your most recent finish — IRONMAN 70.3 Eagleman in 4:54:58 — is your fastest half-iron result on record, built on a 36.4 km/h bike average and a 4:39/km run that held up rather than fading. That combination is the strongest signal in your history: a bike that no longer costs you the run.',
+  'Your Olympic-distance form has been trending in the right direction: 2:30:43 at the Niagara Falls Barrelman (Sep 2025), labeled a PR, and 2:30:59 at Wasaga Beach three weeks earlier are your two fastest results at that distance, and the Niagara Falls run split (41:27, 4:08/km) is your fastest off-the-bike 10K-equivalent this season.',
+  'At 70.3, your most recent finish, IRONMAN 70.3 Eagleman in 4:54:58, is your fastest half-iron result on record, built on a 36.4 km/h bike average and a 4:39/km run that held up rather than fading. That combination is the strongest signal in your history: a bike that no longer costs you the run.',
   'IRONMAN 70.3 Muskoka is a similar profile to Eagleman, so the realistic target is another PR if you can repeat that bike-to-run transition. Your swim has been the most stable leg across every distance (roughly 37-40 minutes at 70.3), so the run is still where the next real gain is available.',
 ].join('\n\n');
-const PREVIEW_FOLLOWUP_REPLY = "Live analysis isn't available in Developer Preview — this is a static sample.";
+const PREVIEW_FOLLOWUP_REPLY = "Live analysis isn't available in Developer Preview. This is a static sample.";
 
 /**
  * Splits an assistant reply into paragraphs on a blank line (the conventional delimiter for
@@ -87,11 +87,11 @@ const REASON_MESSAGES: Record<SignalUnavailableReason, string> = {
   // athlete, a plain "used up this month" note for premium) before this lookup is ever reached.
   // Kept populated only because REASON_MESSAGES must cover every SignalUnavailableReason.
   rate_limited: "You've used all your Signal asks for this month.",
-  bad_request: "Signal couldn't understand that — please try again.",
+  bad_request: "Signal couldn't understand that. Please try again.",
   forbidden: "Signal couldn't access that race.",
-  model_error: "Signal couldn't respond just now — please try again.",
-  network_error: 'Network issue reaching Signal — please try again.',
-  service_unavailable: "Signal couldn't check your subscription status just now — please try again.",
+  model_error: "Signal couldn't respond just now. Please try again.",
+  network_error: 'Network issue reaching Signal. Please try again.',
+  service_unavailable: "Signal couldn't check your subscription status just now. Please try again.",
 };
 
 /**
@@ -134,7 +134,8 @@ export default function SignalScreen() {
   // Set from the signal Edge Function's own response after each successful reply (never computed
   // or trusted client-side — see lib/signalUsage.ts). Null until the first reply of this screen
   // instance, so nothing renders before there's a real server-confirmed count to show.
-  const [usageLabel, setUsageLabel] = useState<string | null>(null);
+  const [usageState, setUsageState] = useState<{ remaining: number; cap: number; isPremium: boolean } | null>(null);
+  const [isUpgrading, setIsUpgrading] = useState(false);
   const { isPremium, refresh: refreshPremiumStatus } = usePremium();
   const scrollRef = useRef<ScrollView>(null);
   // A synchronous, ref-based single-flight guard — `isSending` state alone isn't enough, since a
@@ -305,14 +306,14 @@ export default function SignalScreen() {
         }
         if (result.reason === 'rate_limited') {
           // Already premium and still hit the (40/month) cap — no paywall to offer.
-          setErrorText("You've used all your Signal asks for this month — more become available next month.");
+          setErrorText("You've used all your Signal asks for this month. More become available next month.");
           return;
         }
         setErrorText(REASON_MESSAGES[result.reason]);
         return;
       }
       setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: 'assistant', text: result.data.reply }]);
-      setUsageLabel(formatSignalUsageLabel(result.data.remaining, result.data.cap, result.data.isPremium));
+      setUsageState({ remaining: result.data.remaining, cap: result.data.cap, isPremium: result.data.isPremium });
 
       // Persist this turn — lazily creates the conversation on the first successful exchange, so
       // an abandoned chat with no real reply never shows up in "Recent Signals". A failure here is
@@ -337,6 +338,17 @@ export default function SignalScreen() {
       isSendingRef.current = false;
       setIsSending(false);
     }
+  }
+
+  // The compact usage strip's "Upgrade" action (Build 10 polish) — a plain upsell entry point, not
+  // the exhausted-allowance paywall path above (which is triggered by a real rate_limited
+  // response). Presents the same RevenueCat-hosted paywall either way.
+  async function handleUpgradePress() {
+    if (isUpgrading) return;
+    setIsUpgrading(true);
+    await presentPremiumPaywall();
+    await refreshPremiumStatus();
+    setIsUpgrading(false);
   }
 
   const headerTitle = seedRace ? seedRace.name : 'Ask Signal';
@@ -382,7 +394,7 @@ export default function SignalScreen() {
                         <View style={styles.assistantLabelRow}>
                           <SignalMark color={palette.inkSecondary} size={11} />
                           <Text style={styles.assistantLabel}>
-                            {isPreviewMode ? 'Sample analysis — Developer Preview' : 'Analysis'}
+                            {isPreviewMode ? 'Sample analysis (Developer Preview)' : 'Analysis'}
                           </Text>
                         </View>
                       ) : null}
@@ -463,7 +475,20 @@ export default function SignalScreen() {
           </View>
         ) : null}
 
-        {usageLabel ? <Text style={styles.usageLabel}>{usageLabel}</Text> : null}
+        {/* Compact Signal-blue usage strip (Build 10 polish) — restrained by design: same
+            treatment for free and premium, no large banner, no upgrade CTA once premium. */}
+        {usageState ? (
+          <View style={styles.usageStrip}>
+            <Text style={styles.usageStripText}>
+              {formatSignalUsageLabel(usageState.remaining, usageState.cap, usageState.isPremium)}
+            </Text>
+            {!usageState.isPremium ? (
+              <Pressable onPress={handleUpgradePress} disabled={isUpgrading} accessibilityRole="button" accessibilityLabel="Upgrade">
+                <Text style={styles.usageStripUpgrade}>{isUpgrading ? '…' : 'Upgrade'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.inputBar}>
           <Pressable
@@ -529,7 +554,9 @@ interface Styles {
   suggestionChip: ViewStyle;
   suggestionLabel: TextStyle;
   errorText: TextStyle;
-  usageLabel: TextStyle;
+  usageStrip: ViewStyle;
+  usageStripText: TextStyle;
+  usageStripUpgrade: TextStyle;
   stagedImageRow: ViewStyle;
   stagedImageThumb: ImageStyle;
   stagedImageLabel: TextStyle;
@@ -666,11 +693,27 @@ function createStyles(palette: BrandPalette): Styles {
       fontSize: 13,
       color: palette.danger,
     },
-    usageLabel: {
+    usageStrip: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.xs,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: 10,
+      backgroundColor: withAlpha(palette.signalBlue, 0.08),
+    },
+    usageStripText: {
       fontSize: 12,
-      color: palette.inkSecondary,
-      paddingHorizontal: spacing.lg,
-      paddingBottom: spacing.xs,
+      fontWeight: '600',
+      color: palette.signalBlue,
+    },
+    usageStripUpgrade: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: palette.signalBlue,
+      textDecorationLine: 'underline',
     },
     stagedImageRow: {
       flexDirection: 'row',

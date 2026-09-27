@@ -15,13 +15,13 @@ export const SIGN_IN_LINK_INVALID_MESSAGE = 'This sign-in link is no longer vali
 /** A hung request specifically (see auth.tsx's own timeout catch) gets its own, already-safe,
  *  already-actionable message — kept separate rather than folded into the message above, since
  *  "check your connection" is a genuinely different, correct instruction for that situation. */
-export const SIGN_IN_SLOW_MESSAGE = 'Sign-in is taking longer than expected — check your connection and try again.';
+export const SIGN_IN_SLOW_MESSAGE = 'Sign-in is taking longer than expected. Check your connection and try again.';
 
 /** Shown on OnboardingFlow's CheckEmailStep right after a successful resend (Step 8 pre-TestFlight
  *  hardening) — a resend always overwrites the previous email's locally-stored PKCE verifier (see
  *  SIGN_IN_LINK_INVALID_MESSAGE's own doc comment), so this tells the athlete which email is now
  *  the only one that can still be exchanged, before they have a chance to tap the wrong one. */
-export const RESEND_SUCCESS_MESSAGE = 'We sent a new sign-in link. Use the newest email — earlier links will no longer work.';
+export const RESEND_SUCCESS_MESSAGE = 'We sent a new sign-in link. Use the newest email. Earlier links will no longer work.';
 
 /**
  * Maps any non-timeout exchangeCodeForSession/setSession failure to safe, athlete-facing copy.

@@ -42,7 +42,7 @@ function unavailableCopy(reason: UnavailableReason): string {
     case 'provider_blocked':
       return 'The race-result provider didn’t respond the way we expected.';
     case 'network_error':
-      return 'Couldn’t reach the server — check your connection and try again.';
+      return 'Couldn’t reach the server. Check your connection and try again.';
     default:
       return 'Something went wrong looking that up.';
   }
@@ -205,9 +205,9 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
     setRetryCandidates(remaining);
 
     if (insertFailed) {
-      setSaveError(`Found ${rows.length} race${rows.length === 1 ? '' : 's'} but couldn’t save — check your connection and tap Retry.`);
+      setSaveError(`Found ${rows.length} race${rows.length === 1 ? '' : 's'} but couldn’t save. Check your connection and tap Retry.`);
     } else if (remaining.length > 0) {
-      setSaveError(`Saved ${saved} — discovery paused partway through. Tap Retry to fetch the rest.`);
+      setSaveError(`Saved ${saved}. Discovery paused partway through. Tap Retry to fetch the rest.`);
     }
 
     setStep('summary');
@@ -227,7 +227,7 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
           <View style={styles.stepGap}>
             <Text style={styles.screenTitle}>Find more races.</Text>
             <Text style={styles.subcopy}>
-              Search under any name you&apos;ve raced under — this won&apos;t change your account name.
+              Search under any name you&apos;ve raced under. This won&apos;t change your account name.
             </Text>
             <Field label="Racing name to search" value={searchName} onChangeText={setSearchName} styles={styles} palette={palette} />
             {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -252,7 +252,7 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
         {step === 'disambiguation' ? (
           <View style={styles.stepGap}>
             <Text style={styles.stepTitle}>We found more than one athlete named {searchName}.</Text>
-            <Text style={styles.subcopy}>A race you remember can help you tell them apart — just a hint, not used to search.</Text>
+            <Text style={styles.subcopy}>A race you remember can help you tell them apart. Just a hint, not used to search.</Text>
             <Field
               label="A race you remember (optional)"
               value={knownRaceHint}

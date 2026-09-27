@@ -7,7 +7,7 @@ import { HairlineRule } from '@/components/HairlineRule';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useAppPhase } from '@/lib/appPhase';
 import { useAuth } from '@/lib/auth';
-import { type BrandPalette, useBrandPalette } from '@/lib/brandTheme';
+import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { deleteAccount } from '@/lib/deleteAccount';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { AppIcon } from '@/lib/icons';
@@ -97,7 +97,7 @@ export default function SettingsScreen() {
   function handleDeleteAccountPress() {
     Alert.alert(
       'Delete your account?',
-      'This permanently deletes your RaceSignal account and all of your race history, Signal conversations, and account data. This can’t be undone.',
+      'This permanently deletes your RaceSignal account and all of your race history, Signal conversations, and account data. This can’t be undone.\n\nDeleting your account does not cancel an active App Store subscription. Manage or cancel that separately in your device’s App Store settings.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Delete', style: 'destructive', onPress: handleDeleteAccountConfirmed },
@@ -139,9 +139,13 @@ export default function SettingsScreen() {
           <SectionHeader title="Subscription" />
           <HairlineRule color={palette.hairline} />
           {isPremium ? (
-            <StatusRow label="RaceSignal Premium" value="Active" styles={styles} />
+            <PlanStatusRow title="RaceSignal Premium" badge="ACTIVE" detail="40 Signal asks per month" styles={styles} />
           ) : (
-            <ActionRow label="Upgrade to RaceSignal Premium" onPress={handleUpgradePress} styles={styles} palette={palette} />
+            <>
+              <PlanStatusRow title="RaceSignal Free" detail="3 Signal asks per month" styles={styles} />
+              <HairlineRule color={palette.hairline} />
+              <ActionRow label="Upgrade to RaceSignal Premium" onPress={handleUpgradePress} styles={styles} palette={palette} />
+            </>
           )}
           <HairlineRule color={palette.hairline} />
           <ActionRow
@@ -155,16 +159,28 @@ export default function SettingsScreen() {
         <View style={styles.section}>
           <SectionHeader title="Account" />
           <HairlineRule color={palette.hairline} />
-          {ACCOUNT_ROWS.map((row, index) => (
+          {ACCOUNT_ROWS.map((row) => (
             <View key={row.label}>
               {row.url ? (
                 <ActionRow label={row.label} onPress={() => Linking.openURL(row.url)} styles={styles} palette={palette} />
               ) : (
                 <InertRow label={row.label} styles={styles} />
               )}
-              {index < ACCOUNT_ROWS.length - 1 ? <HairlineRule color={palette.hairline} /> : null}
+              <HairlineRule color={palette.hairline} />
             </View>
           ))}
+          {/* Apple 5.1.1(v): account creation requires an in-app path to delete it, not merely sign
+              out. Grouped under Account (not a trailing, easy-to-miss link after Sign out) so it's
+              where an athlete actually looks for it, with an explicit destructive confirmation —
+              including that deletion doesn't itself cancel an active App Store subscription —
+              before anything happens. */}
+          <DestructiveRow
+            label={isDeletingAccount ? 'Deleting account…' : 'Delete account'}
+            onPress={handleDeleteAccountPress}
+            disabled={isDeletingAccount}
+            styles={styles}
+          />
+          {deleteError ? <Text style={styles.deleteErrorText}>{deleteError}</Text> : null}
         </View>
 
         {/* Sign out — a quiet destructive utility link, exactly like results/[id].tsx's "Remove
@@ -179,24 +195,6 @@ export default function SettingsScreen() {
             {isSigningOut ? 'Signing out…' : 'Sign out'}
           </Text>
         </Pressable>
-
-        {/* Delete account — Apple 5.1.1(v): account creation requires an in-app path to delete
-            it, not merely sign out. Kept as its own quiet destructive row (same visual language
-            as Sign out, not a heavier button) but clearly separate from it, with an explicit
-            destructive confirmation before anything happens. */}
-        <View>
-          <Pressable
-            onPress={handleDeleteAccountPress}
-            disabled={isDeletingAccount}
-            accessibilityRole="button"
-            accessibilityLabel="Delete account"
-            style={styles.signOutRow}>
-            <Text style={[styles.signOutLabel, isDeletingAccount && styles.signOutLabelDisabled]}>
-              {isDeletingAccount ? 'Deleting account…' : 'Delete account'}
-            </Text>
-          </Pressable>
-          {deleteError ? <Text style={styles.deleteErrorText}>{deleteError}</Text> : null}
-        </View>
 
         {/* Testing infrastructure, not V1 product UI — gated by isDevPreviewAvailable() (both
             __DEV__ and the explicit EXPO_PUBLIC_ENABLE_DEV_PREVIEW opt-in), so this can never render
@@ -264,16 +262,43 @@ function InertRow({ label, styles }: { label: string; styles: Styles }) {
   );
 }
 
-/** Same shape as InertRow (a non-interactive status line), for a real, current state rather than
- *  a placeholder — the premium athlete's subscription state (Step 8.8). Deliberately not a full
- *  subscription-management screen; that's handled by Apple's own App Store subscription settings,
- *  reachable from Restore Purchases if needed. */
-function StatusRow({ label, value, styles }: { label: string; value: string; styles: Styles }) {
+/** A non-interactive plan-status line — the athlete's current Free/Premium state (Step 8.8, Build
+ *  10 polish). Deliberately not a full subscription-management screen; that's handled by Apple's
+ *  own App Store subscription settings, reachable from Restore Purchases if needed. */
+function PlanStatusRow({ title, badge, detail, styles }: { title: string; badge?: string; detail: string; styles: Styles }) {
   return (
-    <View style={styles.statusRow} accessibilityRole="text" accessibilityLabel={`${label}, ${value}`}>
-      <Text style={styles.statusLabel}>{label}</Text>
-      <Text style={styles.statusValue}>{value}</Text>
+    <View style={styles.planRow} accessibilityRole="text" accessibilityLabel={badge ? `${title}, ${badge}, ${detail}` : `${title}, ${detail}`}>
+      <View style={styles.planTitleRow}>
+        <Text style={styles.planTitle}>{title}</Text>
+        {badge ? (
+          <View style={styles.planBadge}>
+            <Text style={styles.planBadgeText}>{badge}</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={styles.planDetail}>{detail}</Text>
     </View>
+  );
+}
+
+/** A destructive row grouped inside a titled section (unlike Sign out's standalone quiet link
+ *  below) — same row layout/height as ActionRow so it reads as belonging to the Account section,
+ *  distinguished only by its danger color, matching the "visually destructive/red" requirement. */
+function DestructiveRow({
+  label,
+  onPress,
+  disabled,
+  styles,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  styles: Styles;
+}) {
+  return (
+    <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} style={styles.actionRow}>
+      <Text style={[styles.destructiveLabel, disabled && styles.signOutLabelDisabled]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -289,9 +314,13 @@ interface Styles {
   inertRow: ViewStyle;
   inertLabel: TextStyle;
   inertValue: TextStyle;
-  statusRow: ViewStyle;
-  statusLabel: TextStyle;
-  statusValue: TextStyle;
+  planRow: ViewStyle;
+  planTitleRow: ViewStyle;
+  planTitle: TextStyle;
+  planBadge: ViewStyle;
+  planBadgeText: TextStyle;
+  planDetail: TextStyle;
+  destructiveLabel: TextStyle;
   signOutRow: ViewStyle;
   signOutLabel: TextStyle;
   signOutLabelDisabled: TextStyle;
@@ -357,21 +386,41 @@ function createStyles(palette: BrandPalette): Styles {
       fontSize: 13,
       color: palette.inkSecondary,
     },
-    statusRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
+    planRow: {
       minHeight: minTouchSize,
+      justifyContent: 'center',
+      gap: 2,
     },
-    statusLabel: {
+    planTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+    },
+    planTitle: {
       fontSize: 16,
       fontWeight: '600',
       color: palette.ink,
     },
-    statusValue: {
-      fontSize: 13,
-      fontWeight: '600',
+    planBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 999,
+      backgroundColor: withAlpha(palette.signalBlue, 0.14),
+    },
+    planBadgeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.4,
       color: palette.signalBlue,
+    },
+    planDetail: {
+      fontSize: 13,
+      color: palette.inkSecondary,
+    },
+    destructiveLabel: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: palette.danger,
     },
     signOutRow: {
       minHeight: minTouchSize,

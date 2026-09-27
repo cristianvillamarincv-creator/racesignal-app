@@ -103,7 +103,7 @@ function unavailableCopy(reason: UnavailableReason): string {
     case 'unauthorized':
       return 'You need to be signed in for that step.';
     case 'network_error':
-      return 'Couldn’t reach the server — check your connection and try again.';
+      return 'Couldn’t reach the server. Check your connection and try again.';
     default:
       return 'Something went wrong looking that up.';
   }
@@ -677,11 +677,11 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       setSaveError(
         `Found ${rows.length} race${rows.length === 1 ? '' : 's'} but couldn’t save ${
           rows.length === 1 ? 'it' : 'them'
-        } — check your connection and tap Retry. Nothing is lost.`,
+        }. Check your connection and tap Retry. Nothing is lost.`,
       );
     } else {
       setSaveError(
-        `Saved ${saved} of ${totalSelected} selected race${totalSelected === 1 ? '' : 's'} — discovery paused partway through. Tap Retry to fetch the rest.`,
+        `Saved ${saved} of ${totalSelected} selected race${totalSelected === 1 ? '' : 's'}. Discovery paused partway through. Tap Retry to fetch the rest.`,
       );
     }
 
@@ -748,7 +748,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
             {simulateAuth ? (
               <View style={styles.devPreviewBanner}>
                 <Text style={styles.devPreviewBannerLabel}>
-                  Developer Preview — simulated sign-in, no email sent
+                  Developer Preview: simulated sign-in, no email sent
                 </Text>
               </View>
             ) : null}
@@ -933,7 +933,7 @@ function IdentityStep({
           <SignalMark color={palette.signalBlue} size={20} />
         </View>
         <Text style={styles.headline}>Let&apos;s find your race history.</Text>
-        <Text style={styles.subcopy}>Just your racing name to start — we&apos;ll search before you sign in.</Text>
+        <Text style={styles.subcopy}>Just your racing name to start. We&apos;ll search before you sign in.</Text>
       </View>
 
       <Field label="What name do you race under?" value={racingName} onChangeText={onChangeRacingName} />
@@ -996,7 +996,7 @@ function DisambiguationStep({
     <View style={styles.stepGap}>
       <Text style={styles.headline}>We found more than one athlete named {name}.</Text>
       <Text style={styles.subcopy}>
-        A race you remember, or your birth year, can help you tell them apart below — we don&apos;t use
+        A race you remember, or your birth year, can help you tell them apart below. We don&apos;t use
         these to search, just as a hint for you.
       </Text>
 
@@ -1095,7 +1095,7 @@ function CandidatesStep({
         We found {candidates.length} race{candidates.length === 1 ? '' : 's'}
       </Text>
       <Text style={styles.subcopy}>
-        Select the ones that are you, {athleteName}. Nothing unselected is imported — you can always
+        Select the ones that are you, {athleteName}. Nothing unselected is imported. You can always
         add more later.
       </Text>
 
@@ -1248,7 +1248,7 @@ function SaveStep({
       <Text style={styles.headline}>
         Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
       </Text>
-      <Text style={styles.subcopy}>Your racing name stays what you typed — this just saves it to your account.</Text>
+      <Text style={styles.subcopy}>Your racing name stays what you typed. This just saves it to your account.</Text>
 
       {error ? <Text style={styles.message}>{error}</Text> : null}
 
@@ -1300,7 +1300,7 @@ function EmailFormStep({
       <Text style={styles.headline}>
         Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
       </Text>
-      <Text style={styles.subcopy}>We&apos;ll email you a link — no password, nothing to type.</Text>
+      <Text style={styles.subcopy}>We&apos;ll email you a link. No password, nothing to type.</Text>
 
       <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
 
@@ -1383,9 +1383,9 @@ function CheckEmailStep({
         <Pressable
           onPress={onSimulatedComplete}
           accessibilityRole="button"
-          accessibilityLabel="Simulate tapping the magic link — Developer Preview"
+          accessibilityLabel="Simulate tapping the magic link (Developer Preview)"
           style={styles.simulateLinkButton}>
-          <Text style={styles.simulateLinkButtonLabel}>Simulate tapping the magic link — Developer Preview</Text>
+          <Text style={styles.simulateLinkButtonLabel}>Simulate tapping the magic link (Developer Preview)</Text>
         </Pressable>
       ) : null}
 
@@ -1450,7 +1450,7 @@ function SummaryStep({
         </View>
       ) : !error ? (
         <Text style={styles.subcopy}>
-          Nothing imported yet — you can search again or add races manually anytime from Races or
+          Nothing imported yet. You can search again or add races manually anytime from Races or
           Settings.
         </Text>
       ) : null}

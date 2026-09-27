@@ -22,7 +22,7 @@ describe('describeAuthExchangeFailure', () => {
 
 describe('RESEND_SUCCESS_MESSAGE', () => {
   it('has the exact required copy and tells the athlete which email to use', () => {
-    expect(RESEND_SUCCESS_MESSAGE).toBe('We sent a new sign-in link. Use the newest email — earlier links will no longer work.');
+    expect(RESEND_SUCCESS_MESSAGE).toBe('We sent a new sign-in link. Use the newest email. Earlier links will no longer work.');
   });
 
   it('is distinct from the invalid-link error message — never shown at the same time as it', () => {

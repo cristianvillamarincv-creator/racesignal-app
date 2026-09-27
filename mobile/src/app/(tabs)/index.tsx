@@ -120,7 +120,7 @@ export default function RacesScreen() {
   function openRace(race: Race) {
     if (race.status === 'completed') {
       if (race.locked) {
-        setPremiumHint(`${race.name} — full result is Premium.`);
+        setPremiumHint(`${race.name}: full result is Premium.`);
         return;
       }
       router.push(`/results/${race.id}`);

@@ -114,4 +114,19 @@ export async function presentPremiumPaywall(): Promise<PAYWALL_RESULT> {
   }
 }
 
+/**
+ * Same paywall, but skips presentation entirely if the caller already holds `premium` (returns
+ * NOT_PRESENTED) — used for the one-time post-onboarding paywall (Step 8 Build 9), where a
+ * brand-new account could in principle already be entitled (e.g. restored a prior purchase during
+ * onboarding). Never a second paywall design; same dashboard-built paywall as presentPremiumPaywall.
+ */
+export async function presentPremiumPaywallIfNeeded(): Promise<PAYWALL_RESULT> {
+  try {
+    return await RevenueCatUI.presentPaywallIfNeeded({ requiredEntitlementIdentifier: PREMIUM_ENTITLEMENT_ID });
+  } catch (err) {
+    console.warn('[Purchases] presentPaywallIfNeeded failed:', err);
+    return PAYWALL_RESULT.ERROR;
+  }
+}
+
 export { PAYWALL_RESULT };

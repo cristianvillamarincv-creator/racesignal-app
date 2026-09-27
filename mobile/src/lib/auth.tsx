@@ -3,6 +3,7 @@ import { makeRedirectUri } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { describeAuthExchangeFailure } from '@/lib/authErrorMessages';
 import { isRetryableAuthError } from '@/lib/authRetry';
 import { supabase } from '@/lib/supabaseClient';
 import { withTimeout } from '@/lib/timeout';
@@ -154,11 +155,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
       if (error) {
+        // Raw error.message (e.g. "PKCE code verifier not found in storage...") is logged here for
+        // developers ONLY — never interpolated into the returned string. Requesting a second magic
+        // link always overwrites the first's locally-stored PKCE verifier (Supabase's own
+        // documented behavior), so tapping an older email after a resend lands here; an expired or
+        // already-used code lands here too. See lib/authErrorMessages.ts.
         console.warn('[Auth] exchangeCodeForSession failed:', error.message);
-        return {
-          error: `Sign-in didn’t complete — code exchange failed (${error.message}). This usually means the code was already used, expired, or the app was restarted between starting sign-in and finishing it.`,
-          userId: null,
-        };
+        return { error: describeAuthExchangeFailure(error), userId: null };
       }
       console.log('[Auth] session established via code exchange for user', data.session?.user.id);
       return { error: null, userId: data.session?.user.id ?? null };
@@ -198,17 +201,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (error) {
         console.warn('[Auth] setSession failed:', error.message);
-        return { error: `Sign-in didn’t complete — session setup failed (${error.message}).`, userId: null };
+        return { error: describeAuthExchangeFailure(error), userId: null };
       }
       return { error: null, userId: data.session?.user.id ?? null };
     }
 
+    // Diagnostic detail (redirect URL config guidance) is logged for developers only — never
+    // shown to the athlete (see lib/authErrorMessages.ts).
     console.warn('[Auth] redirect had neither a code, tokens, nor an error — full URL:', url);
-    return {
-      error:
-        'Sign-in redirected back to the app but included no code or session. This usually means the redirect URL Supabase/Google are configured with doesn’t exactly match racesignal://auth-callback — check Supabase Auth > URL Configuration and the Google Cloud OAuth client.',
-      userId: null,
-    };
+    return { error: describeAuthExchangeFailure(null), userId: null };
   };
 
   const signInWithGoogle = async (): Promise<AuthResult> => {

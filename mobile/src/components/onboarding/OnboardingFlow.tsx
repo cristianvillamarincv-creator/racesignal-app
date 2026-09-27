@@ -19,6 +19,7 @@ import { HairlineRule } from '@/components/HairlineRule';
 import { RaceLineMotif } from '@/components/RaceLineMotif';
 import { SignalMark } from '@/components/SignalMark';
 import { useAuth } from '@/lib/auth';
+import { RESEND_SUCCESS_MESSAGE } from '@/lib/authErrorMessages';
 import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import {
@@ -82,7 +83,10 @@ type Step =
   | 'importing'
   | 'summary';
 
-const RESEND_COOLDOWN_SECONDS = 30;
+// Aligned with Supabase's own auth email rate limit (Step 7's custom SMTP config) — long enough
+// that a resend during normal delivery latency is rare, reducing how often an athlete ends up with
+// two outstanding magic links (see the PKCE-verifier-overwrite note on handleResendMagicLink).
+const RESEND_COOLDOWN_SECONDS = 60;
 
 function unavailableCopy(reason: UnavailableReason): string {
   switch (reason) {
@@ -137,6 +141,9 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
 
   const [email, setEmail] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
+  // Distinct from authError (never shown at the same time as it — every path that sets one clears
+  // the other) so a successful resend reads as reassuring progress, not another error-style message.
+  const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -478,6 +485,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   async function handleSendMagicLink() {
     if (isSendingLink) return;
     setAuthError(null);
+    setResendNotice(null);
     const trimmed = email.trim();
     if (!trimmed) return;
     if (simulateAuth) {
@@ -504,6 +512,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   async function handleResendMagicLink() {
     if (resendCooldown > 0 || isSendingLink) return;
     setAuthError(null);
+    setResendNotice(null);
     if (simulateAuth) {
       setResendCooldown(RESEND_COOLDOWN_SECONDS);
       return;
@@ -517,6 +526,9 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       return;
     }
     setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    // Requesting this new link has already overwritten the previous one's locally-stored PKCE
+    // verifier (see lib/auth.tsx) — only the link this call just sent can still be exchanged.
+    setResendNotice(RESEND_SUCCESS_MESSAGE);
   }
 
   /**
@@ -824,6 +836,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
               <CheckEmailStep
                 email={email}
                 error={authError}
+                notice={resendNotice}
                 resendCooldown={resendCooldown}
                 isSending={isSendingLink}
                 onResend={handleResendMagicLink}
@@ -1239,12 +1252,14 @@ function SaveStep({
 
       {error ? <Text style={styles.message}>{error}</Text> : null}
 
+      {/* Same destination (EmailFormStep) either way — only the label changes, so a failed
+          sign-in reads as "get a fresh link" rather than the generic first-time CTA. */}
       <Pressable
         onPress={onUseEmail}
         accessibilityRole="button"
-        accessibilityLabel="Continue with email"
+        accessibilityLabel={error ? 'Send a new sign-in link' : 'Continue with email'}
         style={styles.primaryButton}>
-        <Text style={styles.primaryButtonLabel}>Continue with email</Text>
+        <Text style={styles.primaryButtonLabel}>{error ? 'Send a new sign-in link' : 'Continue with email'}</Text>
       </Pressable>
 
       <View style={styles.secondaryActionsGroup}>
@@ -1312,6 +1327,7 @@ function EmailFormStep({
 function CheckEmailStep({
   email,
   error,
+  notice,
   resendCooldown,
   isSending,
   onResend,
@@ -1322,6 +1338,9 @@ function CheckEmailStep({
 }: {
   email: string;
   error: string | null;
+  /** Set only right after a successful resend — see RESEND_SUCCESS_MESSAGE. Never shown alongside
+   *  `error`: every path that sets one clears the other. */
+  notice: string | null;
   resendCooldown: number;
   isSending: boolean;
   onResend: () => void;
@@ -1344,7 +1363,7 @@ function CheckEmailStep({
         We sent a sign-in link to {email}. Tap it on this phone to come back here automatically.
       </Text>
 
-      {error ? <Text style={styles.message}>{error}</Text> : null}
+      {error ? <Text style={styles.message}>{error}</Text> : notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
       <Pressable
         onPress={onResend}
@@ -1518,6 +1537,7 @@ interface Styles {
   headline: TextStyle;
   subcopy: TextStyle;
   message: TextStyle;
+  notice: TextStyle;
   fieldWrap: ViewStyle;
   fieldLabel: TextStyle;
   input: TextStyle & ViewStyle;
@@ -1625,6 +1645,10 @@ function createStyles(palette: BrandPalette): Styles {
     message: {
       fontSize: 14,
       color: palette.danger,
+    },
+    notice: {
+      fontSize: 14,
+      color: palette.inkSecondary,
     },
     fieldWrap: {
       gap: spacing.xs,

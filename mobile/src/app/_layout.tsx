@@ -7,6 +7,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { StatusBar } from 'expo-status-bar';
 
 import { HeaderBackButton } from '@/components/HeaderBackButton';
+import { InitialPaywallGate } from '@/components/InitialPaywallGate';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { AppPhaseProvider, useAppPhase } from '@/lib/appPhase';
 import { AuthProvider } from '@/lib/auth';
@@ -160,7 +161,11 @@ function RootNavigator() {
     return <OnboardingFlow onComplete={markOnboardingComplete} />;
   }
 
-  return <AppStack preview={false} />;
+  return (
+    <InitialPaywallGate>
+      <AppStack preview={false} />
+    </InitialPaywallGate>
+  );
 }
 
 /**

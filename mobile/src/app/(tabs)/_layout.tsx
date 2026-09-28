@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
 import { AddRaceSheet, type AddRaceChoice } from '@/components/AddRaceSheet';
@@ -123,6 +123,25 @@ function TabsNavigator() {
   const palette = useBrandPalette();
   const router = useRouter();
   const [isAddSheetVisible, setAddSheetVisible] = useState(false);
+  // B.15 — confirmed on-device that `<Tabs initialRouteName>` (below) and the sibling
+  // `unstable_settings.initialRouteName` export (B.14) do NOT reliably decide which tab is active
+  // the first time THIS navigator mounts: this component only mounts once RootNavigator's phase
+  // flips to 'app' (an async classification, not present on the very first app render at all — see
+  // _layout.tsx), and expo-router's own initial-route resolution for a group entered that way did
+  // not honor either setting in practice, landing on the file-system "index" route (Races) instead.
+  // This effect is the actual fix: an imperative, directly-observable redirect that runs exactly
+  // once per genuine mount of this navigator (the ref, not just an empty deps array, is what
+  // guarantees "once" survives React StrictMode's intentional double-invoke in dev) — regardless of
+  // whatever expo-router itself decided to resolve as the initial tab. It never fires again after
+  // that one mount, so it can't re-fire on backgrounding/foregrounding (no remount happens there)
+  // and never overrides a LATER, deliberate navigation like HeaderSearchButton's `router.push('/')`
+  // to Races, which happens well after this effect has already run and settled.
+  const hasAppliedDefaultTabRef = useRef(false);
+  useEffect(() => {
+    if (hasAppliedDefaultTabRef.current) return;
+    hasAppliedDefaultTabRef.current = true;
+    router.replace('/stats');
+  }, [router]);
 
   function handleAddRaceSelect(choice: AddRaceChoice) {
     setAddSheetVisible(false);
@@ -134,15 +153,11 @@ function TabsNavigator() {
   return (
     <>
       <Tabs
-        // Stats → Races → Signal (Build 11 nav-order instruction). `initialRouteName` is what
-        // actually governs which tab is ACTIVE the moment this navigator mounts fresh — after
-        // onboarding completes (RootNavigator's phase flip from 'onboarding' to 'app' in
-        // _layout.tsx) and on a normal cold launch of an already-onboarded athlete, both land here
-        // with no more specific nested path requested, so both correctly default to Stats. This is
-        // independent of, and does not touch, any EXPLICIT navigation elsewhere that already
-        // targets a specific tab on purpose — e.g. HeaderSearchButton's `router.push('/')` (jumps
-        // to Races specifically because only Races has the search field) — those keep working
-        // exactly as before, since initialRouteName only affects the no-path-yet-requested case.
+        // Stats → Races → Signal (Build 11 nav-order instruction). Kept as a harmless, correct
+        // declaration of intent (and it IS what governs tab order/focus for ordinary in-app tab
+        // switching once this navigator is already mounted), but — confirmed on-device — this prop
+        // alone does NOT reliably decide which tab is active the first time this navigator mounts
+        // fresh; see the `hasAppliedDefaultTabRef` effect above for the actual fix (B.15).
         initialRouteName="stats"
         screenOptions={{
           headerLeft: () => <HeaderAddButton onPress={() => setAddSheetVisible(true)} />,

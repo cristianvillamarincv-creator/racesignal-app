@@ -297,7 +297,20 @@ function parseSplits(data: Record<string, Record<string, unknown>> | undefined, 
       const cd = seg.cd as number | undefined;
       const st = seg.st as number | null | undefined;
       const opd = (seg.pace as Record<string, unknown> | undefined)?.opd as number | undefined;
-      return { cd, st, hasDistance: typeof opd === 'number', opd };
+      // `pace.opd` (cumulative provider distance) was the original discipline-transition signal —
+      // still honored when present (e.g. cached fixtures). Confirmed against 7 real payloads
+      // fetched live on 2026-09-28 (Eagleman/Gulf Coast/Syracuse 70.3s, two Olympic-distance
+      // Barrelman-style races, two running races): the live public endpoint no longer returns a
+      // `pace` object on any checkpoint at all, which previously made every checkpoint look like a
+      // transition marker and collapsed every triathlon race to a flat "Checkpoint N" list. `ps` (a
+      // numeric pace/rank figure, never a distance) is reliably present on every real in-discipline
+      // checkpoint and absent on every real transition marker in all 7 live payloads, so it's used
+      // as a fallback structural signal only — never as a distance. `opd` itself is left untouched
+      // (still sourced only from `pace.opd`), so a leg's actual distance/pace is only ever computed
+      // from provider data proven trustworthy, never guessed from `ps`.
+      const ps = seg.ps as number | null | undefined;
+      const hasDistance = typeof opd === 'number' || typeof ps === 'number';
+      return { cd, st, hasDistance, opd };
     })
     // Drop the race-start marker (cd=0, conveys nothing beyond "zero elapsed at the start") and
     // any entry with neither a duration nor a distance (confirmed against Barrelman's raw
@@ -325,16 +338,30 @@ function parseSplits(data: Record<string, Record<string, unknown>> | undefined, 
     const runMs = elapsedMs(t2MarkerCd, finishCd);
 
     // Trust the provider's own cumulative distance only when exactly one checkpoint marks the
-    // whole discipline (see the function-level comment) — otherwise fall back to the known
-    // category distance, and if that's not recognized either, show no pace at all rather than
-    // guess. For Run specifically, that one checkpoint must also BE the finish (a lone mid-run
-    // checkpoint followed by more unaccounted-for noise isn't the same as a mat placed at the
-    // true finish line).
-    const swimDistanceM = swim.length === 1 ? swim[0]!.opd : triDistances?.swim;
-    const bikeDistanceM = bike.length === 1 ? (bike[0]!.opd ?? 0) - (swim[swim.length - 1]!.opd ?? 0) : triDistances?.bike;
+    // whole discipline AND that checkpoint actually carries a real `opd` (see the function-level
+    // comment) — otherwise fall back to the known category distance, and if that's not recognized
+    // either, show no pace at all rather than guess. For Run specifically, that one checkpoint must
+    // also BE the finish (a lone mid-run checkpoint followed by more unaccounted-for noise isn't
+    // the same as a mat placed at the true finish line).
+    //
+    // The `typeof ... === 'number'` guards matter now that `hasDistance`/leg-boundary detection can
+    // succeed from `ps` alone with no `opd` on any checkpoint (the current live payload shape) — a
+    // single-checkpoint leg with no real opd must fall back to `triDistances` exactly like a
+    // multi-checkpoint one, never silently show no pace when a perfectly good category distance is
+    // available.
+    const swimEndOpd = swim[swim.length - 1]!.opd;
+    const bikeEndOpd = bike[bike.length - 1]!.opd;
+    const swimDistanceM = swim.length === 1 && typeof swim[0]!.opd === 'number' ? swim[0]!.opd : triDistances?.swim;
+    const bikeDistanceM =
+      bike.length === 1 && typeof bike[0]!.opd === 'number' && typeof swimEndOpd === 'number'
+        ? bike[0]!.opd! - swimEndOpd
+        : triDistances?.bike;
     const runDistanceM =
-      runCheckpoints.length === 1 && runCheckpoints[0]!.cd === finishCd
-        ? (runCheckpoints[0]!.opd ?? 0) - (bike[bike.length - 1]!.opd ?? 0)
+      runCheckpoints.length === 1 &&
+      runCheckpoints[0]!.cd === finishCd &&
+      typeof runCheckpoints[0]!.opd === 'number' &&
+      typeof bikeEndOpd === 'number'
+        ? runCheckpoints[0]!.opd! - bikeEndOpd
         : triDistances?.run;
 
     return [

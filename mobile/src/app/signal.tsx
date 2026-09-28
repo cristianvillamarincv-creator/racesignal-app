@@ -20,6 +20,7 @@ import {
 import { ErrorState } from '@/components/ErrorState';
 import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { SignalConsentSheet } from '@/components/SignalConsentSheet';
 import { SignalMark } from '@/components/SignalMark';
 import { useAuth } from '@/lib/auth';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
@@ -36,6 +37,7 @@ import {
   type SignalImageAttachment,
   type SignalUnavailableReason,
 } from '@/lib/signal';
+import { hasAgreedToSignalDisclosure, saveSignalConsent, SIGNAL_CONSENT_DISCLOSURE_VERSION } from '@/lib/signalConsent';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
 import { formatSignalUsageLabel } from '@/lib/signalUsage';
@@ -147,6 +149,14 @@ export default function SignalScreen() {
   // below), so `retryLastMessage` can re-submit that exact attempt without duplicating quota-side
   // bookkeeping the athlete didn't ask for.
   const [lastFailedAttempt, setLastFailedAttempt] = useState<{ text: string; image: StagedImage | null; requestId: string } | null>(
+    null,
+  );
+  // First-use Signal consent (B.12) — sendMessage checks this BEFORE touching inputText/stagedImage
+  // or sending anything, so declining leaves the athlete's typed question exactly as they left it.
+  // `pendingSignalSend` holds the exact attempt that triggered the gate, so "Agree and continue"
+  // resumes it verbatim rather than asking the athlete to retype/re-tap anything.
+  const [showConsentSheet, setShowConsentSheet] = useState(false);
+  const [pendingSignalSend, setPendingSignalSend] = useState<{ text: string; image: StagedImage | null; requestId?: string } | null>(
     null,
   );
   // Set from the signal Edge Function's own response after each successful reply (never computed
@@ -264,8 +274,6 @@ export default function SignalScreen() {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (isSendingRef.current) return; // hard guard — see isSendingRef's comment above.
-    isSendingRef.current = true;
-    setIsSending(true);
 
     // `imageOverride`/`requestIdOverride` (only ever passed by retryLastMessage below) re-attach
     // the exact image AND request identity the failed attempt used — by the time of a retry,
@@ -274,6 +282,26 @@ export default function SignalScreen() {
     // than a brand-new one (see lib/signal.ts's generateSignalRequestId).
     const image = imageOverride !== undefined ? imageOverride : stagedImage;
     const requestId = requestIdOverride ?? generateSignalRequestId();
+
+    // First-use consent gate (B.12) — checked before ANYTHING else in this function: before the
+    // user's message is added to the transcript, before inputText/stagedImage are cleared, before
+    // any network call. Developer Preview never reaches the real network layer at all (see the
+    // isPreviewMode branch below), so it's exempt — gating a canned, clearly-labeled sample reply
+    // would be pure friction with nothing real to disclose. A signed-out athlete (no session,
+    // should be unreachable in practice) is let through to fail normally downstream rather than
+    // gated on an account that doesn't exist.
+    const athleteId = session?.user.id;
+    if (!isPreviewMode && athleteId) {
+      const agreed = await hasAgreedToSignalDisclosure(athleteId);
+      if (!agreed) {
+        setPendingSignalSend({ text: trimmed, image, requestId });
+        setShowConsentSheet(true);
+        return;
+      }
+    }
+
+    isSendingRef.current = true;
+    setIsSending(true);
     setErrorText(null);
     setLastFailedAttempt(null);
     setMessages((current) => [...current, { id: `${Date.now()}-user`, role: 'user', text: trimmed, hadImage: !!image }]);
@@ -385,6 +413,30 @@ export default function SignalScreen() {
     setErrorText(null);
     setMessages((current) => (current.length > 0 && current[current.length - 1]?.role === 'user' ? current.slice(0, -1) : current));
     void sendMessage(text, image, requestId);
+  }
+
+  /** "Agree and continue" — records consent for THIS account at the CURRENT disclosure version,
+   *  then resumes the exact attempt the gate held (sendMessage re-checks consent at its top, which
+   *  now passes, so this is a plain re-invocation, not a second code path). */
+  async function handleConsentAgree() {
+    const pending = pendingSignalSend;
+    setShowConsentSheet(false);
+    setPendingSignalSend(null);
+    const athleteId = session?.user.id;
+    if (athleteId) {
+      await saveSignalConsent({ athleteId, version: SIGNAL_CONSENT_DISCLOSURE_VERSION, agreedAt: new Date().toISOString() });
+    }
+    if (pending) {
+      void sendMessage(pending.text, pending.image, pending.requestId);
+    }
+  }
+
+  /** "Not now" (or dismissing the sheet any other way) — nothing was ever added to the transcript
+   *  and inputText/stagedImage were never touched, so the athlete's question is exactly where they
+   *  left it; the rest of the app (every other tab/screen) was never blocked in the first place. */
+  function handleConsentDecline() {
+    setShowConsentSheet(false);
+    setPendingSignalSend(null);
   }
 
   // The compact usage strip's "Upgrade" action (Build 10 polish) — a plain upsell entry point, not
@@ -596,6 +648,7 @@ export default function SignalScreen() {
           </Pressable>
         </View>
       </View>
+      <SignalConsentSheet visible={showConsentSheet} onAgree={handleConsentAgree} onDecline={handleConsentDecline} />
     </KeyboardAvoidingView>
   );
 }

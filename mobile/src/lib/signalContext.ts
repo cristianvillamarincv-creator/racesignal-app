@@ -256,12 +256,18 @@ export function getSuggestedPrompts(races: Race[], seedRaceId?: string): string[
   // A discipline-breakdown question ("swim/bike/run") only ever makes sense for a genuinely
   // multi-discipline race — never for a standalone running/cycling/swimming race, even though this
   // same athlete may also have triathlons elsewhere in their history (that's a different race, not
-  // this one). Distinct split LABELS alone isn't enough either (a running race can have several
-  // checkpoint splits, e.g. "5K"/"10K"/"Half") — it must also actually be a multi-discipline sport,
-  // and (per the same "no splits, no detailed-split question" reasoning above) have more than one
-  // distinct discipline actually represented in its splits.
+  // this one). Distinct split LABELS alone isn't enough either: a running race can have several
+  // checkpoint splits (e.g. "5K"/"10K"/"Half"), and — the B.12 device-QA regression — a triathlon
+  // whose provider payload didn't classify into disciplines falls back to per-checkpoint labels
+  // ("Checkpoint 1", "Checkpoint 2", ...), which are all mutually distinct too. Neither case is a
+  // real discipline breakdown, so this counts actual Swim/Bike/Run-labeled splits specifically
+  // (matching the same label convention results/[id].tsx uses to lay out the primary splits row),
+  // not just "how many differently-labeled rows exist."
   const isMultiDisciplineSport = seedRace.sport === 'triathlon' || seedRace.sport === 'duathlon';
-  const disciplineCount = new Set(splits.map((split) => split.label)).size;
+  const PRIMARY_DISCIPLINE_LABELS = ['Swim', 'Bike', 'Run'];
+  const disciplineCount = new Set(
+    splits.map((split) => split.label).filter((label) => PRIMARY_DISCIPLINE_LABELS.some((discipline) => label.startsWith(discipline))),
+  ).size;
   if (isMultiDisciplineSport && disciplineCount > 1) prompts.push('What was my strongest discipline?');
 
   const hasComparableRace = getCompletedRaces(races).some(

@@ -100,7 +100,11 @@ export async function insertConfirmedRaces(rows: Record<string, unknown>[]): Pro
     } else if (match.import_status === 'confirmed') {
       alreadyConfirmedCount += 1;
     } else {
-      toRevive.push({ id: match.id, row: { ...row, import_status: 'confirmed' } });
+      // `updated_at` is set explicitly here (never a DB trigger — there isn't one on this table) so
+      // a revive is visible to any code that treats `updated_at` as a conflict-detection token for
+      // this row (see supabase/functions/race-discovery/repair_migrate.ts's atomic conditional
+      // update) — this is exactly the "reimport" path that can otherwise race with a repair script.
+      toRevive.push({ id: match.id, row: { ...row, import_status: 'confirmed', updated_at: new Date().toISOString() } });
     }
   }
 
@@ -153,7 +157,13 @@ export async function insertManualRace(row: Record<string, unknown>): Promise<Ra
  *  provider too as a second guard against editing an imported race by id alone. */
 export async function updateManualRace(raceId: string, row: Record<string, unknown>): Promise<RaceRow> {
   const { data, error } = await withTimeout(
-    supabase.from('races').update(row).eq('id', raceId).eq('provider', 'manual').select(RACE_COLUMNS).single(),
+    supabase
+      .from('races')
+      .update({ ...row, updated_at: new Date().toISOString() })
+      .eq('id', raceId)
+      .eq('provider', 'manual')
+      .select(RACE_COLUMNS)
+      .single(),
     QUERY_TIMEOUT_MS,
     'updateManualRace',
   );
@@ -168,7 +178,7 @@ export async function updateRaceChecklist(raceId: string, completedItemIds: stri
   const { data, error } = await withTimeout(
     supabase
       .from('races')
-      .update({ checklist_completed: completedItemIds })
+      .update({ checklist_completed: completedItemIds, updated_at: new Date().toISOString() })
       .eq('id', raceId)
       .eq('provider', 'manual')
       .select(RACE_COLUMNS)

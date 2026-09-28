@@ -58,6 +58,15 @@ export interface AuthContextValue {
    *  received while the app is already running (Linking's 'url' event) or recovered from the
    *  app's cold-start launch URL. */
   completeAuthFromUrl: (url: string) => Promise<AuthResult>;
+  /** B.12 — a secondary, sign-in-only path (never a registration form here) alongside magic link,
+   *  discoverable but visually secondary on the same screen. Exists for one concrete reason: an
+   *  Apple App Review account needs a way in that doesn't depend on a reviewer checking a real
+   *  inbox. Uses Supabase's ordinary `signInWithPassword` — the same "email" auth provider already
+   *  powering magic links (confirmed via GET /auth/v1/settings: `external.email: true`, nothing to
+   *  enable) — so a successful call produces a completely normal session through the exact same
+   *  onAuthStateChange listener above; no reviewer-specific code path exists anywhere past this
+   *  point. Every account still goes through the real `races` RLS policies unchanged. */
+  signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -274,13 +283,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return completeAuthFromUrl(result.url);
   };
 
+  /** Plain email+password sign-in — no signup path here (Supabase's `signUp` is never called from
+   *  this app; the one account meant to use this is created ahead of time via the Admin API). A
+   *  wrong password/unknown email both surface as the same generic message, matching Supabase
+   *  Auth's own "Invalid login credentials" — never distinguishing "wrong password" from "no such
+   *  account" to an unauthenticated caller. */
+  const signInWithPassword = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      console.warn('[Auth] signInWithPassword failed:', error.name ?? 'unknown', error.message);
+    } else {
+      console.log('[Auth] signInWithPassword succeeded');
+    }
+    return { error: error?.message ?? null };
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   return (
     <AuthContext.Provider
-      value={{ isReady, session, requestMagicLink, signInWithGoogle, completeAuthFromUrl, signOut }}>
+      value={{ isReady, session, requestMagicLink, signInWithGoogle, completeAuthFromUrl, signInWithPassword, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -125,7 +125,7 @@ interface OnboardingFlowProps {
 }
 
 export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedComplete }: OnboardingFlowProps) {
-  const { session, requestMagicLink, completeAuthFromUrl, signOut } = useAuth();
+  const { session, requestMagicLink, completeAuthFromUrl, signInWithPassword, signOut } = useAuth();
   const { applyImportedRaces } = useAthleteRaces();
 
   const [step, setStep] = useState<Step>('restoring');
@@ -882,6 +882,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
                 selectedCount={selectedCount}
                 isSending={isSendingLink}
                 onSendLink={handleSendMagicLink}
+                onSignInWithPassword={signInWithPassword}
                 onBack={() => {
                   setAuthError(null);
                   if (isReturningUserFlow) {
@@ -1343,6 +1344,7 @@ function EmailFormStep({
   selectedCount,
   isSending,
   onSendLink,
+  onSignInWithPassword,
   onBack,
 }: {
   email: string;
@@ -1351,11 +1353,33 @@ function EmailFormStep({
   selectedCount: number;
   isSending: boolean;
   onSendLink: () => void;
+  onSignInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
   onBack: () => void;
 }) {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
   const disabled = email.trim().length === 0 || isSending;
+
+  // B.12 — a secondary, sign-in-only path (never a registration form) alongside magic link.
+  // Collapsed by default so it stays visually secondary: magic link is still the obvious, primary
+  // action on this screen. Reveals a password field + its own "Sign in" button; a successful
+  // sign-in establishes a session the rest of the app already knows how to pick up (see
+  // handleSignInWithPassword's doc comment in OnboardingFlow), so there's nothing else to wire here
+  // beyond showing an error if it fails.
+  const [showPasswordSignIn, setShowPasswordSignIn] = useState(false);
+  const [password, setPassword] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const passwordSignInDisabled = email.trim().length === 0 || password.length === 0 || isSigningIn;
+
+  async function handlePasswordSignIn() {
+    if (passwordSignInDisabled) return;
+    setIsSigningIn(true);
+    setPasswordError(null);
+    const { error: signInError } = await onSignInWithPassword(email, password);
+    setIsSigningIn(false);
+    if (signInError) setPasswordError(signInError);
+  }
 
   return (
     <View style={styles.stepGap}>
@@ -1381,6 +1405,27 @@ function EmailFormStep({
       </Pressable>
 
       <View style={styles.secondaryActionsGroup}>
+        {!showPasswordSignIn ? (
+          <Pressable
+            onPress={() => setShowPasswordSignIn(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Sign in with email and password">
+            <Text style={styles.secondaryLink}>Sign in with email and password</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.stepGap}>
+            <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry />
+            {passwordError ? <Text style={styles.message}>{passwordError}</Text> : null}
+            <Pressable
+              onPress={handlePasswordSignIn}
+              disabled={passwordSignInDisabled}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in"
+              style={[styles.primaryButton, passwordSignInDisabled && styles.primaryButtonDisabled]}>
+              <Text style={styles.primaryButtonLabel}>{isSigningIn ? 'Signing in…' : 'Sign in'}</Text>
+            </Pressable>
+          </View>
+        )}
         <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
           <Text style={styles.secondaryLink}>Back</Text>
         </Pressable>
@@ -1582,12 +1627,14 @@ function Field({
   onChangeText,
   keyboardType,
   autoCapitalize,
+  secureTextEntry,
 }: {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
   keyboardType?: 'default' | 'email-address' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences';
+  secureTextEntry?: boolean;
 }) {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
@@ -1601,6 +1648,7 @@ function Field({
         placeholderTextColor={palette.inkSecondary}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        secureTextEntry={secureTextEntry}
         style={styles.input}
         accessibilityLabel={label}
       />

@@ -169,4 +169,36 @@ describe('getFastestSplitHighlights — category alias normalization (real-data 
     expect(runHighlight?.race.id).toBe('eagleman');
     expect(highlights.some((h) => h.race.id === 'victoria')).toBe(false);
   });
+
+  it('produces no discipline highlight for races stuck on the generic per-checkpoint fallback (B.12 regression) — never matches "Checkpoint N" as a discipline label', () => {
+    const unclassifiedA = race({
+      id: 'unclassified-a',
+      eventDate: '2026-06-14',
+      distanceLabel: '70.3',
+      result: {
+        finishSeconds: 17698,
+        sourceStatus: 'imported_confirmed',
+        splits: [
+          { label: 'Checkpoint 1', elapsedSeconds: 2379 },
+          { label: 'Finish', elapsedSeconds: 5854 },
+        ],
+      },
+    });
+    const unclassifiedB = race({
+      id: 'unclassified-b',
+      eventDate: '2025-06-14',
+      distanceLabel: '70.3',
+      result: {
+        finishSeconds: 18000,
+        sourceStatus: 'imported_confirmed',
+        splits: [
+          { label: 'Checkpoint 1', elapsedSeconds: 2500 },
+          { label: 'Finish', elapsedSeconds: 6000 },
+        ],
+      },
+    });
+
+    const highlights = getFastestSplitHighlights([unclassifiedA, unclassifiedB], new Set());
+    expect(highlights).toEqual([]);
+  });
 });

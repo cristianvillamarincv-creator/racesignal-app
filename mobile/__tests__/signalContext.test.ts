@@ -324,6 +324,30 @@ describe('getSuggestedPrompts', () => {
     const prompts = getSuggestedPrompts([seed], seed.id);
     expect(prompts).toContain('What was my strongest discipline?');
   });
+
+  it('never suggests "strongest discipline" for a triathlon whose splits are the generic per-checkpoint fallback (B.12 regression) — uniquely numbered checkpoints are not distinct disciplines', () => {
+    const seed = race({
+      id: 'unclassified-tri',
+      eventDate: '2025-01-01',
+      distanceLabel: '70.3',
+      sport: 'triathlon',
+      result: {
+        finishSeconds: 17698,
+        splits: [
+          { label: 'Checkpoint 1', elapsedSeconds: 2379 },
+          { label: 'Checkpoint 2', elapsedSeconds: 223 },
+          { label: 'Checkpoint 3', elapsedSeconds: 1045 },
+          { label: 'Finish', elapsedSeconds: 5854 },
+        ],
+        sourceStatus: 'imported_confirmed',
+      },
+    });
+    const prompts = getSuggestedPrompts([seed], seed.id);
+    expect(prompts).not.toContain('What was my strongest discipline?');
+    // Still a real, useful chip for this same race — falling back on discipline labels shouldn't
+    // also suppress the general pacing question, which only needs *some* splits to exist.
+    expect(prompts).toContain('Where did I lose the most time?');
+  });
 });
 
 describe('buildConversationTitle', () => {

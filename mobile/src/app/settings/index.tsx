@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
@@ -17,6 +17,7 @@ import { clearOnboardingDraft } from '@/lib/onboardingDraft';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
 import { useAthleteRaces } from '@/lib/racesContext';
+import { clearSignalConsent, hasAgreedToSignalDisclosure } from '@/lib/signalConsent';
 import { minTouchSize, spacing } from '@/lib/theme';
 
 // Blocked Users (not a genuine V1 requirement) stays fully hidden until it's real. Privacy/Support
@@ -39,11 +40,30 @@ export default function SettingsScreen() {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [hasSignalConsent, setHasSignalConsent] = useState(false);
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
   const { enterOnboardingReplayFromSettings } = useDevPreview();
   const showDevTools = isDevPreviewAvailable();
   const { isPremium, refresh: refreshPremiumStatus, restorePurchases } = usePremium();
+
+  useEffect(() => {
+    const athleteId = session?.user.id;
+    if (!athleteId) return;
+    let cancelled = false;
+    (async () => {
+      const agreed = await hasAgreedToSignalDisclosure(athleteId);
+      if (!cancelled) setHasSignalConsent(agreed);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user.id]);
+
+  async function handleWithdrawSignalConsent() {
+    await clearSignalConsent();
+    setHasSignalConsent(false);
+  }
 
   async function handleUpgradePress() {
     await presentPremiumPaywall();
@@ -89,7 +109,7 @@ export default function SettingsScreen() {
     // own athleteId check already refuses to resume a foreign draft for a future account, but
     // there's no reason to leave a now-permanently-orphaned draft sitting in AsyncStorage
     // indefinitely either. Best-effort: a failure here doesn't change that the account is deleted.
-    await Promise.all([clearFindRacesRetryDraft(), clearOnboardingDraft()]).catch((err) =>
+    await Promise.all([clearFindRacesRetryDraft(), clearOnboardingDraft(), clearSignalConsent()]).catch((err) =>
       console.warn('[Settings] failed to clear local pending-import drafts after account deletion:', err),
     );
     // Clear the local session/state the same way sign-out does so the app returns to a genuinely
@@ -178,6 +198,22 @@ export default function SettingsScreen() {
               <HairlineRule color={palette.hairline} />
             </View>
           ))}
+          {/* Signal/Anthropic consent withdrawal (B.12) — the sheet at src/components/
+              SignalConsentSheet.tsx re-prompts the very next time Signal would send anything,
+              once this is withdrawn. Nothing to withdraw before the athlete has ever agreed, so
+              this reads as a quiet status line rather than an action in that case. */}
+          <PlanStatusRow
+            title="Signal & Anthropic"
+            detail={hasSignalConsent ? 'You’ve agreed to share race data with Anthropic for Signal.' : 'Not yet agreed — you’ll be asked before your first Signal question.'}
+            styles={styles}
+          />
+          {hasSignalConsent ? (
+            <>
+              <HairlineRule color={palette.hairline} />
+              <ActionRow label="Withdraw Signal consent" onPress={handleWithdrawSignalConsent} styles={styles} palette={palette} />
+            </>
+          ) : null}
+          <HairlineRule color={palette.hairline} />
           {/* Apple 5.1.1(v): account creation requires an in-app path to delete it, not merely sign
               out. Grouped under Account (not a trailing, easy-to-miss link after Sign out) so it's
               where an athlete actually looks for it, with an explicit destructive confirmation —

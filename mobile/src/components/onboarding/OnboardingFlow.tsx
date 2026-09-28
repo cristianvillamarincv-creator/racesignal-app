@@ -1337,7 +1337,23 @@ function SaveStep({
   );
 }
 
-function EmailFormStep({
+/**
+ * B.13 fix: this used to render BOTH the magic-link section AND (once revealed) the password
+ * section at the same time — two same-looking primary buttons on screen together ("Send sign-in
+ * link" and "Sign in"), which is the confirmed, reproduced cause of the Build 12 device report
+ * ("tapping Sign in appeared to do nothing"): the password field/button were real and correctly
+ * wired (see EmailFormStep.test.tsx, which drives the actual rendered password field end to end
+ * and confirms typed text reaches state, the button calls onSignInWithPassword, and both a
+ * validation message and a server error render visibly) — the coexisting magic-link button was
+ * the likely mis-tap target, not a hidden wiring bug. Fixed by making the two modes mutually
+ * exclusive: exactly one heading, one set of fields, and one primary button on screen at a time.
+ *
+ * Also fixed: the old version disabled the Sign-in button outright when a field was empty, which
+ * is functionally correct but reads as "nothing happened" on tap (a disabled Pressable is a
+ * silent no-op). The button is never disabled for empty fields now — pressing it always responds,
+ * either with a clear "enter both fields" message or with the real sign-in attempt.
+ */
+export function EmailFormStep({
   email,
   onChangeEmail,
   error,
@@ -1358,27 +1374,76 @@ function EmailFormStep({
 }) {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
-  const disabled = email.trim().length === 0 || isSending;
-
-  // B.12 — a secondary, sign-in-only path (never a registration form) alongside magic link.
-  // Collapsed by default so it stays visually secondary: magic link is still the obvious, primary
-  // action on this screen. Reveals a password field + its own "Sign in" button; a successful
-  // sign-in establishes a session the rest of the app already knows how to pick up (see
-  // handleSignInWithPassword's doc comment in OnboardingFlow), so there's nothing else to wire here
-  // beyond showing an error if it fails.
-  const [showPasswordSignIn, setShowPasswordSignIn] = useState(false);
+  const [mode, setMode] = useState<'magicLink' | 'password'>('magicLink');
   const [password, setPassword] = useState('');
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-  const passwordSignInDisabled = email.trim().length === 0 || password.length === 0 || isSigningIn;
+  // Kept separate from the magic-link `error` prop deliberately — switching modes never carries a
+  // stale error from the other mode along with it (see the mode-switch handlers below, which clear
+  // this), and a missing-field message is visually identical to (but logically distinct from) a
+  // real server error.
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+
+  function switchToPasswordMode() {
+    setMode('password');
+    setPasswordMessage(null);
+  }
+
+  function switchToMagicLinkMode() {
+    setMode('magicLink');
+    setPasswordMessage(null);
+  }
 
   async function handlePasswordSignIn() {
-    if (passwordSignInDisabled) return;
+    if (isSigningIn) return;
+    const trimmedEmail = email.trim();
+    // Active validation, not a silently disabled button — every tap gets a visible response.
+    if (!trimmedEmail || !password) {
+      setPasswordMessage('Enter your email and password to continue.');
+      return;
+    }
+    setPasswordMessage(null);
     setIsSigningIn(true);
-    setPasswordError(null);
-    const { error: signInError } = await onSignInWithPassword(email, password);
+    const { error: signInError } = await onSignInWithPassword(trimmedEmail, password);
     setIsSigningIn(false);
-    if (signInError) setPasswordError(signInError);
+    // Never logs `password` itself — only the boolean outcome and Supabase's own message (see
+    // auth.tsx's signInWithPassword, which likewise never logs the raw password).
+    if (signInError) setPasswordMessage(signInError);
+  }
+
+  const magicLinkDisabled = email.trim().length === 0 || isSending;
+
+  if (mode === 'password') {
+    return (
+      <View style={styles.stepGap}>
+        <View style={styles.brandMarkWrap}>
+          <SignalMark color={palette.signalBlue} size={20} />
+        </View>
+        <Text style={styles.headline}>Enter your email and password.</Text>
+
+        <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
+        <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry />
+
+        {passwordMessage ? <Text style={styles.message}>{passwordMessage}</Text> : null}
+
+        <Pressable
+          onPress={handlePasswordSignIn}
+          disabled={isSigningIn}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in"
+          style={[styles.primaryButton, isSigningIn && styles.primaryButtonDisabled]}>
+          {isSigningIn ? <ActivityIndicator color={palette.onSignalBlue} /> : <Text style={styles.primaryButtonLabel}>Sign in</Text>}
+        </Pressable>
+
+        <View style={styles.secondaryActionsGroup}>
+          <Pressable onPress={switchToMagicLinkMode} accessibilityRole="button" accessibilityLabel="Use a sign-in link instead">
+            <Text style={styles.secondaryLink}>Use a sign-in link instead</Text>
+          </Pressable>
+          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
+            <Text style={styles.secondaryLink}>Back</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -1397,35 +1462,17 @@ function EmailFormStep({
 
       <Pressable
         onPress={onSendLink}
-        disabled={disabled}
+        disabled={magicLinkDisabled}
         accessibilityRole="button"
         accessibilityLabel="Send sign-in link"
-        style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]}>
+        style={[styles.primaryButton, magicLinkDisabled && styles.primaryButtonDisabled]}>
         <Text style={styles.primaryButtonLabel}>{isSending ? 'Sending…' : 'Send sign-in link'}</Text>
       </Pressable>
 
       <View style={styles.secondaryActionsGroup}>
-        {!showPasswordSignIn ? (
-          <Pressable
-            onPress={() => setShowPasswordSignIn(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Sign in with email and password">
-            <Text style={styles.secondaryLink}>Sign in with email and password</Text>
-          </Pressable>
-        ) : (
-          <View style={styles.stepGap}>
-            <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry />
-            {passwordError ? <Text style={styles.message}>{passwordError}</Text> : null}
-            <Pressable
-              onPress={handlePasswordSignIn}
-              disabled={passwordSignInDisabled}
-              accessibilityRole="button"
-              accessibilityLabel="Sign in"
-              style={[styles.primaryButton, passwordSignInDisabled && styles.primaryButtonDisabled]}>
-              <Text style={styles.primaryButtonLabel}>{isSigningIn ? 'Signing in…' : 'Sign in'}</Text>
-            </Pressable>
-          </View>
-        )}
+        <Pressable onPress={switchToPasswordMode} accessibilityRole="button" accessibilityLabel="Sign in with email and password">
+          <Text style={styles.secondaryLink}>Sign in with email and password</Text>
+        </Pressable>
         <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
           <Text style={styles.secondaryLink}>Back</Text>
         </Pressable>

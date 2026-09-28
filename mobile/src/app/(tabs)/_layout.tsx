@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs, useRouter } from 'expo-router';
+import { Tabs, useRouter, useSegments } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
@@ -122,6 +122,7 @@ export default function TabsLayout() {
 function TabsNavigator() {
   const palette = useBrandPalette();
   const router = useRouter();
+  const segments = useSegments();
   const [isAddSheetVisible, setAddSheetVisible] = useState(false);
   // B.15 — confirmed on-device that `<Tabs initialRouteName>` (below) and the sibling
   // `unstable_settings.initialRouteName` export (B.14) do NOT reliably decide which tab is active
@@ -129,19 +130,35 @@ function TabsNavigator() {
   // flips to 'app' (an async classification, not present on the very first app render at all — see
   // _layout.tsx), and expo-router's own initial-route resolution for a group entered that way did
   // not honor either setting in practice, landing on the file-system "index" route (Races) instead.
-  // This effect is the actual fix: an imperative, directly-observable redirect that runs exactly
-  // once per genuine mount of this navigator (the ref, not just an empty deps array, is what
-  // guarantees "once" survives React StrictMode's intentional double-invoke in dev) — regardless of
-  // whatever expo-router itself decided to resolve as the initial tab. It never fires again after
-  // that one mount, so it can't re-fire on backgrounding/foregrounding (no remount happens there)
-  // and never overrides a LATER, deliberate navigation like HeaderSearchButton's `router.push('/')`
-  // to Races, which happens well after this effect has already run and settled.
+  //
+  // B.15.1 — the first version of this effect replaced to '/stats' unconditionally on every mount,
+  // which also stomped on an explicit destination: a deep link into a specific tab (e.g.
+  // `racesignal://ask`), or any other navigation that had already resolved to a specific tab by the
+  // time this component mounted. Segments distinguish the two cases: when expo-router had no more
+  // specific destination to resolve, a fresh mount of this group settles on its own file-system
+  // default — the bare `(tabs)` group segment, or `(tabs)/index` (Races happens to be the index
+  // route) — which is exactly the ordinary-launch and post-onboarding case this fix targets. Any
+  // OTHER trailing segment (e.g. `ask`) can only be reached via an explicit destination already
+  // resolved before this mount, and is left untouched. (A deep link that explicitly targets the bare
+  // `/` route is indistinguishable from "no destination" in this app's URL scheme, since Races IS
+  // the index route — there is no separate "explicit index" signal to preserve differently here.)
+  //
+  // This effect is the actual fix for the ordinary-launch case: an imperative, directly-observable
+  // redirect that runs exactly once per genuine mount of this navigator (the ref, not just an empty
+  // deps array, is what guarantees "once" survives React StrictMode's intentional double-invoke in
+  // dev) — regardless of whatever expo-router itself decided to resolve as the initial tab. It never
+  // fires again after that one mount, so it can't re-fire on backgrounding/foregrounding (no remount
+  // happens there) and never overrides a LATER, deliberate navigation like HeaderSearchButton's
+  // `router.push('/')` to Races, which happens well after this effect has already run and settled.
   const hasAppliedDefaultTabRef = useRef(false);
   useEffect(() => {
     if (hasAppliedDefaultTabRef.current) return;
     hasAppliedDefaultTabRef.current = true;
+    const trailingSegment = segments[segments.length - 1] as string | undefined;
+    const hasExplicitDestination = trailingSegment !== undefined && trailingSegment !== '(tabs)' && trailingSegment !== 'index';
+    if (hasExplicitDestination) return;
     router.replace('/stats');
-  }, [router]);
+  }, [router, segments]);
 
   function handleAddRaceSelect(choice: AddRaceChoice) {
     setAddSheetVisible(false);

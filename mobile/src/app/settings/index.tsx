@@ -10,8 +10,10 @@ import { useAuth } from '@/lib/auth';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { deleteAccount } from '@/lib/deleteAccount';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
+import { clearFindRacesRetryDraft } from '@/lib/findRacesRetryDraft';
 import { AppIcon } from '@/lib/icons';
 import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLinks';
+import { clearOnboardingDraft } from '@/lib/onboardingDraft';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
 import { useAthleteRaces } from '@/lib/racesContext';
@@ -82,9 +84,16 @@ export default function SettingsScreen() {
       setIsDeletingAccount(false);
       return;
     }
-    // The server-side account is gone; clear the local session/state the same way sign-out does
-    // so the app returns to a genuinely signed-out state regardless of what supabase-js's own
-    // client-side session cache still holds.
+    // The server-side account is gone; also clear any local pending-import drafts for it (Build
+    // 11 — see findRacesRetryDraft.ts / onboardingDraft.ts's account-binding doc comments). Their
+    // own athleteId check already refuses to resume a foreign draft for a future account, but
+    // there's no reason to leave a now-permanently-orphaned draft sitting in AsyncStorage
+    // indefinitely either. Best-effort: a failure here doesn't change that the account is deleted.
+    await Promise.all([clearFindRacesRetryDraft(), clearOnboardingDraft()]).catch((err) =>
+      console.warn('[Settings] failed to clear local pending-import drafts after account deletion:', err),
+    );
+    // Clear the local session/state the same way sign-out does so the app returns to a genuinely
+    // signed-out state regardless of what supabase-js's own client-side session cache still holds.
     try {
       await signOut();
     } catch {
@@ -142,7 +151,7 @@ export default function SettingsScreen() {
             <PlanStatusRow title="RaceSignal Premium" badge="ACTIVE" detail="40 Signal asks per month" styles={styles} />
           ) : (
             <>
-              <PlanStatusRow title="RaceSignal Free" detail="3 Signal asks per month" styles={styles} />
+              <PlanStatusRow title="RaceSignal Free" detail="3 Signal asks included" styles={styles} />
               <HairlineRule color={palette.hairline} />
               <ActionRow label="Upgrade to RaceSignal Premium" onPress={handleUpgradePress} styles={styles} palette={palette} />
             </>

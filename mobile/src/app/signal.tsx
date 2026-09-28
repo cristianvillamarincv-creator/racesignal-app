@@ -29,7 +29,13 @@ import { AppIcon } from '@/lib/icons';
 import { usePremium } from '@/lib/premium';
 import { PAYWALL_RESULT, presentPremiumPaywall } from '@/lib/purchases';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
-import { sendSignalMessage, type SignalChatTurn, type SignalImageAttachment, type SignalUnavailableReason } from '@/lib/signal';
+import {
+  generateSignalRequestId,
+  sendSignalMessage,
+  type SignalChatTurn,
+  type SignalImageAttachment,
+  type SignalUnavailableReason,
+} from '@/lib/signal';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
 import { formatSignalUsageLabel } from '@/lib/signalUsage';
@@ -84,14 +90,18 @@ function splitParagraphs(text: string): string[] {
 const REASON_MESSAGES: Record<SignalUnavailableReason, string> = {
   unauthorized: 'Please sign in again to use Signal.',
   // Never actually shown — 'rate_limited' is handled specially in sendMessage (paywall for a free
-  // athlete, a plain "used up this month" note for premium) before this lookup is ever reached.
-  // Kept populated only because REASON_MESSAGES must cover every SignalUnavailableReason.
-  rate_limited: "You've used all your Signal asks for this month.",
+  // athlete who's used their 3 lifetime asks, a plain "used up this month" note for premium)
+  // before this lookup is ever reached. Kept populated only because REASON_MESSAGES must cover
+  // every SignalUnavailableReason; deliberately tier-neutral wording since it's a fallback, not
+  // the real free- or premium-specific message.
+  rate_limited: "You've used all your available Signal asks.",
   bad_request: "Signal couldn't understand that. Please try again.",
   forbidden: "Signal couldn't access that race.",
   model_error: "Signal couldn't respond just now. Please try again.",
   network_error: 'Network issue reaching Signal. Please try again.',
   service_unavailable: "Signal couldn't check your subscription status just now. Please try again.",
+  timeout: "Signal took longer than expected to respond. Please try again.",
+  duplicate_in_flight: "Signal is still working on your last question. Please wait a moment and try again.",
 };
 
 /**
@@ -131,6 +141,14 @@ export default function SignalScreen() {
   const [isSending, setIsSending] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState(THINKING_STATUSES[0]);
   const [errorText, setErrorText] = useState<string | null>(null);
+  // Reliability investigation (B.1 Task 1a): a failed/timed-out question must stay recoverable via
+  // a clear Retry action, never a dead end that forces retyping. Holds exactly the text/image of the
+  // attempt that just failed (never a stale one — cleared at the top of every sendMessage call, see
+  // below), so `retryLastMessage` can re-submit that exact attempt without duplicating quota-side
+  // bookkeeping the athlete didn't ask for.
+  const [lastFailedAttempt, setLastFailedAttempt] = useState<{ text: string; image: StagedImage | null; requestId: string } | null>(
+    null,
+  );
   // Set from the signal Edge Function's own response after each successful reply (never computed
   // or trusted client-side — see lib/signalUsage.ts). Null until the first reply of this screen
   // instance, so nothing renders before there's a real server-confirmed count to show.
@@ -242,15 +260,22 @@ export default function SignalScreen() {
     }
   }
 
-  async function sendMessage(text: string) {
+  async function sendMessage(text: string, imageOverride?: StagedImage | null, requestIdOverride?: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (isSendingRef.current) return; // hard guard — see isSendingRef's comment above.
     isSendingRef.current = true;
     setIsSending(true);
 
-    const image = stagedImage;
+    // `imageOverride`/`requestIdOverride` (only ever passed by retryLastMessage below) re-attach
+    // the exact image AND request identity the failed attempt used — by the time of a retry,
+    // `stagedImage` state has already been cleared, and the requestId must be the SAME one (never
+    // a fresh one) so the server can recognize this as a retry of the same logical question rather
+    // than a brand-new one (see lib/signal.ts's generateSignalRequestId).
+    const image = imageOverride !== undefined ? imageOverride : stagedImage;
+    const requestId = requestIdOverride ?? generateSignalRequestId();
     setErrorText(null);
+    setLastFailedAttempt(null);
     setMessages((current) => [...current, { id: `${Date.now()}-user`, role: 'user', text: trimmed, hadImage: !!image }]);
     setInputText('');
     setStagedImage(null);
@@ -274,6 +299,7 @@ export default function SignalScreen() {
         context,
         history,
         trimmed,
+        requestId,
         image ? { base64: image.base64, mediaType: image.mediaType } : undefined,
       );
 
@@ -283,11 +309,13 @@ export default function SignalScreen() {
         // athlete-facing error should stay short and friendly, never expose implementation
         // details. It's still logged via console.warn in sendSignalMessage for developer use.
         if (result.reason === 'rate_limited' && !isPremium) {
-          // A free athlete who's exhausted their monthly allowance sees the RevenueCat paywall
-          // itself, not a generic error (Step 8.5) — presentPremiumPaywall's own "×" close button
-          // is what makes this dismissible. isPremium here only decides WHICH message/paywall the
-          // UI shows after the server has already said no; the allowance itself is enforced
-          // entirely server-side (see supabase/functions/signal/index.ts) regardless of this flag.
+          // A free athlete who's exhausted their 3-ask LIFETIME allowance (Build 11 correction —
+          // never monthly for free, see migrations/0010_signal_free_lifetime_allowance.sql) sees
+          // the RevenueCat paywall itself, not a generic error (Step 8.5) — presentPremiumPaywall's
+          // own "×" close button is what makes this dismissible. isPremium here only decides WHICH
+          // message/paywall the UI shows after the server has already said no; the allowance itself
+          // is enforced entirely server-side (see supabase/functions/signal/index.ts) regardless of
+          // this flag.
           const paywallResult = await presentPremiumPaywall();
           if (paywallResult === PAYWALL_RESULT.PURCHASED || paywallResult === PAYWALL_RESULT.RESTORED) {
             await refreshPremiumStatus();
@@ -299,9 +327,7 @@ export default function SignalScreen() {
             await sendMessage(trimmed);
             return;
           }
-          setErrorText(
-            "You've used your free Signal asks for this month. Upgrade to RaceSignal Premium any time to keep asking.",
-          );
+          setErrorText("You've used your 3 free Signal asks. Upgrade to RaceSignal Premium any time to keep asking.");
           return;
         }
         if (result.reason === 'rate_limited') {
@@ -309,7 +335,13 @@ export default function SignalScreen() {
           setErrorText("You've used all your Signal asks for this month. More become available next month.");
           return;
         }
+        // Every other failure reason (timeout, network_error, model_error, service_unavailable,
+        // bad_request, forbidden, unauthorized) is recoverable via Retry — see retryLastMessage
+        // below and its render. The two rate_limited branches above are deliberately excluded: a
+        // capped athlete retrying the identical question would just fail again identically, and
+        // each already offers its own dedicated recovery (upgrade, or wait for next month).
         setErrorText(REASON_MESSAGES[result.reason]);
+        setLastFailedAttempt({ text: trimmed, image, requestId });
         return;
       }
       setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: 'assistant', text: result.data.reply }]);
@@ -338,6 +370,21 @@ export default function SignalScreen() {
       isSendingRef.current = false;
       setIsSending(false);
     }
+  }
+
+  /** Re-submits exactly the attempt that just failed (Task 1a) — removes the trailing user bubble
+   *  first (the same pattern the paywall-purchase retry above already uses) so the retried question
+   *  doesn't render twice, then re-sends through the ordinary sendMessage path. This is a fresh
+   *  request like any other manually-typed one, not a special "resume" — see lib/signal.ts and
+   *  supabase/functions/signal/index.ts's reserve/release accounting for why a genuinely failed
+   *  first attempt never consumed an ask in the first place, so this isn't a double-charge. */
+  function retryLastMessage() {
+    if (!lastFailedAttempt) return;
+    const { text, image, requestId } = lastFailedAttempt;
+    setLastFailedAttempt(null);
+    setErrorText(null);
+    setMessages((current) => (current.length > 0 && current[current.length - 1]?.role === 'user' ? current.slice(0, -1) : current));
+    void sendMessage(text, image, requestId);
   }
 
   // The compact usage strip's "Upgrade" action (Build 10 polish) — a plain upsell entry point, not
@@ -456,7 +503,30 @@ export default function SignalScreen() {
               </View>
             ) : null}
 
-            {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+            {errorText ? (
+              <View style={styles.errorRow}>
+                <Text style={styles.errorText}>{errorText}</Text>
+                {lastFailedAttempt ? (
+                  <Pressable
+                    onPress={retryLastMessage}
+                    accessibilityRole="button"
+                    accessibilityLabel="Retry"
+                    style={styles.retryButton}>
+                    <Text style={styles.retryButtonLabel}>Retry</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            {messages.length === 0 && !isSending && !stagedImage ? (
+              <View style={styles.attachHintRow}>
+                <AppIcon name="camera-outline" size={13} color={palette.inkSecondary} />
+                <Text style={styles.attachHintText}>
+                  Add a training or race screenshot as evidence — a Garmin, Strava, or TrainingPeaks screenshot works
+                  well. It&rsquo;s just a picture of what you already have open, not a live connection to those apps.
+                </Text>
+              </View>
+            ) : null}
           </ScrollView>
         )}
 
@@ -553,7 +623,12 @@ interface Styles {
   suggestionRow: ViewStyle;
   suggestionChip: ViewStyle;
   suggestionLabel: TextStyle;
+  errorRow: ViewStyle;
   errorText: TextStyle;
+  retryButton: ViewStyle;
+  retryButtonLabel: TextStyle;
+  attachHintRow: ViewStyle;
+  attachHintText: TextStyle;
   usageStrip: ViewStyle;
   usageStripText: TextStyle;
   usageStripUpgrade: TextStyle;
@@ -689,9 +764,44 @@ function createStyles(palette: BrandPalette): Styles {
       fontWeight: '500',
       color: palette.ink,
     },
+    errorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+    },
     errorText: {
+      flex: 1,
       fontSize: 13,
       color: palette.danger,
+    },
+    // Retry action for a failed/timed-out question (Task 1a) — a small, clearly-labeled recovery
+    // action right next to the error, never a dead end that forces retyping the question.
+    retryButton: {
+      minHeight: minTouchSize,
+      paddingHorizontal: spacing.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    retryButtonLabel: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: palette.signalBlue,
+      textDecorationLine: 'underline',
+    },
+    // Screenshot-attachment discoverability (Task 3.3) — quiet, one-time-per-empty-chat helper copy
+    // near the attach control, phrased so it never implies a live/direct Garmin/Strava/TrainingPeaks
+    // integration (there isn't one — it's just an ordinary screenshot, same as any other image).
+    attachHintRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 6,
+    },
+    attachHintText: {
+      flex: 1,
+      fontSize: 12,
+      lineHeight: 17,
+      color: palette.inkSecondary,
     },
     usageStrip: {
       flexDirection: 'row',

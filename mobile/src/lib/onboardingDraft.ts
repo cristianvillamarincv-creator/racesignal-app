@@ -23,6 +23,24 @@ export interface OnboardingDraft {
    *  racingName/candidates here, and upserting athlete_profiles with them would overwrite the
    *  returning athlete's actual profile). See OnboardingFlow.tsx's resumeReturningUser(). */
   isReturningUserSignIn?: boolean;
+  /** Rows already detail-fetched but not yet saved (e.g. an insert failure) at the point this
+   *  draft was written — carried through re-authentication the same way `selectedResultIds` is,
+   *  so a session-expiry mid-import (see handleSignInAgain) doesn't just re-fetch the still-
+   *  pending candidates but also finishes saving whatever was already fetched, without needing a
+   *  second, separate retry action for it. */
+  rowsAlreadyFetched?: Record<string, unknown>[];
+  /** The Supabase auth user id of the account this draft's mid-import candidates/rows belong to —
+   *  set ONLY by handleSignInAgain's session-expiry recovery (captured from the expiring session
+   *  BEFORE signOut() runs), since that's the one case where this draft is genuinely
+   *  account-specific rather than pre-auth. Undefined for the ordinary fresh-onboarding/
+   *  returning-user-sign-in paths, where no account is signed in yet when the draft is written
+   *  (nothing to bind to, same as before this field existed). When set, resumeFromDraftAndImport
+   *  must refuse to run the real import for a NEWLY-signed-in session whose user id doesn't match
+   *  — AsyncStorage is shared device-wide, so a stale draft must never silently import one
+   *  account's candidates into whichever different account happens to complete sign-in next
+   *  (a shared/reused device, or a "delete account, sign up again" recreation — a new account
+   *  gets a new auth user id even for the same email). */
+  originAthleteId?: string;
 }
 
 export async function saveOnboardingDraft(draft: OnboardingDraft): Promise<void> {

@@ -43,6 +43,14 @@ describe('formatFinishTime', () => {
   it('pads minutes and seconds', () => {
     expect(formatFinishTime(3600 + 5 * 60 + 9)).toBe('1:05:09');
   });
+
+  // B.1 Task 2.1 regression — the exact raw-seconds figure ("10,054s") the factual-quality
+  // investigation called out must never reach the athlete or the model as a bare number; it must
+  // read as 2:47:34. Server-side, supabase/functions/signal/systemPrompt.ts mirrors this exact
+  // formatting (see its own systemPrompt.test.ts, run via `deno test` — a separate Deno project).
+  it('formats a multi-hour duration correctly (regression: raw seconds must never be displayed)', () => {
+    expect(formatFinishTime(10054)).toBe('2:47:34');
+  });
 });
 
 describe('formatRelativeDate', () => {

@@ -115,6 +115,16 @@ function TabsNavigator() {
   return (
     <>
       <Tabs
+        // Stats → Races → Signal (Build 11 nav-order instruction). `initialRouteName` is what
+        // actually governs which tab is ACTIVE the moment this navigator mounts fresh — after
+        // onboarding completes (RootNavigator's phase flip from 'onboarding' to 'app' in
+        // _layout.tsx) and on a normal cold launch of an already-onboarded athlete, both land here
+        // with no more specific nested path requested, so both correctly default to Stats. This is
+        // independent of, and does not touch, any EXPLICIT navigation elsewhere that already
+        // targets a specific tab on purpose — e.g. HeaderSearchButton's `router.push('/')` (jumps
+        // to Races specifically because only Races has the search field) — those keep working
+        // exactly as before, since initialRouteName only affects the no-path-yet-requested case.
+        initialRouteName="stats"
         screenOptions={{
           headerLeft: () => <HeaderAddButton onPress={() => setAddSheetVisible(true)} />,
           headerRight: () => <HeaderRightGroup />,
@@ -125,6 +135,15 @@ function TabsNavigator() {
           headerTintColor: palette.ink,
         }}>
         <Tabs.Screen
+          name="stats"
+          options={{
+            title: 'Stats',
+            // Optical sizing only — the supplied glyph itself is unchanged, this just carries
+            // similar visual weight to the Races icon (22px) and the Signal mark (22px).
+            tabBarIcon: ({ color }) => <TabIconImage source={require('../../assets/stats-tab-icon.png')} color={color} size={24} />,
+          }}
+        />
+        <Tabs.Screen
           name="index"
           options={{
             title: 'Races',
@@ -132,15 +151,6 @@ function TabsNavigator() {
             // same way as the Signal tab's own mark — size matches SignalMark's 22px so none of the
             // three tab icons visually dominates the others.
             tabBarIcon: ({ color }) => <TabIconImage source={require('../../assets/races-tab-icon.png')} color={color} size={22} />,
-          }}
-        />
-        <Tabs.Screen
-          name="stats"
-          options={{
-            title: 'Stats',
-            // Optical sizing only — the supplied glyph itself is unchanged, this just carries
-            // similar visual weight to the Races icon (22px) and the Signal mark (22px).
-            tabBarIcon: ({ color }) => <TabIconImage source={require('../../assets/stats-tab-icon.png')} color={color} size={24} />,
           }}
         />
         <Tabs.Screen

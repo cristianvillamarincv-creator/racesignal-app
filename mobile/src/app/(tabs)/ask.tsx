@@ -116,7 +116,23 @@ export default function AskScreen() {
           </View>
         ) : null}
 
-        {/* 2 — Recent Signals: completed analysis HISTORY. Deliberately unboxed/editorial — the
+        {/* 2 — Ask Signal anything: the primary free-form entry point. Placed right after the
+            next-race module and ABOVE Recent Signals (Task 3.1, B.1 CTA-placement pass) — as
+            conversation history grows over time, a CTA left at the bottom of this screen would get
+            progressively buried under it; anchoring it here keeps it equally easy to find no matter
+            how long "Recent Signals" gets. Deliberately plain (no card, no fill, no border) so it
+            never competes with the next-race module above it. */}
+        <Pressable
+          onPress={() => openSignal()}
+          accessibilityRole="button"
+          accessibilityLabel="Ask Signal anything"
+          style={styles.askAnythingRow}>
+          <SignalMark color={palette.signalBlue} size={16} />
+          <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
+          <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
+        </Pressable>
+
+        {/* 3 — Recent Signals: completed analysis HISTORY. Deliberately unboxed/editorial — the
             distinction from the Prompt Actions module below comes from typography and a quiet
             chevron, not from suddenly wrapping history in cards. The Signal mark appears once here,
             subtly, as a section-level accent (not repeated per row) marking this as Signal's own
@@ -152,7 +168,7 @@ export default function AskScreen() {
           </View>
         ) : null}
 
-        {/* 3 — Things worth asking: ACTIONS, grouped into one Signal-Blue-tinted Prompt Actions
+        {/* 4 — Things worth asking: ACTIONS, grouped into one Signal-Blue-tinted Prompt Actions
             module — a single surface (not three separate pills) so the three prompts read as one
             intentional "things I can ask" unit, visibly distinct from the plain history list above
             it. Restrained hairlines separate the rows *within* the module only; each row keeps a
@@ -177,18 +193,6 @@ export default function AskScreen() {
             </View>
           </View>
         ) : null}
-
-        {/* 4 — Free-form "Ask Signal" entry: last, most secondary/quiet — deliberately plain (no
-            card, no fill, no border) so it never competes with the next-race module above it. */}
-        <Pressable
-          onPress={() => openSignal()}
-          accessibilityRole="button"
-          accessibilityLabel="Ask Signal anything"
-          style={styles.askAnythingRow}>
-          <SignalMark color={palette.signalBlue} size={16} />
-          <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
-          <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
-        </Pressable>
       </ScrollView>
     </View>
   );
@@ -237,7 +241,7 @@ function createStyles(palette: BrandPalette): Styles {
       letterSpacing: 0.6,
       color: palette.inkSecondary,
     },
-    // 3 — Things worth asking: ONE grouped, Signal-Blue-tinted Prompt Actions module — the tinted
+    // 4 — Things worth asking: ONE grouped, Signal-Blue-tinted Prompt Actions module — the tinted
     // surface + border is what signals "these are actions", not per-row pills.
     suggestionsBlock: {
       gap: spacing.sm,
@@ -264,8 +268,9 @@ function createStyles(palette: BrandPalette): Styles {
       fontWeight: '500',
       color: palette.ink,
     },
-    // 4 — Ask Signal: a quiet, single action row — deliberately plain (no card, no fill, no
+    // 2 — Ask Signal: a quiet, single action row — deliberately plain (no card, no fill, no
     // border) so it never reads as a second SignalModule-weight block next to the next-race card.
+    // Placed right after the next-race module in render order, above Recent Signals (Task 3.1).
     askAnythingRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -278,7 +283,7 @@ function createStyles(palette: BrandPalette): Styles {
       fontWeight: '600',
       color: palette.signalBlue,
     },
-    // 2 — Recent Signals: analysis HISTORY — unboxed editorial list, title-primary/timestamp-
+    // 3 — Recent Signals: analysis HISTORY — unboxed editorial list, title-primary/timestamp-
     // secondary, with a single subtle section-level Signal mark (not repeated per row).
     recentSection: {
       gap: spacing.xs,

@@ -1,6 +1,6 @@
 import type { Race, SportCategory } from '@/fixtures/races';
 import { getTopPercentile } from '@/lib/format';
-import { canonicalDistanceLabel, getDistancePRStatuses } from '@/lib/highlights';
+import { canonicalDistanceLabel, getAgeGroupPodiums, getDistancePRStatuses } from '@/lib/highlights';
 import { getCompletedRaces } from '@/lib/races';
 
 export interface AggregateStats {
@@ -101,4 +101,23 @@ export function getPersonalBests(races: Race[], sport?: SportCategory, year?: nu
  */
 export function getPersonalBestsCount(races: Race[], sport?: SportCategory, year?: number): number {
   return getPersonalBests(races, sport, year).length;
+}
+
+/**
+ * Count of completed races with a verified 1st/2nd/3rd age-group placement, matching the active
+ * sport/year filter — the "Age-group podiums" Performance Snapshot metric. Delegates the actual
+ * podium test to `getAgeGroupPodiums` (lib/highlights.ts) rather than re-deriving it, so this can
+ * never quietly disagree with the "Age-group podium" highlight shown elsewhere on Stats:
+ *  - only a literal, known age-group `place` of 1–3 counts — a strong percentile is a different
+ *    fact (see getBestAgeGroupPercentile) and never implies a podium finish on its own;
+ *  - only COMPLETED races with a result are eligible (getAgeGroupPodiums itself is scoped to
+ *    completedWithResult, so an upcoming/registered race is never counted regardless of any rank
+ *    field it might carry);
+ *  - each race counts at most once (getAgeGroupPodiums returns each qualifying race once);
+ *  - a race with a genuinely missing/null age-group place is EXCLUDED rather than asserted as "not
+ *    a podium" — same "unknown stays unknown" convention getBestAgeGroupPercentile already applies
+ *    to missing rank/field data, not silently counted as a yes or a no.
+ */
+export function getAgeGroupPodiumsCount(races: Race[], sport?: SportCategory, year?: number): number {
+  return filterBySportAndYear(getAgeGroupPodiums(races), sport, year).length;
 }

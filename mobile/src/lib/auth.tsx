@@ -103,14 +103,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.subscription.unsubscribe();
   }, []);
 
+  /**
+   * Deliberately NEVER retries automatically, unlike exchangeCodeForSession/setSession above.
+   * Verified against the installed @supabase/auth-js: signInWithOtp calls
+   * _getCodeChallengeAndMethod(), which generates a BRAND NEW PKCE verifier + flowId on every
+   * call and stores it in a per-flow slot (helpers.js's storePKCEVerifier), addressed by the
+   * flowId embedded in the redirect URL — but it ALSO dual-writes that new verifier to a single
+   * fixed legacy key, for callers that can't identify their flow (helpers.js: "exchanges that
+   * cannot identify their flow ... read the fixed key, which mirrors the most recently started
+   * flow"). completeAuthFromUrl below calls `exchangeCodeForSession(code)` with no `options.flowId`,
+   * and React Native never satisfies auth-js's `isBrowser()` check (no `window.location`) that
+   * would otherwise let it recover the flowId from the callback URL itself — so this app always
+   * falls back to that single fixed legacy key. A second signInWithOtp call — automatic retry or a
+   * manual "Resend" — overwrites that fixed key with a NEW verifier, silently orphaning whatever
+   * email the FIRST call already sent (if it reached the server at all): tapping that first email
+   * would then fail with the exact PKCE-verifier-missing error Build 9 already had to handle once.
+   * An `AuthRetryableFetchError` only proves the client never got a decision back — it does NOT
+   * prove the server never received/sent the first request, so retrying here cannot be shown safe.
+   * A real fix (threading the redirect URL's flowId through to exchangeCodeForSession, so each
+   * flow's verifier lives in its own durable slot) is a legitimate follow-up but is out of scope
+   * for this pass. The resend cooldown and "the newest email you asked for is the only one that
+   * still works" guidance already carry this same risk for a manual resend — unchanged here.
+   */
   const requestMagicLink = async (email: string) => {
     const redirectTo = getAuthRedirectUri();
-    console.log('[Auth] requesting magic link for', email, '-> redirectTo', redirectTo);
+    // Never log the email itself — diagnostics below stay limited to stage/error-type/elapsed-ms.
+    console.log('[Auth] requesting magic link -> redirectTo', redirectTo);
+    const startedAt = Date.now();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { shouldCreateUser: true, emailRedirectTo: redirectTo },
     });
-    if (error) console.warn('[Auth] signInWithOtp (magic link) failed:', error.message);
+
+    const elapsedMs = Date.now() - startedAt;
+    if (error) {
+      console.warn(
+        `[Auth] signInWithOtp (magic link) failed (elapsedMs=${elapsedMs}, errorType=${error.name ?? 'unknown'}):`,
+        error.message,
+      );
+    } else {
+      console.log(`[Auth] signInWithOtp (magic link) succeeded (elapsedMs=${elapsedMs})`);
+    }
     return { error: error?.message ?? null };
   };
 

@@ -238,6 +238,92 @@ describe('getSuggestedPrompts', () => {
     const prompts = getSuggestedPrompts([seed], seed.id);
     expect(prompts).toContain('What does my history suggest for this race?');
   });
+
+  // Task 3.2 (chip relevance) regressions — a running race must never surface a swim/bike/run
+  // discipline-breakdown chip, even though several distinct CHECKPOINT split labels (not
+  // disciplines) can legitimately exist on a single-sport race.
+  it('never suggests "strongest discipline" for a single-sport race, even with multiple distinct split labels', () => {
+    const seed = race({
+      id: 'marathon-with-checkpoints',
+      eventDate: '2025-01-01',
+      distanceLabel: 'Marathon',
+      sport: 'running',
+      result: {
+        finishSeconds: 15000,
+        splits: [
+          { label: '5K', elapsedSeconds: 1500 },
+          { label: '10K', elapsedSeconds: 3000 },
+          { label: 'Half', elapsedSeconds: 6300 },
+        ],
+        sourceStatus: 'imported_confirmed',
+      },
+    });
+    const prompts = getSuggestedPrompts([seed], seed.id);
+    expect(prompts).not.toContain('What was my strongest discipline?');
+  });
+
+  it('never suggests a pacing/"where did I lose time" chip for a race with no splits', () => {
+    const seed = race({
+      id: 'no-splits-run',
+      eventDate: '2025-01-01',
+      distanceLabel: '10K',
+      sport: 'running',
+      result: { finishSeconds: 2400, splits: [], sourceStatus: 'imported_confirmed' },
+    });
+    const prompts = getSuggestedPrompts([seed], seed.id);
+    expect(prompts).not.toContain('Where did I lose the most time?');
+    expect(prompts).not.toContain('What was my strongest discipline?');
+  });
+
+  it('offers the pacing chip, but never the discipline chip, for a running race that does have splits', () => {
+    const seed = race({
+      id: 'run-with-splits',
+      eventDate: '2025-01-01',
+      distanceLabel: '10K',
+      sport: 'running',
+      result: {
+        finishSeconds: 2400,
+        splits: [
+          { label: 'Mile 1', elapsedSeconds: 400 },
+          { label: 'Mile 2', elapsedSeconds: 800 },
+        ],
+        sourceStatus: 'imported_confirmed',
+      },
+    });
+    const prompts = getSuggestedPrompts([seed], seed.id);
+    expect(prompts).toContain('Where did I lose the most time?');
+    expect(prompts).not.toContain('What was my strongest discipline?');
+  });
+
+  it('offers a same-sport comparison chip only when comparable history actually exists', () => {
+    const seed = race({ id: 'solo-tri', eventDate: '2025-01-01', distanceLabel: 'Olympic', sport: 'triathlon' });
+    const noHistory = getSuggestedPrompts([seed], seed.id);
+    expect(noHistory.some((p) => p.startsWith('How does this compare'))).toBe(false);
+
+    const otherTri = race({ id: 'other-tri', eventDate: '2024-01-01', distanceLabel: '70.3', sport: 'triathlon' });
+    const withHistory = getSuggestedPrompts([seed, otherTri], seed.id);
+    expect(withHistory.some((p) => p.startsWith('How does this compare'))).toBe(true);
+  });
+
+  it('still suggests "strongest discipline" for a genuinely multi-discipline triathlon with real per-leg splits', () => {
+    const seed = race({
+      id: 'real-tri',
+      eventDate: '2025-01-01',
+      distanceLabel: 'Olympic',
+      sport: 'triathlon',
+      result: {
+        finishSeconds: 9000,
+        splits: [
+          { label: 'Swim', elapsedSeconds: 1500 },
+          { label: 'Bike', elapsedSeconds: 5000 },
+          { label: 'Run', elapsedSeconds: 2500 },
+        ],
+        sourceStatus: 'imported_confirmed',
+      },
+    });
+    const prompts = getSuggestedPrompts([seed], seed.id);
+    expect(prompts).toContain('What was my strongest discipline?');
+  });
 });
 
 describe('buildConversationTitle', () => {

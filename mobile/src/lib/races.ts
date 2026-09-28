@@ -41,8 +41,9 @@ export interface RaceYearGroup {
 
 /**
  * Groups an already-sorted (newest-first) completed-race list into consecutive per-year buckets,
- * preserving order — the Races screen's replacement for a separate year-filter control: scrolling
- * through the grouped list with visible year headers does that job instead of a pill row.
+ * preserving order — gives the (already sport/year-filtered) Completed list visible year headers
+ * to scroll through, alongside the Races/Stats year-pill filter (components/FilterPillRows.tsx)
+ * rather than instead of it.
  */
 export function groupCompletedRacesByYear(races: Race[]): RaceYearGroup[] {
   const groups: RaceYearGroup[] = [];

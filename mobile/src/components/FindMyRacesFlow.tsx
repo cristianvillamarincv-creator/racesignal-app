@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { HairlineRule } from '@/components/HairlineRule';
+import { useAppPhase } from '@/lib/appPhase';
 import { useAuth } from '@/lib/auth';
 import { type BrandPalette, tabularNumerals, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { fetchImportedProviderResultIds, insertConfirmedRaces } from '@/lib/db/races';
+import { clearFindRacesRetryDraft, loadFindRacesRetryDraft, saveFindRacesRetryDraft } from '@/lib/findRacesRetryDraft';
 import { AppIcon } from '@/lib/icons';
 import { normalizeNameForQuery } from '@/lib/nameNormalization';
 import { candidateDetailToInsertRow } from '@/lib/raceMapping';
@@ -16,6 +18,7 @@ import {
   type CandidateRace,
   type UnavailableReason,
 } from '@/lib/raceDiscovery';
+import { describeImportOutcome, fetchCandidateDetails } from '@/lib/raceImportBatch';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -53,7 +56,8 @@ interface FindMyRacesFlowProps {
 }
 
 export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
-  const { session } = useAuth();
+  const { session, signOut } = useAuth();
+  const { resetToOnboarding } = useAppPhase();
   const { racingName: primaryRacingName, applyImportedRaces } = useAthleteRaces();
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
@@ -72,13 +76,52 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
   const [importProgress, setImportProgress] = useState({ done: 0, total: 0 });
   const [importedCount, setImportedCount] = useState(0);
   const [podiumCount, setPodiumCount] = useState(0);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [outcomeMessage, setOutcomeMessage] = useState<{ text: string; action: 'retry' | 'sign_in_again' | null } | null>(null);
   const [retryCandidates, setRetryCandidates] = useState<CandidateRace[]>([]);
   const [retryRows, setRetryRows] = useState<Record<string, unknown>[]>([]);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const athleteId = session?.user.id;
-  const canRetry = retryCandidates.length > 0 || retryRows.length > 0;
+  const canRetry = outcomeMessage?.action === 'retry' && (retryCandidates.length > 0 || retryRows.length > 0);
+  const canSignInAgain = outcomeMessage?.action === 'sign_in_again';
+
+  // Resumes an import interrupted by a session-expiry re-authentication (see handleSignInAgain) —
+  // a completely normal visit to this screen just finds no draft and does nothing. Checked once
+  // per mount, when a real session first becomes available (this screen is never reachable
+  // without one, so `athleteId` is truthy essentially immediately).
+  useEffect(() => {
+    if (!athleteId) return;
+    let cancelled = false;
+    (async () => {
+      const draft = await loadFindRacesRetryDraft();
+      if (!draft || (draft.candidates.length === 0 && (draft.rowsAlreadyFetched ?? []).length === 0)) return;
+      if (draft.athleteId !== athleteId) {
+        // A draft belonging to a DIFFERENT account than the one now signed in — a shared/reused
+        // device, an account switch mid-recovery, or a "delete account, sign up again"
+        // recreation (a new account gets a new auth user id even for the same email). Never
+        // resumed: that would silently import a stranger's — or a deleted account's — candidates
+        // into this session. Cleared, not left to be checked again on every future mount.
+        console.warn('[FindMyRaces] discarding a pending-retry draft that belongs to a different account.');
+        await clearFindRacesRetryDraft();
+        return;
+      }
+      await clearFindRacesRetryDraft();
+      if (cancelled) return;
+      setSearchName(draft.searchName);
+      if (draft.providerAthleteName) {
+        setSelectedIdentity({ providerAthleteId: '', displayName: draft.providerAthleteName });
+      }
+      const imported = await fetchImportedProviderResultIds(athleteId, 'sportstats');
+      if (cancelled) return;
+      setAlreadyImportedIds(imported);
+      await runImport(draft.candidates, draft.rowsAlreadyFetched ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [athleteId]);
 
   async function runSearch() {
     const name = normalizeNameForQuery(searchName);
@@ -164,24 +207,24 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
   async function runImport(candidatesToFetch: CandidateRace[], rowsAlreadyFetched: Record<string, unknown>[] = []) {
     if (!athleteId) return;
     setStep('importing');
-    setSaveError(null);
+    setOutcomeMessage(null);
     setImportProgress({ done: rowsAlreadyFetched.length, total: candidatesToFetch.length + rowsAlreadyFetched.length });
 
-    const rows: Record<string, unknown>[] = [...rowsAlreadyFetched];
-    let remaining: CandidateRace[] = [];
     let newPodiums = 0;
-
-    for (let i = 0; i < candidatesToFetch.length; i++) {
-      const candidate = candidatesToFetch[i]!;
-      const detailResult = await fetchRaceDetail(candidate.providerResultId, candidate.providerAthleteResultId, candidate.category);
-      if (!detailResult.available) {
-        remaining = candidatesToFetch.slice(i);
-        break;
-      }
-      rows.push(candidateDetailToInsertRow(athleteId, candidate, detailResult.data, selectedIdentity?.displayName));
-      if (detailResult.data.ageGroupRank && detailResult.data.ageGroupRank.place <= 3) newPodiums += 1;
-      setImportProgress((current) => ({ ...current, done: current.done + 1 }));
-    }
+    const { rows: fetchedRows, unavailable, failed, unattempted, stopReason } = await fetchCandidateDetails(
+      candidatesToFetch,
+      (candidate) => fetchRaceDetail(candidate.providerResultId, candidate.providerAthleteResultId, candidate.category),
+      (candidate, detail) => {
+        if (detail.ageGroupRank && detail.ageGroupRank.place <= 3) newPodiums += 1;
+        return candidateDetailToInsertRow(athleteId, candidate, detail, selectedIdentity?.displayName);
+      },
+      (done) => setImportProgress((current) => ({ ...current, done: rowsAlreadyFetched.length + done })),
+    );
+    const rows: Record<string, unknown>[] = [...rowsAlreadyFetched, ...fetchedRows];
+    // `failed` (isolated network_error, still retryable) and `unattempted` (never tried because
+    // the batch paused) are disjoint — both feed the same Retry action, re-attempting exactly
+    // these candidates and none of the ones already fetched/saved above.
+    const retryable = [...failed.map((f) => f.candidate), ...unattempted];
 
     let saved = 0;
     let insertFailed = false;
@@ -202,13 +245,17 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
     }
 
     setRetryRows(insertFailed ? rows : []);
-    setRetryCandidates(remaining);
-
-    if (insertFailed) {
-      setSaveError(`Found ${rows.length} race${rows.length === 1 ? '' : 's'} but couldn’t save. Check your connection and tap Retry.`);
-    } else if (remaining.length > 0) {
-      setSaveError(`Saved ${saved}. Discovery paused partway through. Tap Retry to fetch the rest.`);
-    }
+    setRetryCandidates(retryable);
+    setOutcomeMessage(
+      describeImportOutcome({
+        rowsReadyToInsert: rows.length,
+        saved,
+        insertFailed,
+        unavailableCount: unavailable.length,
+        retryableCount: retryable.length,
+        stopReason,
+      }),
+    );
 
     setStep('summary');
   }
@@ -218,6 +265,35 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
     setIsRetrying(true);
     await runImport(retryCandidates, retryRows);
     setIsRetrying(false);
+  }
+
+  /** Distinct from the plain Retry above: an `unauthorized` detail-fetch means the athlete's
+   *  session itself is no longer valid, so nothing in this batch can succeed until they sign in
+   *  again — retrying the same request would just fail identically. Mirrors Settings' own
+   *  sign-out → resetToOnboarding pattern so they land back on the sign-in screen. */
+  async function handleSignInAgain() {
+    if (isSigningOut || !athleteId) return;
+    setIsSigningOut(true);
+    // resetToOnboarding() unmounts this whole screen (see appPhase.tsx's phase switch in
+    // _layout.tsx) — every bit of in-memory retry state below would otherwise just vanish.
+    // Persisted here, resumed automatically on this screen's next mount (see the effect above),
+    // whether that's this same recovery round-trip or the athlete simply reopening "Find more
+    // races" from Settings afterward. `athleteId` is captured NOW, while still authenticated —
+    // the resume effect refuses to resume a draft whose athleteId doesn't match whoever is
+    // signed in when this screen next mounts (see that effect's own comment).
+    await saveFindRacesRetryDraft({
+      athleteId,
+      searchName,
+      providerAthleteName: selectedIdentity?.displayName,
+      candidates: retryCandidates,
+      rowsAlreadyFetched: retryRows,
+    });
+    try {
+      await signOut();
+    } catch (err) {
+      console.warn('[FindMyRaces] sign-out before re-auth failed:', err);
+    }
+    resetToOnboarding();
   }
 
   return (
@@ -358,8 +434,8 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
             <Text style={styles.subcopy}>
               {importProgress.total > 0 ? (
                 <>
-                  Fetching result <Text style={tabularNumerals}>{importProgress.done + 1}</Text> of{' '}
-                  <Text style={tabularNumerals}>{importProgress.total}</Text>…
+                  Loading race results… <Text style={tabularNumerals}>{importProgress.done + 1}</Text> of{' '}
+                  <Text style={tabularNumerals}>{importProgress.total}</Text>
                 </>
               ) : (
                 'Saving…'
@@ -371,7 +447,7 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
         {step === 'summary' ? (
           <View style={styles.centeredStep}>
             <Text style={styles.screenTitle}>{importedCount > 0 ? 'Added to your history.' : 'No races added.'}</Text>
-            {saveError ? <Text style={styles.message}>{saveError}</Text> : null}
+            {outcomeMessage ? <Text style={styles.message}>{outcomeMessage.text}</Text> : null}
             {importedCount > 0 ? (
               <View style={styles.summaryGrid}>
                 <SummaryStat label="Races added" value={importedCount} styles={styles} />
@@ -388,12 +464,22 @@ export function FindMyRacesFlow({ onDone }: FindMyRacesFlowProps) {
                 <Text style={styles.primaryButtonLabel}>{isRetrying ? 'Retrying…' : 'Retry'}</Text>
               </Pressable>
             ) : null}
+            {canSignInAgain ? (
+              <Pressable
+                onPress={handleSignInAgain}
+                disabled={isSigningOut}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in again"
+                style={[styles.primaryButton, isSigningOut && styles.primaryButtonDisabled]}>
+                <Text style={styles.primaryButtonLabel}>{isSigningOut ? 'Signing out…' : 'Sign in again'}</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={onDone}
               accessibilityRole="button"
               accessibilityLabel="Done"
-              style={canRetry ? styles.secondaryButton : styles.primaryButton}>
-              <Text style={canRetry ? styles.secondaryButtonLabel : styles.primaryButtonLabel}>Done</Text>
+              style={canRetry || canSignInAgain ? styles.secondaryButton : styles.primaryButton}>
+              <Text style={canRetry || canSignInAgain ? styles.secondaryButtonLabel : styles.primaryButtonLabel}>Done</Text>
             </Pressable>
           </View>
         ) : null}

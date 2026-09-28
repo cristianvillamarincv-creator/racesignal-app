@@ -22,3 +22,6 @@ describe('isRetryableAuthError', () => {
     expect(isRetryableAuthError(undefined)).toBe(false);
   });
 });
+
+// callWithOneAuthRetry (previously tested here) was removed — see authRetry.ts's note above
+// isRetryableAuthError's export for why it could not be shown safe for signInWithOtp specifically.

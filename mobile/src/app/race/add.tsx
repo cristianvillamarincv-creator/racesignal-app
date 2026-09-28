@@ -172,11 +172,9 @@ export default function AddRaceScreen() {
             not a generic form-screen title. */}
         <View style={styles.headlineWrap}>
           <Text style={styles.kicker}>MANUAL ENTRY</Text>
-          <Text style={styles.title}>
-            {editingRace ? 'Edit race' : mode === 'upcoming' ? 'Your next start line.' : 'Add to your race history.'}
-          </Text>
+          <Text style={styles.title}>{editingRace ? 'Edit race' : 'Add a race'}</Text>
           <Text style={styles.subcopy}>
-            {editingRace ? 'Update the details for this race.' : 'Log a race Signal couldn’t find automatically.'}
+            {editingRace ? 'Update the details for this race.' : 'Enter the details of an upcoming or completed race.'}
           </Text>
         </View>
 

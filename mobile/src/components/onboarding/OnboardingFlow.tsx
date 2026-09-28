@@ -42,6 +42,7 @@ import {
   type CandidateRace,
   type UnavailableReason,
 } from '@/lib/raceDiscovery';
+import { describeImportOutcome, fetchCandidateDetails } from '@/lib/raceImportBatch';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import { minTouchSize, spacing } from '@/lib/theme';
@@ -124,7 +125,7 @@ interface OnboardingFlowProps {
 }
 
 export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedComplete }: OnboardingFlowProps) {
-  const { session, requestMagicLink, completeAuthFromUrl } = useAuth();
+  const { session, requestMagicLink, completeAuthFromUrl, signOut } = useAuth();
   const { applyImportedRaces } = useAthleteRaces();
 
   const [step, setStep] = useState<Step>('restoring');
@@ -157,8 +158,14 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   const [importedCount, setImportedCount] = useState(0);
   const [podiumCount, setPodiumCount] = useState(0);
   const [importedYearRange, setImportedYearRange] = useState<{ min: number; max: number } | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [importOutcome, setImportOutcome] = useState<{ text: string; action: 'retry' | 'sign_in_again' | null } | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isSigningOutForReauth, setIsSigningOutForReauth] = useState(false);
+  // Captured by handleSignInAgain from the expiring session BEFORE signOut() runs (by the time
+  // persistDraft() below actually executes — when the athlete taps "Send sign-in link" — `session`
+  // is already null). Read by persistDraft() as the draft's account-binding origin id; see
+  // onboardingDraft.ts's originAthleteId doc and resumeFromDraftAndImport's mismatch guard.
+  const [reauthOriginAthleteId, setReauthOriginAthleteId] = useState<string | null>(null);
 
   // Retry state for a partial/failed import — never discarded until persistence actually
   // succeeds. `retryInsertRows` are already detail-fetched but not yet saved (re-attempt just the
@@ -174,7 +181,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   // completed sign-in, or a retry started while a still-hung prior attempt hasn't yet given up.
   const importInFlightRef = useRef(false);
   const selectedCount = selectedIds.size;
-  const canRetryImport = retryFetchCandidates.length > 0 || retryInsertRows.length > 0;
+  const canRetryImport = importOutcome?.action === 'retry' && (retryFetchCandidates.length > 0 || retryInsertRows.length > 0);
+  const canSignInAgain = importOutcome?.action === 'sign_in_again';
 
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
@@ -224,6 +232,15 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       console.warn('[Import] resumeFromDraftAndImport called with no draft on disk — nothing to import.');
       return;
     }
+    if (draft.originAthleteId && draft.originAthleteId !== userId) {
+      // A session-expiry-recovery draft (see handleSignInAgain) bound to a DIFFERENT account than
+      // the one that just completed sign-in — AsyncStorage is shared device-wide, so this must
+      // never silently import a stranger's (or a previously-deleted account's) candidates into
+      // this new session. Discarded, not resumed; this session proceeds as if no draft existed.
+      console.warn('[Import] discarding a pending draft that belongs to a different account than the one that just signed in.');
+      await clearOnboardingDraft();
+      return;
+    }
     if (draft.isReturningUserSignIn) {
       await resumeReturningUser(userId);
       return;
@@ -242,7 +259,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       draft.candidates.length,
       'discovered',
     );
-    await runImport(userId, draft.racingName, draft.birthYearHint, selectedCandidates, draft.providerAthleteName);
+    await runImport(userId, draft.racingName, draft.birthYearHint, selectedCandidates, draft.providerAthleteName, draft.rowsAlreadyFetched ?? []);
   }
 
   /**
@@ -474,6 +491,15 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       selectedResultIds: Array.from(selectedIds),
       providerAthleteName: selectedIdentity?.displayName,
       isReturningUserSignIn: isReturningUserFlow,
+      // Always read live off retryInsertRows (rather than only when non-empty) so a resume after
+      // re-authentication never has to special-case whether an insert failure happened before the
+      // session expired — see handleSignInAgain.
+      rowsAlreadyFetched: retryInsertRows,
+      // Set only during a session-expiry recovery (handleSignInAgain) — undefined for the
+      // ordinary fresh-onboarding/returning-user-sign-in paths, where no account is signed in yet
+      // when this draft is written, so there is nothing to bind to (unchanged from before this
+      // field existed). See onboardingDraft.ts's originAthleteId doc.
+      originAthleteId: reauthOriginAthleteId ?? undefined,
     });
   }
 
@@ -580,7 +606,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     );
 
     setStep('importing');
-    setSaveError(null);
+    setImportOutcome(null);
     setAthleteIdForRetry(athleteId);
     setTotalSelectedForRun(totalSelected);
 
@@ -610,22 +636,20 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
 
     setImportProgress({ done: rowsAlreadyFetched.length, total: totalSelected });
 
-    const rows: Record<string, unknown>[] = [...rowsAlreadyFetched];
-    let remainingCandidates: CandidateRace[] = [];
     let newPodiums = 0;
-
-    for (let i = 0; i < candidatesToFetch.length; i++) {
-      const candidate = candidatesToFetch[i]!;
-      const detailResult = await fetchRaceDetail(candidate.providerResultId, candidate.providerAthleteResultId, candidate.category);
-      if (!detailResult.available) {
-        console.warn('[Import] detail fetch stopped early at', candidate.eventName, '— reason:', detailResult.reason);
-        remainingCandidates = candidatesToFetch.slice(i);
-        break;
-      }
-      rows.push(candidateDetailToInsertRow(athleteId, candidate, detailResult.data, providerAthleteName));
-      if (detailResult.data.ageGroupRank && detailResult.data.ageGroupRank.place <= 3) newPodiums += 1;
-      setImportProgress((current) => ({ ...current, done: current.done + 1 }));
-    }
+    const { rows: fetchedRows, unavailable, failed, unattempted, stopReason } = await fetchCandidateDetails(
+      candidatesToFetch,
+      (candidate) => fetchRaceDetail(candidate.providerResultId, candidate.providerAthleteResultId, candidate.category),
+      (candidate, detail) => {
+        if (detail.ageGroupRank && detail.ageGroupRank.place <= 3) newPodiums += 1;
+        return candidateDetailToInsertRow(athleteId, candidate, detail, providerAthleteName);
+      },
+      (done) => setImportProgress((current) => ({ ...current, done: rowsAlreadyFetched.length + done })),
+    );
+    const rows: Record<string, unknown>[] = [...rowsAlreadyFetched, ...fetchedRows];
+    // `failed` (isolated network_error, still retryable) and `unattempted` (never tried because
+    // the batch paused) are disjoint — both feed the same Retry action.
+    const retryable = [...failed.map((f) => f.candidate), ...unattempted];
 
     let saved = 0;
     let insertFailed = false;
@@ -657,33 +681,35 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
 
     const stillNeedsInsert = insertFailed ? rows : [];
     setRetryInsertRows(stillNeedsInsert);
-    setRetryFetchCandidates(remainingCandidates);
+    setRetryFetchCandidates(retryable);
 
-    const fullyDone = stillNeedsInsert.length === 0 && remainingCandidates.length === 0;
+    const fullyDone = stillNeedsInsert.length === 0 && retryable.length === 0;
 
     if (fullyDone) {
       await clearOnboardingDraft();
       console.log('[Import] complete —', saved, 'of', totalSelected, 'saved, draft cleared.');
       // Reaching a fully-done state — whether zero races were ever selected, or every selected
-      // race saved (possibly after one or more retries) — is what "onboarding genuinely
-      // completed" means. A partial/failed state must NOT mark this: see handleEnterApp for the
-      // other way completion can still happen (the athlete explicitly taps "Continue anyway").
+      // race saved (possibly after one or more retries), or the remainder were only permanently
+      // `unavailable` (never `unattempted`) — is what "onboarding genuinely completed" means. A
+      // partial/failed state must NOT mark this: see handleEnterApp for the other way completion
+      // can still happen (the athlete explicitly taps "Continue anyway").
       try {
         await markOnboardingComplete(athleteId);
       } catch (err) {
         console.warn('[Import] markOnboardingComplete failed (will re-check on next launch):', err);
       }
-    } else if (insertFailed) {
-      setSaveError(
-        `Found ${rows.length} race${rows.length === 1 ? '' : 's'} but couldn’t save ${
-          rows.length === 1 ? 'it' : 'them'
-        }. Check your connection and tap Retry. Nothing is lost.`,
-      );
-    } else {
-      setSaveError(
-        `Saved ${saved} of ${totalSelected} selected race${totalSelected === 1 ? '' : 's'}. Discovery paused partway through. Tap Retry to fetch the rest.`,
-      );
     }
+
+    setImportOutcome(
+      describeImportOutcome({
+        rowsReadyToInsert: rows.length,
+        saved,
+        insertFailed,
+        unavailableCount: unavailable.length,
+        retryableCount: retryable.length,
+        stopReason,
+      }),
+    );
 
     setStep('summary');
   }
@@ -701,6 +727,42 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       totalSelectedForRun,
     );
     setIsRetrying(false);
+  }
+
+  /**
+   * The `unauthorized` recovery action: the session used for the just-attempted detail fetches (or
+   * insert) is no longer valid, so retrying with it would fail identically. Deliberately does NOT
+   * route through the "already have an account? sign in" path (isReturningUserFlow) — that path's
+   * resumeReturningUser() exists specifically to SKIP runImport (so a returning athlete's already-
+   * saved profile is never overwritten by a blank fresh-onboarding-session's racingName/candidates)
+   * — exactly the opposite of what's needed here, where finishing THIS interrupted import is the
+   * whole point.
+   *
+   * Instead: narrows the flow's own candidates/selectedIds state down to exactly what's still
+   * pending (retryFetchCandidates) — never re-selecting anything already saved — so the EXISTING
+   * persistDraft()/resumeFromDraftAndImport machinery (built for resuming after a fresh sign-in)
+   * carries this exact subset, plus any already-fetched-but-unsaved rows (via persistDraft's
+   * rowsAlreadyFetched), through re-authentication with no new resume mechanism needed. Once they
+   * sign in again, resumeFromDraftAndImport calls runImport with precisely this pending subset —
+   * nothing already saved is re-fetched, re-inserted, or double-counted.
+   */
+  async function handleSignInAgain() {
+    if (isSigningOutForReauth || !athleteIdForRetry) return;
+    setIsSigningOutForReauth(true);
+    // Captured NOW, while still authenticated — persistDraft() (called later, once they tap
+    // "Send sign-in link") reads this to bind the draft to the account it actually belongs to.
+    setReauthOriginAthleteId(athleteIdForRetry);
+    setCandidates(retryFetchCandidates);
+    setSelectedIds(new Set(retryFetchCandidates.map((c) => c.providerResultId)));
+    try {
+      await signOut();
+    } catch (err) {
+      console.warn('[Import] sign-out before re-auth failed:', err);
+    }
+    setIsSigningOutForReauth(false);
+    setIsReturningUserFlow(false);
+    setAuthError('Your session expired. Sign in again to finish adding your races.');
+    setStep('emailForm');
   }
 
   /**
@@ -863,7 +925,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
                 <ActivityIndicator size="large" color={palette.signalBlue} />
                 <Text style={styles.subcopy}>
                   {importProgress.total > 0
-                    ? `Fetching result ${importProgress.done + 1} of ${importProgress.total}…`
+                    ? `Loading race results… ${importProgress.done + 1} of ${importProgress.total}`
                     : 'Saving your race history…'}
                 </Text>
               </View>
@@ -874,10 +936,13 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
                 imported={importedCount}
                 podiums={podiumCount}
                 yearRange={importedYearRange}
-                error={saveError}
+                error={importOutcome?.text ?? null}
                 canRetry={canRetryImport}
                 isRetrying={isRetrying}
                 onRetry={handleRetryImport}
+                canSignInAgain={canSignInAgain}
+                isSigningOutForReauth={isSigningOutForReauth}
+                onSignInAgain={handleSignInAgain}
                 onEnterApp={handleEnterApp}
               />
             ) : null}
@@ -1300,7 +1365,7 @@ function EmailFormStep({
       <Text style={styles.headline}>
         Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
       </Text>
-      <Text style={styles.subcopy}>We&apos;ll email you a link. No password, nothing to type.</Text>
+      <Text style={styles.subcopy}>We&apos;ll email you a secure sign-in link.</Text>
 
       <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
 
@@ -1310,9 +1375,9 @@ function EmailFormStep({
         onPress={onSendLink}
         disabled={disabled}
         accessibilityRole="button"
-        accessibilityLabel="Send magic link"
+        accessibilityLabel="Send sign-in link"
         style={[styles.primaryButton, disabled && styles.primaryButtonDisabled]}>
-        <Text style={styles.primaryButtonLabel}>{isSending ? 'Sending…' : 'Send magic link'}</Text>
+        <Text style={styles.primaryButtonLabel}>{isSending ? 'Sending…' : 'Send sign-in link'}</Text>
       </Pressable>
 
       <View style={styles.secondaryActionsGroup}>
@@ -1410,6 +1475,9 @@ function SummaryStep({
   canRetry,
   isRetrying,
   onRetry,
+  canSignInAgain,
+  isSigningOutForReauth,
+  onSignInAgain,
   onEnterApp,
 }: {
   imported: number;
@@ -1419,6 +1487,9 @@ function SummaryStep({
   canRetry: boolean;
   isRetrying: boolean;
   onRetry: () => void;
+  canSignInAgain: boolean;
+  isSigningOutForReauth: boolean;
+  onSignInAgain: () => void;
   onEnterApp: () => void;
 }) {
   const palette = useBrandPalette();
@@ -1466,13 +1537,24 @@ function SummaryStep({
         </Pressable>
       ) : null}
 
+      {canSignInAgain ? (
+        <Pressable
+          onPress={onSignInAgain}
+          disabled={isSigningOutForReauth}
+          accessibilityRole="button"
+          accessibilityLabel="Sign in again"
+          style={[styles.primaryButton, isSigningOutForReauth && styles.primaryButtonDisabled]}>
+          <Text style={styles.primaryButtonLabel}>{isSigningOutForReauth ? 'Signing out…' : 'Sign in again'}</Text>
+        </Pressable>
+      ) : null}
+
       <Pressable
         onPress={onEnterApp}
         accessibilityRole="button"
         accessibilityLabel="Explore my racing history"
-        style={canRetry ? styles.secondaryButton : styles.primaryButton}>
-        <Text style={canRetry ? styles.secondaryButtonLabel : styles.primaryButtonLabel}>
-          {canRetry ? 'Continue anyway' : imported > 0 ? 'Explore my racing history' : 'Enter app'}
+        style={canRetry || canSignInAgain ? styles.secondaryButton : styles.primaryButton}>
+        <Text style={canRetry || canSignInAgain ? styles.secondaryButtonLabel : styles.primaryButtonLabel}>
+          {canRetry || canSignInAgain ? 'Continue anyway' : imported > 0 ? 'Explore my racing history' : 'Enter app'}
         </Text>
       </Pressable>
     </Animated.View>

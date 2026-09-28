@@ -102,6 +102,16 @@ export interface SignalRequestBody {
   message: string;
   /** At most one image, and only ever on the newest turn. */
   image?: SignalImageAttachment;
+  /** Client-generated, stable for one LOGICAL question — generated once and reused unchanged
+   *  across every attempt at that same question, including an athlete-initiated Retry (see mobile
+   *  lib/signal.ts's generateSignalRequestId / signal.tsx's retryLastMessage). Lets index.ts
+   *  (claim_signal_request) tell "the response to an already-successfully-answered question was
+   *  lost in transit, hand back the cached answer" apart from "this is a genuinely new question" —
+   *  without this, a lost response + Retry would silently re-run the model and consume a second
+   *  ask for one logical question. Scoped per-athlete (the dedup table's primary key is
+   *  (athlete_id, request_id)), so two different athletes reusing the same id string can never
+   *  collide. */
+  requestId: string;
 }
 
 export type SignalUnavailableReason =
@@ -114,7 +124,13 @@ export type SignalUnavailableReason =
    *  body) — distinct from a genuine "no active premium entitlement" result. Never counted as
    *  free-tier and never consumes an ask; the caller should retry. See index.ts's
    *  resolveEntitlementStatus. */
-  | 'service_unavailable';
+  | 'service_unavailable'
+  /** A request with this exact `requestId` for this athlete is still being processed right now
+   *  (claim_signal_request found a fresh, non-stale 'processing' row) — a genuinely concurrent
+   *  duplicate, not a lost-response retry (that case returns the cached `available: true` result
+   *  instead, never this reason). The caller should wait briefly and retry rather than firing a
+   *  second concurrent attempt at the same question. See index.ts's claim_signal_request wiring. */
+  | 'duplicate_in_flight';
 
 export type SignalResponse<T> =
   | { available: true; data: T }
@@ -130,9 +146,10 @@ export type SignalResponse<T> =
 
 export interface SignalReplyPayload {
   reply: string;
-  /** Asks left in the current calendar-month window AFTER this one was consumed — lets the
-   *  mobile client render "X of Y Signal asks remaining this month" without a second round-trip.
-   *  See index.ts's currentMonthWindow() for the exact reset boundary. */
+  /** Asks left AFTER this one was consumed, and the cap it was measured against — 3 LIFETIME for
+   *  free (never resets — migrations/0010_signal_free_lifetime_allowance.sql), 40 per current UTC
+   *  calendar-month for premium (index.ts's currentMonthWindow()). Lets the mobile client render
+   *  its usage strip without a second round-trip. */
   remaining: number;
   cap: number;
   isPremium: boolean;

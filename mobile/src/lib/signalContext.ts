@@ -245,10 +245,24 @@ export function getSuggestedPrompts(races: Race[], seedRaceId?: string): string[
     ];
   }
 
-  const prompts = ['Analyze this race', 'What went well?', 'Where did I lose the most time?'];
+  const prompts = ['Analyze this race', 'What went well?'];
 
-  const disciplineCount = new Set((seedRace.result?.splits ?? []).map((split) => split.label)).size;
-  if (disciplineCount > 1) prompts.push('What was my strongest discipline?');
+  // Task 3.2 (chip relevance) — a detailed "where did I lose time" question implies real split
+  // data to point to; without any splits at all there's nothing for Signal to break down, so never
+  // offer it. Checked before anything else that also depends on `splits` below.
+  const splits = seedRace.result?.splits ?? [];
+  if (splits.length > 0) prompts.push('Where did I lose the most time?');
+
+  // A discipline-breakdown question ("swim/bike/run") only ever makes sense for a genuinely
+  // multi-discipline race — never for a standalone running/cycling/swimming race, even though this
+  // same athlete may also have triathlons elsewhere in their history (that's a different race, not
+  // this one). Distinct split LABELS alone isn't enough either (a running race can have several
+  // checkpoint splits, e.g. "5K"/"10K"/"Half") — it must also actually be a multi-discipline sport,
+  // and (per the same "no splits, no detailed-split question" reasoning above) have more than one
+  // distinct discipline actually represented in its splits.
+  const isMultiDisciplineSport = seedRace.sport === 'triathlon' || seedRace.sport === 'duathlon';
+  const disciplineCount = new Set(splits.map((split) => split.label)).size;
+  if (isMultiDisciplineSport && disciplineCount > 1) prompts.push('What was my strongest discipline?');
 
   const hasComparableRace = getCompletedRaces(races).some(
     (race) => race.id !== seedRace.id && race.sport === seedRace.sport,

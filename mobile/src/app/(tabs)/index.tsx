@@ -3,9 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BuildHistoryEmptyState } from '@/components/BuildHistoryEmptyState';
-import { CompactFilterBar, type CompactFilterOption } from '@/components/CompactFilterBar';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
+import { FilterPillRows, type FilterOption } from '@/components/FilterPillRows';
 import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { RaceRow } from '@/components/races/RaceRow';
@@ -75,13 +75,11 @@ export default function RacesScreen() {
   const allHighlights = useMemo(() => getAllHighlightsUnfiltered(races.data), [races.data]);
   const isSearching = searchQuery.trim().length > 0;
 
-  const sportLabel = sportFilter === ALL_SPORTS ? 'All sports' : capitalize(sportFilter);
-  const yearLabel = yearFilter === ALL_YEARS ? 'All years' : `${yearFilter}`;
-  const sportOptions: CompactFilterOption[] = [
+  const sportOptions: FilterOption[] = [
     { key: ALL_SPORTS, label: 'All sports', selected: sportFilter === ALL_SPORTS },
     ...sports.map((option) => ({ key: option, label: capitalize(option), selected: sportFilter === option })),
   ];
-  const yearOptions: CompactFilterOption[] = [
+  const yearOptions: FilterOption[] = [
     { key: ALL_YEARS, label: 'All years', selected: yearFilter === ALL_YEARS },
     ...years.map((option) => ({ key: `${option}`, label: `${option}`, selected: yearFilter === option })),
   ];
@@ -170,12 +168,11 @@ export default function RacesScreen() {
               </View>
             ) : null}
 
-            {/* The one shared filter treatment — identical component/behavior to Stats. Removing
-                the two horizontal chip rows in favor of this one compact line also means the
-                athlete reaches "Upcoming" noticeably faster when scrolling down. */}
-            <CompactFilterBar
-              sportLabel={sportLabel}
-              yearLabel={yearLabel}
+            {/* The one shared filter treatment — identical component/behavior to Stats. Two
+                horizontally-scrolling rows of always-visible pills (sport, then year) — see
+                components/FilterPillRows.tsx for why this was restored over a compact single-line
+                picker. */}
+            <FilterPillRows
               sportOptions={sportOptions}
               yearOptions={yearOptions}
               onSelectSport={selectSport}

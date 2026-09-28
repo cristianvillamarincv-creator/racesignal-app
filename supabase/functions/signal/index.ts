@@ -14,6 +14,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { buildSystemPrompt } from './systemPrompt.ts';
 import type { SignalChatTurn, SignalContext, SignalReplyPayload, SignalRequestBody, SignalResponse, SignalUnavailableReason } from './types.ts';
+import { claimSignalRequest, completeSignalRequest, currentMonthWindow, failSignalRequest, releaseSignalAsk, reserveSignalAsk } from './usage.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -21,15 +22,25 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Step 8.4 — the locked V1 monthly allowance. Free/premium status is resolved server-side against
-// RevenueCat (see resolveEntitlementStatus below); a client-supplied "isPremium" is never trusted.
-const FREE_MONTHLY_CAP = Number(Deno.env.get('SIGNAL_FREE_MONTHLY_CAP') ?? '3');
+// Build 11 correction — free is a LIFETIME cap (3 asks total, ever, for the account's whole free
+// tenure — never reset by a new month; see migrations/0010_signal_free_lifetime_allowance.sql),
+// premium remains the genuine per-UTC-calendar-month cap it always was. Free/premium status is
+// resolved server-side against RevenueCat (see resolveEntitlementStatus below); a client-supplied
+// "isPremium" is never trusted. The env var key keeps its original "MONTHLY" name (avoids an
+// unrelated secrets-config change at deploy time for what was already the same default value, 3) —
+// only the local name and this comment change to reflect the corrected semantics.
+const FREE_LIFETIME_CAP = Number(Deno.env.get('SIGNAL_FREE_MONTHLY_CAP') ?? '3');
 const PREMIUM_MONTHLY_CAP = Number(Deno.env.get('SIGNAL_PREMIUM_MONTHLY_CAP') ?? '40');
 
 // A few MB of base64 text, decoded — defense-in-depth alongside the client's own resize/compress
 // step (see mobile's image-attachment flow); this function must not blindly forward an
 // unreasonably large payload to the model regardless of what the client intended to send.
 const MAX_IMAGE_BASE64_LENGTH = 6_000_000;
+
+// Build 11 reliability correction (Task 2) — the client generates one stable id per logical
+// question (see mobile lib/signal.ts's generateSignalRequestId), a short random string; this bound
+// is generous headroom, not a real budget, and only guards against a malformed/hostile payload.
+const MAX_REQUEST_ID_LENGTH = 200;
 
 const MODEL = Deno.env.get('SIGNAL_MODEL') ?? 'claude-sonnet-5';
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -67,51 +78,21 @@ async function requireAuthenticatedUser(req: Request): Promise<{ id: string } | 
 
   const anonClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!);
   const { data, error } = await anonClient.auth.getUser(token);
-  if (error || !data.user) return null;
+  if (error || !data.user) {
+    // Safe diagnostic only — never the bearer token itself, just that verification failed and why.
+    // Reliability investigation (B.1 Task 1d): this is the "auth failure" category, kept distinct
+    // from every other unavailable(...) reason below so real logs can tell an expired/invalid
+    // session apart from a rate-limit, entitlement, or model-call failure at a glance.
+    console.warn('[signal] auth check failed —', error?.message ?? 'getUser() returned no user for a well-formed bearer token');
+    return null;
+  }
   return { id: data.user.id };
 }
 
-/**
- * The monthly reset boundary, exact and deterministic: the first day of the CURRENT UTC calendar
- * month (e.g. "2026-09-01"), used as signal_rate_limit's window_date. There is no cron/reset job —
- * a request made in a new month simply writes a new row (window_date changed, and it's part of the
- * table's primary key), starting fresh at count 1. The boundary is midnight UTC on the 1st.
- */
-function currentMonthWindow(): string {
-  return `${new Date().toISOString().slice(0, 7)}-01`;
-}
-
-/**
- * Atomically reserves one ask in the bucket for `tier` ('free' or 'premium') if the athlete is
- * still under `cap` for THAT bucket specifically — free and premium usage are separate counters on
- * the same row (see migrations/0008_signal_separate_tier_allowance.sql), so upgrading mid-month
- * always starts premium's counter at 0, never "40 minus whatever free already used." Concurrent
- * requests from the same athlete still serialize on the row via INSERT ... ON CONFLICT DO
- * UPDATE ... WHERE, so two simultaneous requests at cap-1 can't both squeeze through. Returns the
- * new count for that tier's bucket, or null if its cap was already reached (nothing was written).
- */
-async function reserveSignalAsk(athleteId: string, windowDate: string, tier: 'free' | 'premium', cap: number): Promise<number | null> {
-  const { data, error } = await serviceRoleClient().rpc('reserve_signal_ask', {
-    p_athlete_id: athleteId,
-    p_window_date: windowDate,
-    p_tier: tier,
-    p_cap: cap,
-  });
-  if (error) {
-    console.warn('[signal] reserve_signal_ask failed —', error.message);
-    return null;
-  }
-  return data as number | null;
-}
-
-/** Gives back a slot reserved by reserveSignalAsk (same tier) when the model call itself then
- *  fails — only a genuinely successful reply should consume an ask. Best-effort: a failure here
- *  just means the athlete's count is one higher than it should be, never a crash of the response
- *  we already owe them. */
-async function releaseSignalAsk(athleteId: string, windowDate: string, tier: 'free' | 'premium'): Promise<void> {
-  const { error } = await serviceRoleClient().rpc('release_signal_ask', { p_athlete_id: athleteId, p_window_date: windowDate, p_tier: tier });
-  if (error) console.warn('[signal] release_signal_ask failed —', error.message);
-}
+// currentMonthWindow, reserveSignalAsk/releaseSignalAsk, and claimSignalRequest/
+// completeSignalRequest/failSignalRequest now live in ./usage.ts (factored out so this
+// RPC-branching logic is directly unit-testable, matching systemPrompt.ts's own split) — imported
+// above, and called below with `serviceRoleClient()` passed in explicitly.
 
 type EntitlementStatus = 'premium' | 'free' | 'error';
 
@@ -353,6 +334,7 @@ Deno.serve(async (req) => {
   try {
     const user = await requireAuthenticatedUser(req);
     if (!user) return unavailable('unauthorized');
+    const client = serviceRoleClient();
 
     const rawBody = await req.text();
     // Safe diagnostics only — total incoming payload size, never its content. This is exactly
@@ -371,6 +353,15 @@ Deno.serve(async (req) => {
     if (!message) return unavailable('bad_request');
     if (!isValidContext(body.context)) return unavailable('bad_request');
     if (!isValidHistory(body.history)) return unavailable('bad_request');
+    // Optional, for Build 10 compatibility: Build 10 (and any older installed client) never sends
+    // this field at all — it predates request-identity dedup entirely. Rejecting a request that's
+    // merely missing requestId would break every already-installed Build 10 device the moment this
+    // function deploys, so an absent/blank requestId is accepted and simply means NO dedup
+    // protection for that one request (see the `claimToken` handling below) — the exact same
+    // lost-response-then-double-consumption exposure Build 10 already has today, completely
+    // unchanged. A requestId that IS present but unreasonably long is still rejected as malformed.
+    const requestId = typeof body.requestId === 'string' ? body.requestId.trim() : '';
+    if (requestId.length > MAX_REQUEST_ID_LENGTH) return unavailable('bad_request');
 
     const context = body.context as SignalContext;
     const history = body.history as SignalChatTurn[];
@@ -405,34 +396,131 @@ Deno.serve(async (req) => {
       if (!owned) return unavailable('forbidden');
     }
 
-    // Everything above this point is validation/ownership — none of it consumes an ask. Premium
-    // status is resolved fresh, server-side, on every request (never cached, never client-trusted).
-    const entitlementStatus = await resolveEntitlementStatus(user.id);
-    if (entitlementStatus === 'error') {
-      // RevenueCat itself couldn't be reached/parsed — this is NOT "treat as free tier". No ask is
-      // reserved, and the client must show a plain retriable error, never the premium paywall.
-      return unavailable('service_unavailable');
+    // Request-identity dedup (Build 11 Task 2) — checked before anything that consumes an ask,
+    // so a cached 'completed' result short-circuits the entire reserve/model-call path below; see
+    // migrations/0011_signal_request_dedup.sql for the full reasoning. `claimToken` is null when
+    // there is no dedup protection for this request at all — either an older client sent no
+    // requestId (see the Build 10 compatibility note above), and every completeSignalRequest/
+    // failSignalRequest call below is a no-op guarded by `claimToken !== null`, exactly preserving
+    // Build 10's own pre-dedup behavior (and its pre-existing limitations) for that request.
+    //
+    // `existingReservation` non-null means this is a stale-reclaim of an attempt that ALREADY
+    // reserved an ask before dying — see reserve_signal_ask's own comment for why the reservation
+    // is recorded atomically with the reserve call itself, and claim_signal_request's comment for
+    // why a stale-reclaim preserves (never resets) it. This is what closes the last real gap: a
+    // reclaiming worker must REUSE that reservation, never make a second one for the same
+    // logical question.
+    let claimToken: string | null = null;
+    let existingReservation: { tier: 'free' | 'premium'; windowDate: string; count: number } | null = null;
+    if (requestId) {
+      const claim = await claimSignalRequest(client, user.id, requestId);
+      if (claim.status === 'error') return unavailable('service_unavailable');
+      if (claim.status === 'processing') return unavailable('duplicate_in_flight');
+      if (claim.status === 'completed') {
+        return json({
+          available: true,
+          data: { reply: claim.reply, remaining: claim.remaining, cap: claim.cap, isPremium: claim.isPremium },
+        } satisfies SignalResponse<SignalReplyPayload>);
+      }
+      // claim.status === 'claimed' — this invocation now owns requestId, fenced by claim.claimToken.
+      claimToken = claim.claimToken;
+      existingReservation = claim.existingReservation;
     }
-    const isPremium = entitlementStatus === 'premium';
-    const tier: 'free' | 'premium' = isPremium ? 'premium' : 'free';
-    const cap = isPremium ? PREMIUM_MONTHLY_CAP : FREE_MONTHLY_CAP;
-    const windowDate = currentMonthWindow();
 
-    const reservedCount = await reserveSignalAsk(user.id, windowDate, tier, cap);
-    if (reservedCount === null) return unavailable('rate_limited');
+    // Everything above this point is validation/ownership — none of it consumes an ask (unless
+    // reused from `existingReservation`, which was already consumed by a prior, now-abandoned
+    // attempt at this exact question — see below). Premium status is resolved fresh, server-side,
+    // on every FRESH reservation (never cached, never client-trusted) — but a REUSED reservation
+    // deliberately does NOT re-resolve it: the tier/window this question was actually charged
+    // against must stay fixed to whatever it was at the time of the original reservation, even if
+    // the athlete's entitlement has since changed, so accounting for this one logical question is
+    // never split across two tiers/months.
+    let isPremium: boolean;
+    let tier: 'free' | 'premium';
+    let cap: number;
+    let windowDate: string;
+    let reservedCount: number;
+
+    if (existingReservation) {
+      tier = existingReservation.tier;
+      windowDate = existingReservation.windowDate;
+      isPremium = tier === 'premium';
+      cap = isPremium ? PREMIUM_MONTHLY_CAP : FREE_LIFETIME_CAP;
+      reservedCount = existingReservation.count;
+    } else {
+      const entitlementStatus = await resolveEntitlementStatus(user.id);
+      if (entitlementStatus === 'error') {
+        // RevenueCat itself couldn't be reached/parsed — this is NOT "treat as free tier". No ask
+        // is reserved, and the client must show a plain retriable error, never the premium
+        // paywall. The claimed dedup row is released too: nothing was actually attempted for this
+        // requestId, so an immediate retry (same id) must be allowed to run for real, not wait out
+        // the staleness bound or receive a stale 'processing' response.
+        if (claimToken) await failSignalRequest(client, user.id, requestId, claimToken);
+        return unavailable('service_unavailable');
+      }
+      isPremium = entitlementStatus === 'premium';
+      tier = isPremium ? 'premium' : 'free';
+      cap = isPremium ? PREMIUM_MONTHLY_CAP : FREE_LIFETIME_CAP;
+      windowDate = currentMonthWindow();
+
+      const reserved = await reserveSignalAsk(
+        client,
+        user.id,
+        windowDate,
+        tier,
+        cap,
+        claimToken ? { requestId, claimToken } : undefined,
+      );
+      if (!reserved.ok) {
+        // 'service_error' must never read as "you're out of asks" — see reserveSignalAsk's doc
+        // comment. Only a genuine cap hit is reported as rate_limited. Either way, no ask was
+        // reserved for this requestId, so its dedup row is released (same reasoning as above).
+        if (claimToken) await failSignalRequest(client, user.id, requestId, claimToken);
+        return reserved.reason === 'service_error' ? unavailable('service_unavailable') : unavailable('rate_limited');
+      }
+      reservedCount = reserved.count;
+    }
 
     const systemPrompt = buildSystemPrompt(context);
     const result = await callModel(systemPrompt, history, message, image);
     if ('error' in result) {
-      // The model call itself failed after the ask was reserved — give the slot back. Only a
-      // genuinely successful reply should count against the athlete's monthly allowance.
-      await releaseSignalAsk(user.id, windowDate, tier);
+      // The model call itself failed after an ask was reserved (fresh or reused) — give the slot
+      // back. Only a genuinely successful reply should count against the athlete's allowance.
+      //
+      // Order matters here: fail_signal_request is checked BEFORE releasing, not after. If this
+      // worker was already superseded by a stale-reclaim (fail returns false), the reservation now
+      // belongs to — or was already consumed by — whichever worker currently owns the claim;
+      // releasing it here would incorrectly free an ask that worker is still relying on. Only a
+      // worker that was STILL the current claimant at the moment it gave up may release.
+      if (claimToken) {
+        const stillOwned = await failSignalRequest(client, user.id, requestId, claimToken);
+        if (stillOwned) {
+          await releaseSignalAsk(client, user.id, windowDate, tier);
+        } else {
+          console.warn('[signal] release skipped — this worker was superseded by a stale-reclaim; the reservation belongs to whoever now owns the claim.');
+        }
+      } else {
+        // No dedup tracking at all (an older client with no requestId) — always release, exactly
+        // as before Build 11.
+        await releaseSignalAsk(client, user.id, windowDate, tier);
+      }
       return unavailable('model_error', result.error);
     }
 
     await logSignalUsage(user.id, result.inputTokens, result.outputTokens, !!image, isPremium);
 
     const remaining = Math.max(cap - reservedCount, 0);
+    // Cached BEFORE returning — see migrations/0011_signal_request_dedup.sql: a lost response
+    // (client-perceived timeout/network failure after the model already answered) means a later
+    // attempt with this SAME requestId must get this exact cached reply back from
+    // claimSignalRequest, never a second model call or a second consumed ask. If this returns
+    // false, this worker's claim was superseded by a stale-reclaim before it finished — its
+    // answer is discarded rather than risking overwriting whatever the newer worker wrote; this
+    // attempt's own response to ITS caller is unaffected (that caller genuinely got this reply).
+    if (claimToken) {
+      const applied = await completeSignalRequest(client, user.id, requestId, claimToken, result.reply, remaining, cap, isPremium);
+      if (!applied) console.warn('[signal] completeSignalRequest was superseded by a later claim — this result was not cached.');
+    }
     return json({
       available: true,
       data: { reply: result.reply, remaining, cap, isPremium },

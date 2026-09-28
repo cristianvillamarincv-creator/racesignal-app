@@ -1,5 +1,22 @@
 import type { SignalCompactRace, SignalContext, SignalDistanceBest, SignalRaceDetail } from './types.ts';
 
+/**
+ * Factual-quality fix (B.1 Task 2.1): every duration handed to the model must be human-readable —
+ * never a raw seconds count like "10054s". Mirrors (but does not import — separate Deno vs mobile
+ * TypeScript projects, same reasoning as this file's other mirrored shapes) mobile's
+ * lib/format.ts formatFinishTime exactly: H:MM:SS once past an hour, otherwise M:SS. The underlying
+ * numeric seconds (elapsedSeconds/finishSeconds) stay exactly as computed everywhere actual math
+ * happens (e.g. signalContext.ts's timeDeltasVsSeed) — this only changes what gets DISPLAYED here.
+ */
+function formatDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = Math.floor(totalSeconds % 60);
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  if (hours > 0) return `${hours}:${pad(minutes)}:${pad(seconds)}`;
+  return `${minutes}:${pad(seconds)}`;
+}
+
 function formatRank(label: string, rank?: { place: number; field?: number; percentile?: number }): string | null {
   if (!rank) return null;
   if (rank.field !== undefined && rank.percentile !== undefined) {
@@ -12,10 +29,10 @@ function formatDetailedRace(race: SignalRaceDetail): string {
   const lines = [
     `- ${race.name} (${race.sport}, ${race.distanceLabel}, ${race.eventDate}${race.location ? `, ${race.location}` : ''})`,
   ];
-  if (race.finishSeconds !== undefined) lines.push(`  Finish: ${race.finishSeconds}s`);
+  if (race.finishSeconds !== undefined) lines.push(`  Finish: ${formatDuration(race.finishSeconds)}`);
   if (race.splits?.length) {
     const splitText = race.splits
-      .map((s) => `${s.label} ${s.elapsedSeconds}s${s.paceLabel ? ` (${s.paceLabel})` : ''}`)
+      .map((s) => `${s.label} ${formatDuration(s.elapsedSeconds)}${s.paceLabel ? ` (${s.paceLabel})` : ''}`)
       .join(', ');
     lines.push(`  Splits: ${splitText}`);
   }
@@ -41,13 +58,13 @@ function formatBestPerDistance(bestPerDistance: SignalDistanceBest[]): string {
         best.overallPercentile !== undefined ? `Overall Top ${best.overallPercentile}%` : null,
         best.ageGroupPercentile !== undefined ? `Age group Top ${best.ageGroupPercentile}%` : null,
       ].filter((p): p is string => p !== null);
-      return `- ${best.canonicalDistance}: ${best.raceName}, ${best.finishSeconds}s${percentiles.length ? ` (${percentiles.join('; ')})` : ''}`;
+      return `- ${best.canonicalDistance}: ${best.raceName}, ${formatDuration(best.finishSeconds)}${percentiles.length ? ` (${percentiles.join('; ')})` : ''}`;
     })
     .join('\n');
 }
 
 function formatCompactRace(race: SignalCompactRace): string {
-  const finish = race.finishSeconds !== undefined ? `, finish ${race.finishSeconds}s` : '';
+  const finish = race.finishSeconds !== undefined ? `, finish ${formatDuration(race.finishSeconds)}` : '';
   const location = race.location ? `, ${race.location}` : '';
   return `- ${race.name} (${race.sport}, ${race.distanceLabel}, ${race.eventDate}${location}${finish})`;
 }
@@ -122,6 +139,13 @@ RaceSignal's data does not include a true per-discipline strength ranking (no eq
 - Asked specifically about triathlon (e.g. "within a triathlon," "on race day," or discussing a specific triathlon) — compare swim/bike/run as raced INSIDE this athlete's triathlons only. Standalone single-sport races (a standalone 10K or half marathon) aren't evidence about triathlon-leg strength — they're a different, less comparable kind of result, so leave them out of this comparison.
 - Asked generally/"overall" with no triathlon qualifier — consider BOTH the triathlon legs and standalone single-sport results together, since both are real evidence of this athlete's ability. If the triathlon-only view and the overall view point to different answers, say so explicitly rather than picking one silently — e.g. "Within triathlon, swim and run are close. Across all of your racing, running has the stronger overall signal because your standalone running results are also consistently strong."
 In either scope, distinguish what the evidence actually supports from a definitive conclusion — e.g. "based on your splits, running looks like your strongest leg relative to the others" is honest; "you are definitively strongest at running" is not, unless the data really supports that level of certainty. If the evidence for two disciplines is genuinely close within whichever scope you're answering (no clear, consistent gap across races), say plainly that it's close/a toss-up between them rather than confidently naming a single winner — a close call should read as a close call every time you're asked, not a coin flip between two different answers.
+A discipline is never "strongest" just because its split took the most raw time (or "weakest" for taking the least) — a longer duration on its own says nothing about performance without pace, rank, or relative-effort context (e.g. a bike leg is expected to take longer than a run leg; that alone means nothing about which was the stronger performance).
+
+=== EVIDENCE-QUALITY GUARDRAILS — reasoning mistakes to never make ===
+- Percentile direction: a LOWER percentile number is a BETTER, more competitive placement — "Top 23%" beats a larger share of the field than "Top 26%" does, so top 23% is the stronger result. Never say a lower-percentile (stronger) result "trails," is "weaker than," or is beaten by a higher-percentile (weaker) one, or phrase it the other way around — always work out the direction correctly before comparing two percentiles.
+- Never conclude that one race or field had "stronger age-group competition" (or any equivalent claim about how tough a field itself was) purely from comparing two of this athlete's OWN percentiles against each other. A percentile is this athlete's placement within a field, not a measurement of that field's overall strength — claiming the field itself was tougher needs real supporting evidence (field size, known competitor times, etc.), which usually isn't present here. Without it, say plainly that the data doesn't actually support a conclusion about field strength, rather than inferring one from percentages alone.
+- When comparing across races, account for the distance/category each result is actually from. Never treat a time or split from one distance as equivalent evidence to a time from a materially different distance (e.g. a 5K time vs. a marathon time, or a sprint-triathlon leg vs. a full-IRONMAN leg) — if what's being compared isn't really comparable, say so instead of drawing a conclusion from it anyway.
+- Keep your own language honest about fact versus interpretation: state a number or a directly-recorded result (a finish time, a rank, a percentile actually present in the context below) as fact. Anything beyond that — a trend, a cause, a prediction, a claim about "strongest," "weakest," or field competitiveness — is your interpretation, and should read like one. Avoid "definitely," "clearly," or similarly absolute language for anything that isn't a directly-recorded fact; reserve that level of certainty for things the data actually establishes outright.
 
 === PREDICTIONS UNDER UNCERTAINTY ===
 Making a useful estimate from incomplete evidence is a core part of your job — never just decline. If the athlete asks something like "how would I do in a full IRONMAN" and they haven't completed that exact distance, do NOT stop at "you haven't done one of these." Instead:

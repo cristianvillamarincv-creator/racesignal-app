@@ -3,9 +3,9 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { BuildHistoryEmptyState } from '@/components/BuildHistoryEmptyState';
-import { CompactFilterBar, type CompactFilterOption } from '@/components/CompactFilterBar';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
+import { FilterPillRows, type FilterOption } from '@/components/FilterPillRows';
 import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { SectionHeader } from '@/components/SectionHeader';
@@ -17,7 +17,7 @@ import { getAllHighlights, pickTopHighlights } from '@/lib/highlights';
 import { ALL_SPORTS, ALL_YEARS, useRaceFilter } from '@/lib/raceFilterContext';
 import { getAvailableSports, getAvailableYears } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
-import { getAggregateStats, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
+import { getAgeGroupPodiumsCount, getAggregateStats, getBestAgeGroupPercentile, getPersonalBests } from '@/lib/stats';
 import { isDistanceCanonicalForStats, isHighlightCanonicalForStats } from '@/lib/statsPresentation';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -42,6 +42,10 @@ export default function StatsScreen() {
   );
   const personalBests = useMemo(
     () => getPersonalBests(races.data, sport, year),
+    [races.data, sport, year],
+  );
+  const ageGroupPodiumsCount = useMemo(
+    () => getAgeGroupPodiumsCount(races.data, sport, year),
     [races.data, sport, year],
   );
   const highlights = useMemo(
@@ -69,20 +73,25 @@ export default function StatsScreen() {
   const hasPercentileHero = bestAgeGroupPercentile !== null;
   const heroLabel = hasPercentileHero ? 'Best age-group finish' : 'Races logged';
   const heroValue = hasPercentileHero ? `Top ${bestAgeGroupPercentile}%` : `${aggregate.totalRaces}`;
+  // Age-group podiums sits alongside Races and Personal Bests either way — it's a genuine,
+  // independent fact (a literal 1st/2nd/3rd age-group placement) that can exist even when there's
+  // no percentile hero (percentile needs a known field size; a podium only needs a known place).
   const supportingMetrics = hasPercentileHero
     ? [
         { label: 'Races', value: `${aggregate.totalRaces}` },
         { label: 'Personal Bests', value: `${personalBestsCount}` },
+        { label: 'Age-group podiums', value: `${ageGroupPodiumsCount}` },
       ]
-    : [{ label: 'Personal Bests', value: `${personalBestsCount}` }];
+    : [
+        { label: 'Personal Bests', value: `${personalBestsCount}` },
+        { label: 'Age-group podiums', value: `${ageGroupPodiumsCount}` },
+      ];
 
-  const sportLabel = sportFilter === ALL_SPORTS ? 'All sports' : capitalize(sportFilter);
-  const yearLabel = yearFilter === ALL_YEARS ? 'All years' : `${yearFilter}`;
-  const sportOptions: CompactFilterOption[] = [
+  const sportOptions: FilterOption[] = [
     { key: ALL_SPORTS, label: 'All sports', selected: sportFilter === ALL_SPORTS },
     ...sports.map((option) => ({ key: option, label: capitalize(option), selected: sportFilter === option })),
   ];
-  const yearOptions: CompactFilterOption[] = [
+  const yearOptions: FilterOption[] = [
     { key: ALL_YEARS, label: 'All years', selected: yearFilter === ALL_YEARS },
     ...years.map((option) => ({ key: `${option}`, label: `${option}`, selected: yearFilter === option })),
   ];
@@ -115,9 +124,7 @@ export default function StatsScreen() {
         ) : (
           <>
             {/* The one shared filter treatment — identical component/behavior to Races. */}
-            <CompactFilterBar
-              sportLabel={sportLabel}
-              yearLabel={yearLabel}
+            <FilterPillRows
               sportOptions={sportOptions}
               yearOptions={yearOptions}
               onSelectSport={selectSport}
@@ -283,6 +290,10 @@ function createStyles(palette: BrandPalette): Styles {
       marginTop: spacing.sm,
     },
     snapshotSupportItem: {
+      // flexShrink lets a longer label ("Age-group podiums") wrap onto a second line on a narrow
+      // screen instead of pushing the row wider than its card — now that a third supporting metric
+      // sits alongside Races/Personal Bests, the row is more likely to approach that width.
+      flexShrink: 1,
       gap: 1,
     },
     snapshotSupportDivider: {

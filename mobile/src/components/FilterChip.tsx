@@ -1,6 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { Pressable, StyleSheet, Text } from 'react-native';
 
-import { useBrandPalette } from '@/lib/brandTheme';
+import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
+import { radii, spacing } from '@/lib/theme';
 
 interface FilterChipProps {
   label: string;
@@ -8,44 +10,55 @@ interface FilterChipProps {
   onPress: () => void;
 }
 
-/** Shared filter-selector styling for Races and Stats filter rows — one look, not two near-identical
- *  ones. A compact TEXT-based selector, not a chip/pill/box: no border or fill is ever drawn, in
- *  either state. Unselected reads as a plain, unweighted `inkSecondary` label; the selected state is
- *  communicated purely through weight/color (bold `signalBlue`) plus a thin underline beneath just
- *  that label — the underline track is always present (transparent when unselected) so toggling
- *  selection never shifts the row's height. The visual text sits in a small footprint, but the
- *  tappable area is held at the ~44pt minimum via `hitSlop`, same as before. */
+/**
+ * A real pill/chip — bordered capsule, tinted + filled when selected — restored to match the
+ * app's pre-"Race Morning Precision" filter treatment (see git history: this component circa the
+ * Step 4 V1 UX pass, commit 301dbbc, itself carried over from the original Season tab). A later
+ * Step 6 design-system pass (commit 5e2e956) quietly turned this into a borderless
+ * text-plus-underline selector and, in the same pass, introduced CompactFilterBar — which hid
+ * every non-active sport/year option behind a picker sheet instead of showing them as a row of
+ * pills. Restored here on the CURRENT brand palette (useBrandPalette/withAlpha), not the old flat
+ * `colors` token set, so it reads consistently with the rest of the redesigned app. Shared by both
+ * Races and Stats (via FilterPillRows) so the two screens keep one identical filter treatment.
+ */
 export function FilterChip({ label, selected, onPress }: FilterChipProps) {
   const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Filter by ${label}`}
       accessibilityState={{ selected }}
-      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-      style={styles.touchTarget}>
-      <Text style={[styles.label, { color: palette.inkSecondary }, selected && { color: palette.signalBlue, fontWeight: '700' }]}>{label}</Text>
-      <View style={[styles.underline, { backgroundColor: selected ? palette.signalBlue : 'transparent' }]} />
+      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+      style={[styles.chip, selected && styles.chipSelected]}>
+      <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  touchTarget: {
-    minHeight: 24,
-    paddingHorizontal: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '400',
-  },
-  underline: {
-    marginTop: 3,
-    height: 2,
-    alignSelf: 'stretch',
-    borderRadius: 1,
-  },
-});
+function createStyles(palette: BrandPalette) {
+  return StyleSheet.create({
+    chip: {
+      minHeight: 36,
+      paddingHorizontal: spacing.md,
+      justifyContent: 'center',
+      borderRadius: radii.pill,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: palette.hairline,
+    },
+    chipSelected: {
+      borderColor: palette.signalBlue,
+      backgroundColor: withAlpha(palette.signalBlue, 0.1),
+    },
+    label: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: palette.inkSecondary,
+    },
+    labelSelected: {
+      color: palette.signalBlue,
+      fontWeight: '700',
+    },
+  });
+}

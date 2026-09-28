@@ -32,6 +32,7 @@ import {
 import { formatRaceDate } from '@/lib/format';
 import { AppIcon } from '@/lib/icons';
 import { normalizeNameForQuery } from '@/lib/nameNormalization';
+import { isPlausibleEmail, normalizeEmailInput } from '@/lib/emailInput';
 import { clearOnboardingDraft, loadOnboardingDraft, saveOnboardingDraft } from '@/lib/onboardingDraft';
 import { candidateDetailToInsertRow } from '@/lib/raceMapping';
 import {
@@ -304,6 +305,33 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     setStep('emailForm');
   }
 
+  /**
+   * B.14 confirmed root cause: password sign-in (a sign-in-only path — there is no registration
+   * flow here, so this is ALWAYS a returning account) called the raw `signInWithPassword` from
+   * useAuth() directly and stopped there. A session was genuinely established (confirmed via direct
+   * Supabase Auth API calls and authPasswordSignIn.test.tsx), but nothing then checked whether this
+   * account had already completed onboarding and called `onComplete()` — the one thing that
+   * actually flips RootNavigator's phase to 'app' locally and immediately. The magic-link deep-link
+   * path (processAuthRedirect -> resumeFromDraftAndImport -> resumeReturningUser) already does
+   * exactly this check; AppPhaseProvider's own one-time-at-launch classification effect deliberately
+   * does NOT re-run on a later session change (see appPhase.tsx's doc comment — reactively
+   * re-classifying could yank an in-progress NEW-user import out from under itself), so there was
+   * nothing else to drive the transition until the next full app relaunch, which is exactly the
+   * device report ("closing and reopening the app gets me in"). Reusing resumeReturningUser here —
+   * not duplicating its logic — makes the password path behave identically to the already-reviewed
+   * magic-link one.
+   */
+  async function handlePasswordSignIn(rawEmail: string, password: string): Promise<{ error: string | null }> {
+    const normalized = normalizeEmailInput(rawEmail);
+    if (!isPlausibleEmail(normalized)) {
+      return { error: 'Enter a valid email address.' };
+    }
+    const { error, userId } = await signInWithPassword(normalized, password);
+    if (error || !userId) return { error };
+    await resumeReturningUser(userId);
+    return { error: null };
+  }
+
   async function processAuthRedirect(url: string) {
     if (!url.includes('auth-callback') || processedUrlRef.current === url) return;
     processedUrlRef.current = url;
@@ -512,8 +540,15 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     if (isSendingLink) return;
     setAuthError(null);
     setResendNotice(null);
-    const trimmed = email.trim();
+    const trimmed = normalizeEmailInput(email);
     if (!trimmed) return;
+    // B.14 — clear validation instead of silently sending an obviously-malformed address (e.g. a
+    // pasted "mailto:" link whose prefix normalizeEmailInput doesn't recognize, or plain garbage)
+    // and getting back a generic provider error with no useful explanation.
+    if (!isPlausibleEmail(trimmed)) {
+      setAuthError('Enter a valid email address.');
+      return;
+    }
     if (simulateAuth) {
       // Developer Preview: never touches Supabase Auth (and never persists a draft that a real,
       // later onboarding session could pick up) — jumps straight to the real "check your email"
@@ -545,7 +580,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     }
     setIsSendingLink(true);
     await persistDraft();
-    const { error } = await requestMagicLink(email.trim());
+    const { error } = await requestMagicLink(normalizeEmailInput(email));
     setIsSendingLink(false);
     if (error) {
       setAuthError(error);
@@ -882,7 +917,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
                 selectedCount={selectedCount}
                 isSending={isSendingLink}
                 onSendLink={handleSendMagicLink}
-                onSignInWithPassword={signInWithPassword}
+                onSignInWithPassword={handlePasswordSignIn}
                 onBack={() => {
                   setAuthError(null);
                   if (isReturningUserFlow) {

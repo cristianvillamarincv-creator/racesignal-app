@@ -34,23 +34,27 @@ jest.mock('@/lib/supabaseClient', () => ({
 function Probe() {
   const { isReady, session, signInWithPassword } = useAuth();
   const [lastError, setLastError] = useState<string | null>('unset');
+  const [lastUserId, setLastUserId] = useState<string | null>('unset');
   return (
     <>
       <Text testID="ready">{String(isReady)}</Text>
       <Text testID="session">{session ? session.user.id : 'none'}</Text>
       <Text testID="error">{lastError ?? 'null'}</Text>
+      <Text testID="returned-userId">{lastUserId ?? 'null'}</Text>
       <Text
         testID="trigger-wrong"
         onPress={async () => {
-          const { error } = await signInWithPassword('reviewer@racesignal.test', 'wrong-password');
+          const { error, userId } = await signInWithPassword('reviewer@racesignal.test', 'wrong-password');
           setLastError(error);
+          setLastUserId(userId);
         }}
       />
       <Text
         testID="trigger-right"
         onPress={async () => {
-          const { error } = await signInWithPassword('reviewer@racesignal.test', 'correct-password');
+          const { error, userId } = await signInWithPassword('reviewer@racesignal.test', 'correct-password');
           setLastError(error);
+          setLastUserId(userId);
         }}
       />
     </>
@@ -65,7 +69,7 @@ beforeEach(() => {
 describe('signInWithPassword — invalid credentials', () => {
   it('returns a clean error message and never establishes a session', async () => {
     mockSignInWithPassword.mockResolvedValue({
-      data: { session: null, user: null },
+      data: { session: null, user: null }, // matches the real supabase-js shape: data.user, not data.session.user
       error: { name: 'AuthApiError', message: 'Invalid login credentials' },
     });
 
@@ -83,6 +87,7 @@ describe('signInWithPassword — invalid credentials', () => {
     expect(mockSignInWithPassword).toHaveBeenCalledWith({ email: 'reviewer@racesignal.test', password: 'wrong-password' });
     expect(ui.getByTestId('session').props.children).toBe('none');
     await waitFor(() => expect(ui.getByTestId('error').props.children).toBe('Invalid login credentials'));
+    expect(ui.getByTestId('returned-userId').props.children).toBe('null');
 
     await act(async () => {
       ui.unmount();
@@ -94,9 +99,11 @@ describe('signInWithPassword — valid credentials', () => {
   it('establishes a session through the same onAuthStateChange listener every sign-in method uses', async () => {
     mockSignInWithPassword.mockImplementation(async () => {
       // supabase-js itself fires onAuthStateChange('SIGNED_IN', ...) as a side effect of a
-      // successful signInWithPassword call — this mock reproduces exactly that.
+      // successful signInWithPassword call — this mock reproduces exactly that. `data.user` is a
+      // top-level sibling of `data.session` in the real API (not nested under session) — auth.tsx's
+      // signInWithPassword reads `data.user?.id` directly, so this must match that real shape.
       mockAuthStateChangeCallback?.('SIGNED_IN', { user: { id: 'reviewer-athlete-id' } });
-      return { data: { session: { user: { id: 'reviewer-athlete-id' } } }, error: null };
+      return { data: { session: { user: { id: 'reviewer-athlete-id' } }, user: { id: 'reviewer-athlete-id' } }, error: null };
     });
 
     const ui = await render(
@@ -112,6 +119,7 @@ describe('signInWithPassword — valid credentials', () => {
     });
 
     await waitFor(() => expect(ui.getByTestId('session').props.children).toBe('reviewer-athlete-id'));
+    await waitFor(() => expect(ui.getByTestId('returned-userId').props.children).toBe('reviewer-athlete-id'));
 
     await act(async () => {
       ui.unmount();

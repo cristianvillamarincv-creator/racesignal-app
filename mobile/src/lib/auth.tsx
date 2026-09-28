@@ -66,7 +66,7 @@ export interface AuthContextValue {
    *  enable) — so a successful call produces a completely normal session through the exact same
    *  onAuthStateChange listener above; no reviewer-specific code path exists anywhere past this
    *  point. Every account still goes through the real `races` RLS policies unchanged. */
-  signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInWithPassword: (email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
 }
 
@@ -287,15 +287,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *  this app; the one account meant to use this is created ahead of time via the Admin API). A
    *  wrong password/unknown email both surface as the same generic message, matching Supabase
    *  Auth's own "Invalid login credentials" — never distinguishing "wrong password" from "no such
-   *  account" to an unauthenticated caller. */
-  const signInWithPassword = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+   *  account" to an unauthenticated caller.
+   *
+   * Returns `userId` (like completeAuthFromUrl/signInWithGoogle already do) so the caller can act
+   * on the result immediately — B.14: OnboardingFlow uses this to call resumeReturningUser right
+   * away, the same post-auth handling the magic-link deep-link path already had, instead of relying
+   * on `session` state to have propagated to every consumer by the next line. */
+  const signInWithPassword = async (email: string, password: string): Promise<AuthResult> => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       console.warn('[Auth] signInWithPassword failed:', error.name ?? 'unknown', error.message);
     } else {
       console.log('[Auth] signInWithPassword succeeded');
     }
-    return { error: error?.message ?? null };
+    return { error: error?.message ?? null, userId: data.user?.id ?? null };
   };
 
   const signOut = async () => {

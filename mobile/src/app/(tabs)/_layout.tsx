@@ -92,6 +92,25 @@ function HeaderRightGroup() {
   );
 }
 
+/**
+ * B.14: the `<Tabs initialRouteName="stats">` prop below (already set, see its own comment) only
+ * governs React Navigation's tab-focus state AFTER this navigator has already mounted — it does
+ * NOT affect expo-router's own route resolution when `(tabs)` is entered fresh with no more
+ * specific path requested (e.g. RootNavigator's `<Stack.Screen name="(tabs)" />` in _layout.tsx,
+ * reached the moment onboarding's phase flips to 'app'). For THAT — confirmed via expo-router
+ * 6.0.24's own source (packages/expo-router/build/getRoutesCore.js) and its docs — the router reads
+ * `unstable_settings.initialRouteName` exported from this file. Without it, the group's file-system
+ * "index" route (this app's Races tab, since that screen happens to live at index.tsx) wins by
+ * convention regardless of the Tabs prop or visual tab order, which is exactly the confirmed device
+ * report: a normal launch opened Races even with tab order and the Tabs prop already correct. This
+ * only affects a cold entry into the group with no path already requested — an explicit navigation
+ * (e.g. HeaderSearchButton's `router.push('/')` to reach Races on purpose) still wins, and switching
+ * tabs afterward is untouched.
+ */
+export const unstable_settings = {
+  initialRouteName: 'stats',
+};
+
 export default function TabsLayout() {
   return (
     <RaceFilterProvider>

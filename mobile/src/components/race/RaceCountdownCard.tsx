@@ -21,12 +21,16 @@ function joinMeta(parts: (string | undefined)[]): string {
 /**
  * The next-race hero — composed the same way results/[id].tsx opens its own race: a small kicker,
  * the race name at title scale, then one dominant countdown number carrying the hierarchy (not a
- * small colored digit inside a boxed dashboard widget). No card surface/border/elevation anymore
- * — this sits directly on canvas, matching the north-star screen's editorial whitespace instead of
- * a "widget." A RaceLineMotif sits very faintly behind the block, the same device results/[id].tsx
- * uses behind its own hero. The whole surface stays one tap target into the race's own detail
- * screen — the text link at the bottom is a visual affordance only, not a second touchable, so
- * there's exactly one action here, never a button wall.
+ * small colored digit inside a boxed dashboard widget). B.14: restored the rounded, elevated card
+ * surface (physical-device QA on Build 13 found the flat-on-canvas "editorial" version read as
+ * uncontained/hard to distinguish from the page around it) — `palette.canvasElevated` is the same
+ * token every other elevated surface in the app already uses (AddRaceSheet's sheet, SignalModule's
+ * tint), so this stays theme-aware in both light and dark automatically, unlike the old pre-Step-6
+ * `Card` component (still in the repo, unused) it replaces, which used the separate, non-palette
+ * `colors`/`radii` tokens. A RaceLineMotif still sits very faintly behind the block, the same
+ * device results/[id].tsx uses behind its own hero. The whole surface stays one tap target into the
+ * race's own detail screen — the text link at the bottom is a visual affordance only, not a second
+ * touchable, so there's exactly one action here, never a button wall.
  */
 export function RaceCountdownCard({ race, onOpenRace, actionLabel = 'Open race prep' }: RaceCountdownCardProps) {
   const palette = useBrandPalette();
@@ -60,7 +64,14 @@ export function RaceCountdownCard({ race, onOpenRace, actionLabel = 'Open race p
 
       <Text style={styles.meta}>{joinMeta([race.location, dateLabel])}</Text>
 
-      <Text style={styles.action}>{actionLabel} ›</Text>
+      {/* Still a visual affordance only, not a second touchable — the whole card above is the one
+          real tap target (see the function doc comment) — just styled as a filled pill now that
+          it sits inside a real card surface, matching the reference. */}
+      <View style={styles.actionRow}>
+        <View style={styles.actionButton}>
+          <Text style={styles.actionButtonLabel}>{actionLabel}</Text>
+        </View>
+      </View>
     </Pressable>
   );
 }
@@ -70,9 +81,9 @@ function createStyles(palette: BrandPalette) {
     card: {
       position: 'relative',
       overflow: 'hidden',
-      // A touch more room top/bottom than a mid-list row would get — this is meant to read as a
-      // deliberately composed hero moment, not a compact list item, even without a card surface.
-      paddingVertical: spacing.md,
+      backgroundColor: palette.canvasElevated,
+      borderRadius: 24,
+      padding: spacing.lg,
     },
     cardPressed: {
       opacity: 0.7,
@@ -114,11 +125,22 @@ function createStyles(palette: BrandPalette) {
       color: palette.inkSecondary,
       marginTop: spacing.sm,
     },
-    action: {
-      fontSize: 15,
-      fontWeight: '600',
-      color: palette.signalBlue,
+    actionRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
       marginTop: spacing.lg,
+    },
+    actionButton: {
+      minHeight: 44,
+      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
+      borderRadius: 999,
+      backgroundColor: palette.signalBlue,
+    },
+    actionButtonLabel: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: palette.onSignalBlue,
     },
   });
 }

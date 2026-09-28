@@ -20,7 +20,7 @@ export function PreviewAuthProvider({ children }: { children: ReactNode }) {
     requestMagicLink: async () => ({ error: NOT_AVAILABLE_MESSAGE }),
     signInWithGoogle: async () => ({ error: NOT_AVAILABLE_MESSAGE, userId: null }),
     completeAuthFromUrl: async () => ({ error: NOT_AVAILABLE_MESSAGE, userId: null }),
-    signInWithPassword: async () => ({ error: NOT_AVAILABLE_MESSAGE }),
+    signInWithPassword: async () => ({ error: NOT_AVAILABLE_MESSAGE, userId: null }),
     signOut: async () => {},
   };
 

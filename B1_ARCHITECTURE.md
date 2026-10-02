@@ -1,5 +1,14 @@
 # Milestone B.1 — Real Athlete Beta: Architecture Notes
 
+> **Status: historical record (updated 2026-10-02).** This document captures the architecture decisions and validated state at Milestone B.1 / Step 4 (September 2026). Later work (Steps 5–8 and Builds 9–18) changed or superseded parts of it. For current, verified behavior see `docs/handoffs/2026-10-02-technical-handoff.md`, `docs/development-workflow.md`, `mobile/README.md`, and `supabase/README.md`.
+>
+> Statements below that are **out of date as of Build 18 (`8e3f0ec`)**:
+> - The Ask/AI tab "exists as a nav entry only" and RevenueCat is absent: Signal (Edge Function `signal`, Claude model) and RevenueCat Premium are shipped; the tab is now **Signal**, tab order is Stats → Races → Signal.
+> - Only `race-discovery` is described; `signal` and `delete-account` Edge Functions and migrations 0002–0011 now exist.
+> - Magic link is no longer the only sign-in path: an email/password sign-in-only path exists (for App Review). Google remains implemented but hidden; the "Sign in with Apple" requirement below still applies **only if** a third-party login (e.g. Google) is ever shown.
+> - Supabase's default mailer limitation noted below is still **unconfirmed as resolved** (custom SMTP status requires dashboard confirmation).
+> - Free Signal allowance is 3 asks **lifetime**; Premium is 40 per UTC month (server-enforced).
+
 Reference doc for the persisted-data/auth architecture built in B.1. Supersedes the in-chat
 architecture proposal for anything that changed during implementation (see the Google-auth
 revision below).

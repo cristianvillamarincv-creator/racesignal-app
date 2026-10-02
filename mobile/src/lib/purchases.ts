@@ -1,6 +1,8 @@
 import Purchases, { type CustomerInfo, type PurchasesOffering, type PurchasesPackage } from 'react-native-purchases';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 
+import './environment'; // startup guard: refuses a RevenueCat key that does not match the app variant
+
 /**
  * Thin wrapper around the RevenueCat SDK (Step 8.3). The RevenueCat App User ID is ALWAYS the
  * authenticated Supabase user id (see PurchasesIdentityBridge in _layout.tsx) — never the

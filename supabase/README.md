@@ -44,17 +44,25 @@ Set on the project (verified present 2026-10-02): `ANTHROPIC_API_KEY`, `REVENUEC
 
 ## Setup and deploy (CLI)
 
+**Development (`racesignal-dev`):** never use bare `supabase link/db push/functions deploy/secrets set` from this folder; its link is production. Use the dev-only wrapper (explicit dev `--project-ref`, throwaway workspace):
+
 ```bash
-supabase login
-supabase link --project-ref <ref>             # ref: Dashboard → Settings → General
-supabase db push                              # apply migrations
-supabase functions deploy race-discovery
-supabase functions deploy signal
-supabase functions deploy delete-account
-supabase secrets set NAME=value               # values are never committed
-supabase migration list                       # local vs remote
-supabase functions list                       # deployed versions
+supabase/dev/dev-supabase.sh status | push [--dry-run] | deploy [fn ...] | secrets
+supabase/dev/set-dev-secret.sh ANTHROPIC_API_KEY      # silent prompt
+supabase/dev/verify-signal.sh                          # Signal + quota accounting check
 ```
+
+**Production** changes only when the owner says so, and always with the ref spelled out (read it from `.temp/project-ref`; do not rely on the implicit link without checking it):
+
+```bash
+cat supabase/.temp/project-ref                                   # confirm this is production
+supabase functions deploy signal --project-ref <production ref>
+supabase db push --linked                                        # applies supabase/migrations to production
+supabase migration list --linked                                 # local vs remote
+supabase functions list --project-ref <production ref>           # deployed versions
+```
+
+Secret values are never committed.
 
 Copy `mobile/.env.example` to `mobile/.env.development` (dev) / `.env.production` for the app (URL + anon key only).
 

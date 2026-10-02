@@ -32,7 +32,7 @@ Environment variables (names only; values are never stored in the repo):
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) key |
 | `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat public SDK key: `test_...` (Test Store) in development, `appl_...` in production |
 | `EXPO_PUBLIC_ENABLE_DEV_PREVIEW` | Local-only Developer Preview switch (also requires `__DEV__`); not set in release builds |
-| `APP_VARIANT` | `development` or `production`; set by the npm scripts and `eas.json` profiles |
+| `APP_VARIANT` | `development` or `production`; set explicitly by every npm launch script and `eas.json` profile |
 
 `.env*` files are gitignored except `.env.example`.
 
@@ -59,7 +59,7 @@ Do not use bare `expo start` for QA. Expo Go cannot test purchases or the magic-
 ```bash
 npm run typecheck            # tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npm test                     # jest: 28 suites / 219 tests on release-1.1
+npm test                     # jest: 31 suites / 249 tests on release-1.1
 npx expo-doctor
 ```
 

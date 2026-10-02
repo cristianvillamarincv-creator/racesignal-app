@@ -43,9 +43,9 @@
     "typescript": "~5.9.2"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "start": "APP_VARIANT=development expo start",
+    "android": "APP_VARIANT=development expo start --android",
+    "ios": "APP_VARIANT=development expo start --ios",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "jest",

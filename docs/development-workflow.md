@@ -39,7 +39,7 @@ Do **not** create a TestFlight build per change. Group changes into checkpoints 
 cd mobile
 npx tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npx jest                       # 28 suites / 219 tests on release-1.1
+npx jest                       # 31 suites / 249 tests on release-1.1
 npx expo-doctor                # 18/18 at 8e3f0ec
 cd ../supabase/functions/signal && deno test --allow-read --no-check          # 32 tests
 cd ../race-discovery && deno test --allow-read --no-check                      # 11 tests
@@ -116,7 +116,7 @@ Run only after automated checks and dev-build QA pass, and only when the owner s
 
 **Still true:**
 - Production deployed functions (`signal` v16, `race-discovery` v8, `delete-account` v2) are byte-identical to `8e3f0ec`; migrations 0001-0011 are applied; this was re-verified after the dev setup.
-- The repo's `supabase/.temp/project-ref` links to **production**. Any bare `supabase functions deploy` / `db push` / `secrets set` run from `supabase/` hits production. For dev, pass `--project-ref <dev ref>` explicitly (ref in `mobile/config/environments.json`) or use `supabase/dev/set-dev-secret.sh` for secrets.
+- The repo's `supabase/.temp/project-ref` links to **production**. Any bare `supabase functions deploy` / `db push` / `secrets set` run from `supabase/` hits production. For dev use `supabase/dev/dev-supabase.sh` (push/deploy/status/secrets) and `supabase/dev/set-dev-secret.sh`; they target the dev ref explicitly and never touch the repo link.
 - Docker is not installed, so no local Supabase stack.
 
 **Rules:**

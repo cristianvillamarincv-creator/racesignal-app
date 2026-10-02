@@ -39,7 +39,7 @@ Do **not** create a TestFlight build per change. Group changes into checkpoints 
 cd mobile
 npx tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npx jest                       # 27 suites / 216 tests at 8e3f0ec
+npx jest                       # 28 suites / 219 tests on release-1.1
 npx expo-doctor                # 18/18 at 8e3f0ec
 cd ../supabase/functions/signal && deno test --allow-read --no-check          # 32 tests
 cd ../race-discovery && deno test --allow-read --no-check                      # 11 tests
@@ -49,20 +49,20 @@ Jest conventions (RTL 14 is async): `await render(...)`; wrap every `fireEvent` 
 
 ### 3.2 Path A: Expo Go (JS-only features)
 
-Because `expo-dev-client` is installed, `expo start` defaults to the development-build mode. Force Expo Go with `--go`:
+Because `expo-dev-client` is installed, `expo start` defaults to the development-build mode. Use the npm script, which forces Expo Go **and** the development environment (dev Supabase, `APP_VARIANT=development`):
 
 ```bash
 cd mobile
-npx expo start --go            # press `s` in the terminal to toggle between Expo Go and dev client
+npm run start:go               # press `s` in the terminal to toggle between Expo Go and dev client
 ```
 
-Scan the QR code with the iPhone camera (or Expo Go). `mobile/.env` is read by Metro.
+Scan the QR code with the iPhone camera (or Expo Go). Metro reads `mobile/.env.development`. Never run bare `expo start` for QA: see `development-environment.md`.
 
 - **Project SDK is 54** (`mobile/AGENTS.md` pins it for Expo Go compatibility). **UNCONFIRMED:** whether the Expo Go currently on the App Store still opens SDK 54 projects. If it does not, Path A is unavailable and Path B is the only on-device option.
 - **Can test meaningfully in Expo Go:** layout and styling, navigation, Stats/Races/Race Prep UI, filters, manual race entry, race search/import against the backend, Signal chat and screenshot picking (the image picker is bundled in Expo Go), password sign-in, and anything that only calls the Supabase Edge Functions.
 - **Cannot test in Expo Go:**
   - **Purchases / paywall.** `react-native-purchases` has no native module in Expo Go; it falls back to a preview mode with no real StoreKit. The hosted paywall (`react-native-purchases-ui`) behavior in Expo Go is **UNCONFIRMED** and `src/` has no Expo Go guard. Treat purchases as untestable here.
-  - **Magic-link and OAuth callbacks.** The app redirects to `racesignal://auth-callback`, a custom scheme Expo Go does not own (Expo Go uses `exp://`). Use password sign-in in Expo Go. Do **not** add `exp://` URLs to the production Supabase redirect allowlist for this.
+  - **Magic-link and OAuth callbacks.** The app redirects to `racesignal://auth-callback`, a custom scheme Expo Go does not own (Expo Go uses `exp://`). Use password sign-in in Expo Go. `exp://**` is allowed on the **dev** Supabase project only; never add it to production.
   - Native appearance items that depend on the real binary (app icon, splash behavior, permission strings, production signing).
 
 ### 3.3 Path B: Expo development build on the iPhone (native features)
@@ -75,7 +75,7 @@ Use this for purchases, magic-link/deep-link callbacks, permission prompts, spla
 - **That dev client is stale.** Native dependencies `react-native-purchases` and `react-native-purchases-ui` were added after it (2026-09-27), and `app.json` dropped `ios.icon` since. The current native fingerprint (`f7090e71…`) differs from those builds' fingerprints. **A new development build is required** before Path B works with the current code.
 - **UNCONFIRMED:** whether the owner's iPhone is registered for ad-hoc/internal distribution (`eas device:list` failed non-interactively), whether iOS Developer Mode is on, and whether an old dev client is still installed.
 
-**Caution: same bundle ID.** The development build uses the production bundle ID (`com.cristianvillamarin.racesignal`), so installing it **replaces** any TestFlight/App Store copy on that phone (and that copy's local session/data). Both also register the `racesignal://` scheme. If the owner wants both installed, a separate dev bundle ID/app variant is needed; that is an app-config change and **has not been made** (decision, §6).
+**Separate dev app (configured 2026-10-02, build not yet created).** Dev builds are `RaceSignal Dev`, bundle ID `com.cristianvillamarin.racesignal.dev`, scheme `racesignal-dev`, and install **alongside** the TestFlight/App Store app without replacing it. They use the dev Supabase project and the RevenueCat dev project (Test Store). Details: `development-environment.md`. Builds created before this change used the production bundle ID and are obsolete.
 
 **Steps (owner runs these; creating the build is not part of this task):**
 ```bash
@@ -84,18 +84,18 @@ npx eas-cli device:list                      # confirm the iPhone is registered;
 npx eas-cli device:create                    # follow the prompts to register it
 npx eas-cli build --platform ios --profile development-device
 # open the build URL/QR on the iPhone to install; enable Settings → Privacy & Security → Developer Mode if prompted
-npx expo start --dev-client                  # Metro; open the installed RaceSignal dev client and connect
+npm run start:dev                            # Metro (dev environment); open the installed RaceSignal Dev client and connect
 ```
 Rebuild the dev client **only when the native fingerprint changes** (new/removed native dependency, `app.json` native config, plugin change). Pure JS/TS changes reload through Metro. Check with `npx eas-cli fingerprint:generate --platform ios` and compare against the installed dev build's fingerprint (`npx eas-cli build:view <id>`).
 
-**To test purchases in a dev build:** add `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=<RevenueCat iOS public SDK key>` to `mobile/.env.local` (gitignored; the key is not currently in `mobile/.env`, so RevenueCat is not configured in local dev). Use an Apple **sandbox** tester signed in under Settings → App Store → Sandbox Account. **UNCONFIRMED:** App Store Connect product status/pricing for `racesignal_premium_monthly` and `racesignal_premium_annual`, and whether they are fetchable in sandbox yet.
+**To test purchases in a dev build:** the dev environment uses RevenueCat's **Test Store** (simulated purchases, `test_` key already in `.env.development` and the EAS `development` environment); no Apple sandbox account is needed. That does not exercise real StoreKit; a real sandbox purchase needs a build with the production bundle ID. **UNCONFIRMED:** App Store Connect product status/pricing for `racesignal_premium_monthly` and `racesignal_premium_annual`. The dev paywall must be published in the RevenueCat dev project first (see `development-environment.md`).
 
 **What Path B can and cannot prove**
 | Area | Dev build | Notes |
 |---|---|---|
-| Magic-link / deep-link return to the app | Yes | Same `racesignal://auth-callback`; needs Supabase email delivery (default shared mailer is rate-limited; custom SMTP **UNCONFIRMED**). |
+| Magic-link / deep-link return to the app | Yes | `racesignal-dev://auth-callback` (dev scheme; must be in the dev Supabase redirect list, it is); needs Supabase email delivery (default shared mailer is rate-limited; custom SMTP **UNCONFIRMED**). |
 | Password sign-in | Yes | Reviewer-style account. |
-| Purchase sheet, restore, entitlement refresh | Yes (sandbox) | Real StoreKit sandbox + RevenueCat; server-side premium lookup uses the same RC project. Not a live-money test. |
+| Purchase flow, entitlement refresh | Yes (Test Store) | Simulated by RevenueCat, not StoreKit; server-side premium lookup uses the dev RC project. Restore/StoreKit behavior is NOT proven here. |
 | Image-picker permission prompt | Yes | Real permission copy from `app.json`. |
 | Native icon/splash, production signing, receipt behavior under App Store distribution, TestFlight install/update path | **No** | Final check belongs to the TestFlight release candidate. |
 
@@ -112,27 +112,17 @@ Run only after automated checks and dev-build QA pass, and only when the owner s
 
 ## 4. Protecting the production backend
 
-**Verified 2026-10-02:**
-- The Supabase CLI login sees **one** project, the production one. There is no staging/dev project.
-- `mobile/.env` points at that project, so **local development (Expo Go or dev build) reads and writes production data today.**
-- Docker is not installed, so a local Supabase stack (`supabase start`) is not currently possible. `supabase/config.toml` is minimal (function JWT settings only; no `[auth]`/`[api]`/`[db]`).
-- EAS `development`/`preview` environments hold RevenueCat/Apple variables but **no** Supabase variables; the production environment holds the production Supabase URL/anon key.
-- Deployed functions (`signal` v16, `race-discovery` v8, `delete-account` v2) are byte-identical to `8e3f0ec`; migrations 0001–0011 are applied.
-- Premium status is resolved against the single RevenueCat project, so a sandbox purchase makes that Supabase user premium in the production `signal_rate_limit` accounting.
+**Isolated environment exists (2026-10-02):** a free `racesignal-dev` Supabase project with its own secrets, synthetic data, redirect URLs, and RevenueCat dev project; see `development-environment.md`. Local development (`npm run start:go` / `start:dev`) uses it by default, and `app.config.js` refuses to evaluate a development session that points at production (or the reverse).
 
-**Interim rules until an isolated environment exists:**
-1. Use a dedicated test athlete account for QA; never use the reviewer account for load or Signal testing.
-2. No schema, RLS, RPC, or function changes are tested against production.
-3. Backend changes are developed and verified in an isolated environment first (below), then deployed once, deliberately.
+**Still true:**
+- Production deployed functions (`signal` v16, `race-discovery` v8, `delete-account` v2) are byte-identical to `8e3f0ec`; migrations 0001-0011 are applied; this was re-verified after the dev setup.
+- The repo's `supabase/.temp/project-ref` links to **production**. Any bare `supabase functions deploy` / `db push` / `secrets set` run from `supabase/` hits production. For dev, pass `--project-ref <dev ref>` explicitly (ref in `mobile/config/environments.json`) or use `supabase/dev/set-dev-secret.sh` for secrets.
+- Docker is not installed, so no local Supabase stack.
 
-**Recommended minimum setup (not created; needs the owner's decision):** a second hosted Supabase project, `racesignal-dev` (free tier is enough).
-1. `supabase link` to the dev project, `supabase db push` (migrations 0001–0011), `supabase functions deploy race-discovery signal delete-account`.
-2. Dev-project secrets: its own low-spend-limit Anthropic key (`ANTHROPIC_API_KEY`), `REVENUECAT_PUBLIC_API_KEY` (the same public key makes sandbox purchases count as premium; omit it to force `service_unavailable`), optional `SPORTSTATS_DAILY_REQUEST_CAP`.
-3. Auth: enable the email provider and add `racesignal://auth-callback` to the redirect allowlist; create one password test athlete.
-4. Point the app at it by putting the dev project's `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in `mobile/.env.local` (gitignored, overrides `.env`). Remove that file to return to production deliberately.
-5. Run the Build 18 compatibility checks (§5) against the dev project before touching production.
-
-Alternative: a local Supabase stack (install Docker/OrbStack, add `[auth]` redirect config, `supabase functions serve` with a local env file). Better for migration iteration, harder for on-device testing (the phone must reach the laptop) and for RevenueCat/Anthropic integration.
+**Rules:**
+1. Develop and verify schema, RLS, RPC, and function changes against `racesignal-dev` first; deploy to production once, deliberately, and only when the owner says so.
+2. Use the dev account for QA; never use the reviewer account for load or Signal testing, and never copy production data into dev.
+3. Run the Build 18 compatibility checks (§5) against dev before touching production.
 
 ## 5. Compatibility with Build 18 (and any older live build)
 
@@ -150,7 +140,7 @@ Owner-confirmed state is required for each of these; none has been verified:
 - Device QA of Build 18 (cold launch lands on Stats; deep links; post-login path).
 - Whether the iPhone is registered with EAS and in Developer Mode; whether an old dev client is installed.
 - Whether the App Store Expo Go still opens SDK 54.
-- Whether to create `racesignal-dev` (Supabase) and a separate dev bundle ID/app variant.
+- Whether and when to create the first development build (`RaceSignal Dev`); the owner must set the dev `ANTHROPIC_API_KEY` and publish the dev paywall first.
 - Anthropic Zero Data Retention status and the resulting privacy-policy/App Store privacy-label wording (the published policy has not been changed).
 - Custom SMTP in Supabase Auth; App Store Connect product prices/trials; RevenueCat restore behavior.
 - Free-allowance reset after account deletion + re-signup; RevenueCat customer deletion on account deletion.

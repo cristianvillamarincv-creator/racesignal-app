@@ -2,7 +2,7 @@
 
 Postgres schema (with row-level security), three Edge Functions, and Auth for the RaceSignal app. Verified against the live project on 2026-10-02: all 11 migrations are applied, and the deployed functions are byte-identical to commit `8e3f0ec` (Build 18).
 
-**There is currently one Supabase project and it is production.** Local app development points at it. Read `../docs/development-workflow.md` §4–5 before changing or testing anything here, because function and migration deploys affect every installed build immediately.
+**There are two Supabase projects.** Production (linked in `supabase/.temp/project-ref`, so a bare `supabase … deploy/push/secrets set` from here hits production) and `racesignal-dev` (free plan, synthetic data; ref in `../mobile/config/environments.json`). Local app development uses dev. Always pass `--project-ref <dev ref>` for dev work, and read `../docs/development-environment.md` and `../docs/development-workflow.md` §4–5 first, because production deploys affect every installed build immediately. Dev helpers: `dev/seed-dev.mjs` (guarded synthetic seed) and `dev/set-dev-secret.sh` (silent-prompt secret setter, dev only).
 
 ## What's here
 
@@ -56,7 +56,7 @@ supabase migration list                       # local vs remote
 supabase functions list                       # deployed versions
 ```
 
-Copy `mobile/.env.example` to `mobile/.env` for the app (URL + anon key only).
+Copy `mobile/.env.example` to `mobile/.env.development` (dev) / `.env.production` for the app (URL + anon key only).
 
 ## Kill switch and request cap
 
@@ -68,7 +68,7 @@ The app then falls back to manual race entry. The per-IP/UTC-day cap is `SPORTST
 
 ## Auth
 
-Verified (2026-10-02, public settings endpoint): email provider only, sign-ups open, email confirmation required. The app uses magic links (PKCE, redirect `racesignal://auth-callback`) plus an email/password sign-in-only path used by an App Review account. Google is implemented in code but hidden and not enabled; there is no Sign in with Apple.
+Verified (2026-10-02, public settings endpoint): email provider only, sign-ups open, email confirmation required. The app uses magic links (PKCE, redirect `racesignal://auth-callback` in production, `racesignal-dev://auth-callback` in the dev app) plus an email/password sign-in-only path used by an App Review account. Google is implemented in code but hidden and not enabled; there is no Sign in with Apple.
 
 **Unconfirmed (dashboard):** custom SMTP. Supabase's shared default mailer has a very low project-wide rate limit (`over_email_send_rate_limit` was observed earlier); a real SMTP provider with a verified domain should be configured before real customers rely on magic links. Also unconfirmed: the exact redirect-URL allowlist contents.
 

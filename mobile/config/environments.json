@@ -1,0 +1,16 @@
+{
+  "_comment": "Non-secret identifiers only. The development Supabase project ref is a public identifier (it appears in the project URL). Production's ref is intentionally not listed here: guards only need to recognize the DEV project.",
+  "development": {
+    "appVariant": "development",
+    "displayName": "RaceSignal Dev",
+    "bundleIdentifier": "com.cristianvillamarin.racesignal.dev",
+    "scheme": "racesignal-dev",
+    "supabaseProjectRef": "sjmixferxnkwbzkcofnp"
+  },
+  "production": {
+    "appVariant": "production",
+    "displayName": "RaceSignal",
+    "bundleIdentifier": "com.cristianvillamarin.racesignal",
+    "scheme": "racesignal"
+  }
+}

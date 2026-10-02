@@ -13,30 +13,37 @@ Expo SDK **54** (pinned deliberately; see `AGENTS.md`), React Native 0.81, React
 ```bash
 cd mobile
 npm install
-cp .env.example .env     # then fill in the values; never commit .env
+cp .env.example .env.development   # fill in the racesignal-dev values; never commit .env* files
 ```
+
+There are two environments, chosen explicitly by `APP_VARIANT` (see `app.config.js`; unset means production). Full details: `../docs/development-environment.md`.
+
+| | development | production |
+|---|---|---|
+| App / bundle ID / scheme | RaceSignal Dev / `com.cristianvillamarin.racesignal.dev` / `racesignal-dev` | RaceSignal / `com.cristianvillamarin.racesignal` / `racesignal` |
+| Local env file | `.env.development` (used by `expo start`) | `.env.production` (used when `NODE_ENV=production`) |
+| Cloud builds | EAS `development` environment (profiles `development`, `development-device`) | EAS `production` environment (profile `production`) |
 
 Environment variables (names only; values are never stored in the repo):
 
 | Variable | Used for |
 |---|---|
-| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL (must match the variant; config refuses mismatches) |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) key |
-| `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat iOS public SDK key. **Not** in `.env.example`; without it RevenueCat is not configured in local dev. |
+| `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat public SDK key: `test_...` (Test Store) in development, `appl_...` in production |
 | `EXPO_PUBLIC_ENABLE_DEV_PREVIEW` | Local-only Developer Preview switch (also requires `__DEV__`); not set in release builds |
+| `APP_VARIANT` | `development` or `production`; set by the npm scripts and `eas.json` profiles |
 
-`.env`, `.env.local` and other `.env.*` files are gitignored. Release builds read these `EXPO_PUBLIC_*` values from the EAS **production** environment instead.
-
-**Warning:** as of 2026-10-02, `.env` points at the production Supabase project (the only one that exists). See `../docs/development-workflow.md` §4.
+`.env*` files are gitignored except `.env.example`.
 
 ## Run
 
 ```bash
-npx expo start --go          # Expo Go (JS-only features; see limits in the workflow doc)
-npx expo start --dev-client  # development build on a device (needed for purchases and magic-link callbacks)
+npm run start:go     # Expo Go + dev environment (JS-only features; password sign-in)
+npm run start:dev    # dev client (RaceSignal Dev build) + dev environment
 ```
 
-Expo Go cannot test purchases or the `racesignal://auth-callback` magic-link return. The existing development build (2026-09-24) predates the RevenueCat native modules and must be rebuilt (`npx eas-cli build --platform ios --profile development-device`) before it matches the current code. Full steps: `../docs/development-workflow.md` §3.
+Do not use bare `expo start` for QA. Expo Go cannot test purchases or the magic-link return. No `RaceSignal Dev` build exists yet; creating one (`npx eas-cli build --platform ios --profile development-device`) is an explicit owner decision. Full steps: `../docs/development-workflow.md` §3.
 
 ## Project structure
 
@@ -52,7 +59,7 @@ Expo Go cannot test purchases or the `racesignal://auth-callback` magic-link ret
 ```bash
 npm run typecheck            # tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npm test                     # jest: 27 suites / 216 tests at 8e3f0ec
+npm test                     # jest: 28 suites / 219 tests on release-1.1
 npx expo-doctor
 ```
 

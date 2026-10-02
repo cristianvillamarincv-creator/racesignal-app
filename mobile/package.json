@@ -48,7 +48,9 @@
     "ios": "expo start --ios",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "jest"
+    "test": "jest",
+    "start:dev": "APP_VARIANT=development expo start --dev-client",
+    "start:go": "APP_VARIANT=development expo start --go"
   },
   "private": true,
   "expo": {

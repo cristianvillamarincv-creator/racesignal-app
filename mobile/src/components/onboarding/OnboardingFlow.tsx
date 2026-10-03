@@ -85,6 +85,7 @@ type Step =
   | 'save'
   | 'emailForm'
   | 'checkEmail'
+  | 'existingAccount'
   | 'importing'
   | 'summary';
 
@@ -163,6 +164,13 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   // a completed sign-in never triggers runImport (which would upsert athlete_profiles with this
   // fresh session's blank racingName/candidates, overwriting the athlete's real, existing profile).
   const [isReturningUserFlow, setIsReturningUserFlow] = useState(false);
+
+  // Set when a sign-in (any method) lands on an account that has ALREADY completed onboarding while the
+  // athlete still had race selections pending from this flow. Their selections are preserved and they choose
+  // "Review selected races" or "Skip"; nothing is imported until they confirm, and the import then leaves the
+  // existing profile (racing name, birth year, completion time) untouched. See resumeFromDraftAndImport.
+  const [existingAccountUserId, setExistingAccountUserId] = useState<string | null>(null);
+  const existingAccountImportRef = useRef(false);
 
   const [importProgress, setImportProgress] = useState({ done: 0, total: 0 });
   const [importedCount, setImportedCount] = useState(0);
@@ -255,6 +263,17 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       await resumeReturningUser(userId);
       return;
     }
+    // A session-expiry recovery draft (originAthleteId set and matching) is mid-import for an account that has
+    // not completed onboarding, so it skips this check. Anything else that signs in to an account which already
+    // completed onboarding must never run the normal import (it would overwrite that profile): the athlete's
+    // selections are kept and they decide what to do.
+    if (!draft.originAthleteId) {
+      const completedAt = await fetchOnboardingCompletedAt(userId);
+      if (completedAt) {
+        await offerExistingAccountReview(userId, draft);
+        return;
+      }
+    }
     setRacingName(draft.racingName);
     setBirthYearHint(draft.birthYearHint);
     setCandidates(draft.candidates);
@@ -306,6 +325,42 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       setAuthError('Signed in, but something went wrong loading your account. Please try again.');
       setStep('identity');
     }
+  }
+
+  /**
+   * The signed-in account already finished onboarding. Keep the pending selections, drop the ones the account
+   * already has (existing deduplication: confirmed provider_result_ids), and ask. With nothing left to add there
+   * is nothing to ask, so go straight to the app.
+   */
+  async function offerExistingAccountReview(userId: string, draft: NonNullable<Awaited<ReturnType<typeof loadOnboardingDraft>>>) {
+    if (draft.selectedResultIds.length === 0) {
+      await resumeReturningUser(userId);
+      return;
+    }
+    const imported = await fetchImportedProviderResultIds(userId, 'sportstats');
+    const pending = draft.selectedResultIds.filter((id) => !imported.has(id));
+    if (pending.length === 0) {
+      await resumeReturningUser(userId);
+      return;
+    }
+    setRacingName(draft.racingName);
+    setBirthYearHint(draft.birthYearHint);
+    setCandidates(draft.candidates);
+    setAlreadyImportedIds(imported);
+    setSelectedIds(new Set(pending));
+    setExistingAccountUserId(userId);
+    setAuthError(null);
+    setStep('existingAccount');
+  }
+
+  function reviewSelectedRacesForExistingAccount() {
+    existingAccountImportRef.current = true;
+    setStep('candidates');
+  }
+
+  async function skipReviewForExistingAccount() {
+    if (!existingAccountUserId) return;
+    await resumeReturningUser(existingAccountUserId);
   }
 
   function startReturningUserSignIn() {
@@ -498,7 +553,9 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
 
   function proceedFromCandidates() {
     setAuthError(null);
-    if (session) {
+    if (existingAccountUserId) {
+      void runImport(existingAccountUserId, racingName, birthYearHint, selectedCandidatesFromState(), selectedIdentity?.displayName);
+    } else if (session) {
       void runImport(session.user.id, racingName, birthYearHint, selectedCandidatesFromState(), selectedIdentity?.displayName);
     } else {
       setStep('save');
@@ -554,7 +611,6 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       isReturningUserFlow,
       persistDraft,
       signIn: signInWithProvider,
-      fetchOnboardingCompletedAt,
       resumeReturningUser,
       resumeFromDraftAndImport,
     });
@@ -688,11 +744,14 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     rowsAlreadyFetched: Record<string, unknown>[],
   ) {
     const normalizedName = normalizeNameForQuery(name);
-    try {
-      await upsertAthleteProfile(athleteId, normalizedName, birthYear.trim() ? Number(birthYear.trim()) : undefined);
-      console.log('[Import] athlete_profiles upserted, racing_name=', JSON.stringify(normalizedName));
-    } catch (err) {
-      console.warn('[Import] athlete_profiles upsert FAILED (continuing — races can still save):', err);
+    // An existing, already-onboarded account keeps its profile exactly as it is: only races are added.
+    if (!existingAccountImportRef.current) {
+      try {
+        await upsertAthleteProfile(athleteId, normalizedName, birthYear.trim() ? Number(birthYear.trim()) : undefined);
+        console.log('[Import] athlete_profiles upserted, racing_name=', JSON.stringify(normalizedName));
+      } catch (err) {
+        console.warn('[Import] athlete_profiles upsert FAILED (continuing — races can still save):', err);
+      }
     }
 
     setImportProgress({ done: rowsAlreadyFetched.length, total: totalSelected });
@@ -754,10 +813,12 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       // `unavailable` (never `unattempted`) — is what "onboarding genuinely completed" means. A
       // partial/failed state must NOT mark this: see handleEnterApp for the other way completion
       // can still happen (the athlete explicitly taps "Continue anyway").
-      try {
-        await markOnboardingComplete(athleteId);
-      } catch (err) {
-        console.warn('[Import] markOnboardingComplete failed (will re-check on next launch):', err);
+      if (!existingAccountImportRef.current) {
+        try {
+          await markOnboardingComplete(athleteId);
+        } catch (err) {
+          console.warn('[Import] markOnboardingComplete failed (will re-check on next launch):', err);
+        }
       }
     }
 
@@ -835,7 +896,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
    * chooses to move on from here — which this button is exactly that choice.
    */
   async function handleEnterApp() {
-    if (athleteIdForRetry) {
+    // An existing account's completion time is never rewritten.
+    if (athleteIdForRetry && !existingAccountImportRef.current) {
       try {
         await markOnboardingComplete(athleteIdForRetry);
       } catch (err) {
@@ -914,9 +976,18 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
                 alreadyImportedIds={alreadyImportedIds}
                 onToggle={toggleCandidate}
                 onContinue={proceedFromCandidates}
-                onSkip={skipDiscovery}
-                onBack={backFromCandidates}
+                onSkip={existingAccountUserId ? skipReviewForExistingAccount : skipDiscovery}
+                onBack={existingAccountUserId ? () => setStep('existingAccount') : backFromCandidates}
                 onSearchAgain={backToIdentity}
+                reviewMode={existingAccountUserId !== null}
+              />
+            ) : null}
+
+            {step === 'existingAccount' ? (
+              <ExistingAccountStep
+                pendingCount={selectedCount}
+                onReview={reviewSelectedRacesForExistingAccount}
+                onSkip={skipReviewForExistingAccount}
               />
             ) : null}
 
@@ -1200,6 +1271,7 @@ function CandidatesStep({
   onSkip,
   onBack,
   onSearchAgain,
+  reviewMode = false,
 }: {
   athleteName: string;
   candidates: CandidateRace[];
@@ -1210,6 +1282,8 @@ function CandidatesStep({
   onSkip: () => void;
   onBack: () => void;
   onSearchAgain: () => void;
+  /** Reviewing the selections kept for an account that already exists: different copy, no "Search again". */
+  reviewMode?: boolean;
 }) {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
@@ -1223,11 +1297,12 @@ function CandidatesStep({
   return (
     <View style={styles.stepGap}>
       <Text style={styles.headline}>
-        We found {candidates.length} race{candidates.length === 1 ? '' : 's'}
+        {reviewMode ? 'Review your selected races' : `We found ${candidates.length} race${candidates.length === 1 ? '' : 's'}`}
       </Text>
       <Text style={styles.subcopy}>
-        Select the ones that are you, {athleteName}. Nothing unselected is imported. You can always
-        add more later.
+        {reviewMode
+          ? 'Races already in your history are marked and can’t be added twice. Nothing about your profile or existing races changes.'
+          : `Select the ones that are you, ${athleteName}. Nothing unselected is imported. You can always add more later.`}
       </Text>
 
       {candidates.length === 0 ? (
@@ -1270,12 +1345,14 @@ function CandidatesStep({
           <Text style={styles.secondaryLink}>Back</Text>
         </Pressable>
 
-        <Pressable onPress={onSearchAgain} accessibilityRole="button" accessibilityLabel="Search again">
-          <Text style={styles.secondaryLink}>Search again</Text>
-        </Pressable>
+        {reviewMode ? null : (
+          <Pressable onPress={onSearchAgain} accessibilityRole="button" accessibilityLabel="Search again">
+            <Text style={styles.secondaryLink}>Search again</Text>
+          </Pressable>
+        )}
 
-        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Continue without importing">
-          <Text style={styles.secondaryLink}>Continue without importing</Text>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel={reviewMode ? 'Skip' : 'Continue without importing'}>
+          <Text style={styles.secondaryLink}>{reviewMode ? 'Skip' : 'Continue without importing'}</Text>
         </Pressable>
       </View>
     </View>
@@ -1357,6 +1434,40 @@ function CandidateRow({
  * subtle brand cue, a strong state-specific headline, concise copy, the input/action where needed,
  * and a quiet text-link Back — never a second, differently-styled "auth design system."
  */
+/**
+ * The athlete signed in to an account that already exists and still had race selections pending from this
+ * onboarding. Nothing is imported until they choose: reviewing leads to the normal race list (already-added
+ * races marked), skipping goes straight to the app. Either way the existing profile is left as it is.
+ */
+function ExistingAccountStep({ pendingCount, onReview, onSkip }: { pendingCount: number; onReview: () => void; onSkip: () => void }) {
+  const palette = useBrandPalette();
+  const styles = useMemo(() => createStyles(palette), [palette]);
+
+  return (
+    <View style={styles.stepGap}>
+      <View style={styles.brandMarkWrap}>
+        <SignalMark color={palette.signalBlue} size={20} />
+      </View>
+      <Text style={styles.headline}>Welcome back.</Text>
+      <Text style={styles.subcopy}>
+        You already have a RaceSignal account. You had selected {pendingCount} race{pendingCount === 1 ? '' : 's'} that
+        {pendingCount === 1 ? ' isn’t' : ' aren’t'} in your history yet. Review {pendingCount === 1 ? 'it' : 'them'} to add{' '}
+        {pendingCount === 1 ? 'it' : 'any you want'}, or skip. Your profile stays exactly as it is.
+      </Text>
+
+      <Pressable onPress={onReview} accessibilityRole="button" accessibilityLabel="Review selected races" style={styles.primaryButton}>
+        <Text style={styles.primaryButtonLabel}>Review selected races</Text>
+      </Pressable>
+
+      <View style={styles.secondaryActionsGroup}>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip">
+          <Text style={styles.secondaryLink}>Skip</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function SaveStep({
   selectedCount,
   error,

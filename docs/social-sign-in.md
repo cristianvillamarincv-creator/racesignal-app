@@ -1,6 +1,6 @@
 # Sign in with Apple and Google
 
-Implemented on `release-1.1` for **development services only**. Production Supabase, RevenueCat and App Store configuration were not changed, and the production variant has every provider switched off (see "Turning it on for production").
+Implemented on `release-1.1` for **development services only**. Production Supabase, RevenueCat and App Store configuration were not changed, and the production variant has every provider switched off (see `release-1.1-checklist.md`).
 
 ## What the athlete sees
 
@@ -14,7 +14,10 @@ Implemented on `release-1.1` for **development services only**. Production Supab
 1. **Supabase's documented automatic linking, nothing custom.** If a provider sign-in carries a **verified** email equal to an existing account's email, Supabase attaches the provider to that account. Same Supabase user id, so races, Signal usage (`signal_free_usage`, monthly counters) and the RevenueCat identity (app user id = Supabase user id) all carry over. There is no merge code and no data migration anywhere.
 2. **Different email, or Apple "Hide My Email"**: not matched automatically. Signing in with that provider creates a **new, empty** account. Existing athletes are told (one line under the buttons) to sign in with email first and connect the provider in Settings. That path preserves the account.
 3. **Connecting never replaces the signed-in account.** Settings calls `linkIdentity({ provider, token, nonce })` (see below). If that Apple/Google account already belongs to a different RaceSignal account, Supabase answers `identity_already_exists`; the app shows a recoverable message ("nothing was changed on either account..."), and neither account nor the session is touched. A defensive check also restores the original session if the server ever answered with a different user id.
-4. **Returning vs new**: after any provider sign-in the app looks up `athlete_profiles.onboarding_completed_at`. Completed -> straight to Stats (the saved draft is discarded rather than imported over an existing profile). Not completed -> normal onboarding (new athletes import their saved selections). From "Already have an account? Sign in" the returning path is always used.
+4. **Returning vs new**: from "Already have an account? Sign in" the athlete goes the returning-user way (Stats, or onboarding if that account never finished it). Otherwise the saved draft is resumed, and the app looks up `athlete_profiles.onboarding_completed_at` first (this applies to every sign-in method, magic link included):
+   - **Account not completed** (a brand-new account): the normal onboarding import of the saved selections.
+   - **Account already completed** (for example Supabase linked the provider to it by verified email) **and** the saved selections include races it does not have yet: nothing is discarded or imported. A "Welcome back." screen offers **Review selected races** or **Skip**. *Review* opens the normal race list with the selections kept and races the account already has marked "Already added" (the existing confirmed-`provider_result_id` deduplication, plus the existing duplicate check inside `insertConfirmedRaces`); nothing is added until the athlete taps "Add N races". That import only adds races: it **never upserts the profile** (racing name, birth year) and **never rewrites `onboarding_completed_at`**. *Skip* clears the draft and goes to Stats.
+   - Account already completed and every selected race is already in it (or none were selected): straight to Stats, no question.
 5. **Cancelling** the provider sheet is silent: same screen, no error, selections still in the draft.
 6. The provider's profile name is never requested or stored (Apple: only the email scope). The racing name from discovery stays the only name source.
 
@@ -70,16 +73,28 @@ Only the config plugin entitlement is present. There is no permission request, n
 
 Expo auto-applies the config plugins of any installed package (`expo-apple-authentication` adds the Sign in with Apple entitlement, `expo-notifications` adds `aps-environment`), even when `app.json` never lists them. So the packages being installed would have changed the production binary and, at the next production build, the production App ID's capabilities. `app.config.js` therefore removes exactly those entitlements (and the Apple package's `CFBundleAllowMixedLocalizations` key) for any variant whose feature flag is off. Checked with `npx expo config --type introspect`: production has **no** entitlements and none of the new Info.plist keys; development has `com.apple.developer.applesignin` and `aps-environment: development`, and no `UIBackgroundModes`/`remote-notification`.
 
-## Turning it on for production (a later, explicit release step)
+## Turning it on for production
 
-Production is off today (`environments.json` -> `production.features` all `false`, no production Google IDs), so the production config and Build 18's capabilities are unchanged. To ship: enable Apple and Google providers on the production Supabase project (production bundle ID as the Apple client ID; production web+iOS Google client IDs), enable manual linking there, set `APPLE_*` secrets and deploy `delete-account` there, create the production Google iOS client, fill `production.google`, flip `production.features`, and let EAS enable the capabilities on the production App ID in that production build. None of this has been done.
+A separate, explicit release step with its own ordered checklist: `docs/release-1.1-checklist.md` (release configuration flags, `npm run release:config`, Google/Apple/Supabase/App Store steps, verification, rollback). Production is off today and nothing in it has been done.
+
+## Verified-email Google linking test (real address, development only)
+
+Goal: show that signing in with Google, with a real Google address you control that is already an **email-authenticated dev account**, attaches Google to that same account (same Supabase user id, races, Signal usage, profile, RevenueCat customer). Do **not** use `dev.athlete@example.com`, which is not a real Google address.
+
+1. `python3 supabase/dev/link-test.py prepare --email you@gmail.com` (use the exact address the Google account signs in with, not a `+alias`). It registers that address in the **development** project as an email-authenticated, email-verified account (or fills in what is missing if you already registered through the app's magic link), with a profile, 3 synthetic races, Signal free usage 1 of 3, and the RevenueCat dev customer under the Supabase user id. Nothing is written to the repo.
+   - A genuine in-app magic link works too, but a free Supabase project's default mailer only delivers to members of your Supabase organization, so the direct route is the dependable one.
+2. `python3 supabase/dev/link-test.py snapshot --email you@gmail.com` records the "before" state in `~/.racesignal-dev/` (mode 600).
+3. On the iPhone (after the rebuild): sign out -> "Already have an account? Sign in" -> **Continue with Google** -> choose that same Google account. Expect Stats with the 3 races.
+4. `python3 supabase/dev/link-test.py verify --email you@gmail.com` must print PASS for: same Supabase user id; a Google identity now attached; email identity still attached; same races (count and ids); profile untouched; Signal free usage unchanged; the RevenueCat customer is the Supabase user id and unchanged. (Without a real Google sign-in, only "a google identity is now attached" fails; that is the control.)
 
 ## iPhone test checklist (after the consolidated rebuild)
 
-1. Fresh install: onboarding -> select races -> **Continue with Apple** -> lands in the app with the races imported. Repeat with Google on a second dev account.
-2. Existing dev email account (`dev.athlete@example.com`): sign out -> "Already have an account? Sign in" -> **Google with the same verified email** -> same account (same races, same Signal count; Settings shows Google connected).
-3. Apple with **Hide My Email**: creates a separate new account; then sign in with email on the original, **Settings -> Connected accounts -> Connect Apple** -> succeeds and keeps the account. Try connecting an Apple/Google already used by another account -> conflict message; both accounts still sign in.
-4. Cancel each provider sheet (sign-in and connect): no error, same screen. Kill the app mid-flow and relaunch: pending selections restored.
-5. Email magic link and email+password still work.
-6. Delete a throwaway Apple account: Apple sheet appears; cancel it -> "Delete anyway / Keep my account"; accept -> deleted, note shown if revocation was not confirmed.
-7. Signal still works; the paywall and Premium state are unchanged; the TestFlight app is still installed separately.
+1. **Fresh account**: onboarding -> select races -> **Continue with Apple** -> lands in the app with the races imported. Repeat with Google on a second fresh dev account.
+2. **Verified-email Google linking**: the section above, with your real Google address.
+3. **Apple identity already attached to a separate account must conflict.** Sign in with Apple (Hide My Email is fine) on a fresh install: this creates account B and attaches that Apple identity to it. Now, signed in as a *different* account A, **Settings -> Connected accounts -> Connect Apple** with that same Apple ID: expect the conflict message ("already connected to a different RaceSignal account... nothing was changed on either account"), and both A and B still sign in as before. Same check for Google.
+4. **Successful Apple linking needs an Apple identity that is unused on dev**: an Apple ID that has never signed in to RaceSignal Dev, or one whose dev account you first deleted (Settings -> Delete account removes the user and its identities, which frees the identity). Then sign in as account A by email, **Settings -> Connect Apple** -> succeeds, A keeps its user id and data, and Settings shows Apple as Connected.
+5. **Existing completed account with pending selections**: on the account from step 2 (or any completed account), start a fresh onboarding, select races, sign in with Google/Apple/email. Expect "Welcome back." with **Review selected races** and **Skip**; Review shows the selections with already-added races marked; adding imports only new races, and the racing name and birth year in the profile do not change; Skip goes to Stats and the draft is gone.
+6. **Cancel** each provider sheet (sign-in and connect): no error, same screen. Kill the app mid-flow and relaunch: pending selections restored.
+7. Email magic link and email+password still work.
+8. Delete a throwaway Apple account: Apple sheet appears; cancel it -> "Delete anyway / Keep my account"; accept -> deleted, note shown if revocation was not confirmed.
+9. Signal still works; the paywall and Premium state are unchanged; the TestFlight app is still installed separately.

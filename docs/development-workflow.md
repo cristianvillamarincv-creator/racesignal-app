@@ -39,7 +39,7 @@ Do **not** create a TestFlight build per change. Group changes into checkpoints 
 cd mobile
 npx tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npx jest                       # 35 suites / 301 tests on release-1.1
+npx jest                       # 35 suites / 306 tests on release-1.1
 npx expo-doctor                # 18/18 at 8e3f0ec
 cd ../supabase/functions/signal && deno test --allow-read --no-check          # 32 tests
 cd ../race-discovery && deno test --allow-read --no-check                      # 11 tests

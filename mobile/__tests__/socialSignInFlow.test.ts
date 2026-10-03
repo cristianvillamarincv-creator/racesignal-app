@@ -5,7 +5,6 @@ function makeDeps(overrides: Partial<SocialFlowDeps> = {}): SocialFlowDeps & Rec
     isReturningUserFlow: false,
     persistDraft: jest.fn().mockResolvedValue(undefined),
     signIn: jest.fn().mockResolvedValue({ status: 'success', userId: 'user-1' }),
-    fetchOnboardingCompletedAt: jest.fn().mockResolvedValue(null),
     resumeReturningUser: jest.fn().mockResolvedValue(undefined),
     resumeFromDraftAndImport: jest.fn().mockResolvedValue(undefined),
     ...overrides,
@@ -33,30 +32,21 @@ describe('runSocialSignIn', () => {
   it('cancelling is silent: no error, no navigation, no import', async () => {
     const deps = makeDeps({ signIn: jest.fn().mockResolvedValue({ status: 'cancelled' }) });
     expect(await runSocialSignIn('google', deps)).toEqual({ kind: 'cancelled' });
-    expect(deps.fetchOnboardingCompletedAt).not.toHaveBeenCalled();
     expect(deps.resumeReturningUser).not.toHaveBeenCalled();
     expect(deps.resumeFromDraftAndImport).not.toHaveBeenCalled();
   });
 
-  it('a new account (onboarding not completed) imports the saved selections', async () => {
+  it('outside the returning-user flow it resumes the saved draft (which recognises an already-completed account)', async () => {
     const deps = makeDeps();
     expect(await runSocialSignIn('apple', deps)).toEqual({ kind: 'signedIn' });
     expect(deps.resumeFromDraftAndImport).toHaveBeenCalledWith('user-1');
     expect(deps.resumeReturningUser).not.toHaveBeenCalled();
   });
 
-  it('an account that already finished onboarding (e.g. linked by verified email) goes to the returning-user path, never importing a second list over its profile', async () => {
-    const deps = makeDeps({ fetchOnboardingCompletedAt: jest.fn().mockResolvedValue('2026-01-01T00:00:00Z') });
-    expect(await runSocialSignIn('google', deps)).toEqual({ kind: 'signedIn' });
-    expect(deps.resumeReturningUser).toHaveBeenCalledWith('user-1');
-    expect(deps.resumeFromDraftAndImport).not.toHaveBeenCalled();
-  });
-
   it('the "Already have an account? Sign in" flow always takes the returning-user path, without a completion lookup', async () => {
     const deps = makeDeps({ isReturningUserFlow: true });
     await runSocialSignIn('apple', deps);
     expect(deps.resumeReturningUser).toHaveBeenCalledWith('user-1');
-    expect(deps.fetchOnboardingCompletedAt).not.toHaveBeenCalled();
     expect(deps.resumeFromDraftAndImport).not.toHaveBeenCalled();
   });
 

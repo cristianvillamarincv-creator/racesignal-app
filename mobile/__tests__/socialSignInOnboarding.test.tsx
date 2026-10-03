@@ -37,11 +37,12 @@ jest.mock('@/lib/supabaseClient', () => ({
 }));
 
 const mockFetchOnboardingCompletedAt = jest.fn();
+const mockFetchImported = jest.fn();
 const mockUpsertAthleteProfile = jest.fn().mockResolvedValue(undefined);
 const mockMarkOnboardingComplete = jest.fn().mockResolvedValue(undefined);
 jest.mock('@/lib/db/races', () => ({
   fetchOnboardingCompletedAt: (...a: unknown[]) => mockFetchOnboardingCompletedAt(...a),
-  fetchImportedProviderResultIds: jest.fn().mockResolvedValue(new Set()),
+  fetchImportedProviderResultIds: (...a: unknown[]) => mockFetchImported(...a),
   insertConfirmedRaces: jest.fn().mockResolvedValue([]),
   markOnboardingComplete: (...a: unknown[]) => mockMarkOnboardingComplete(...a),
   upsertAthleteProfile: (...a: unknown[]) => mockUpsertAthleteProfile(...a),
@@ -141,6 +142,7 @@ beforeEach(async () => {
   await AsyncStorage.clear();
   mockSignInWithProvider.mockReset();
   mockFetchOnboardingCompletedAt.mockReset();
+  mockFetchImported.mockReset().mockResolvedValue(new Set());
   mockUpsertAthleteProfile.mockClear();
   mockMarkOnboardingComplete.mockClear();
   mockFetchRaceDetail.mockClear();
@@ -247,16 +249,71 @@ describe('new athlete with pending race selections: save step', () => {
     await act(async () => ui.unmount());
   });
 
-  it('an existing account that Supabase linked by verified email goes to the app and is NOT overwritten by the pending import', async () => {
-    mockFetchOnboardingCompletedAt.mockResolvedValue('2026-01-01T00:00:00Z');
-    mockSignInWithProvider.mockResolvedValue({ status: 'success', userId: 'existing-user' });
-    const ui = await openSaveStepWithPendingDraft();
-    await press(ui, 'Sign in with Google');
-    await waitFor(() => expect(ui.getByTestId('phase-probe').props.children).toBe('app'));
-    expect(mockUpsertAthleteProfile).not.toHaveBeenCalled();
-    expect(mockFetchRaceDetail).not.toHaveBeenCalled();
-    expect(await loadOnboardingDraft()).toBeNull();
-    await act(async () => ui.unmount());
+  describe('an existing, already-onboarded account (e.g. linked by verified email) with selections pending', () => {
+    async function signInToExistingAccount() {
+      mockFetchOnboardingCompletedAt.mockResolvedValue('2026-01-01T00:00:00Z');
+      mockSignInWithProvider.mockResolvedValue({ status: 'success', userId: 'existing-user' });
+      const ui = await openSaveStepWithPendingDraft();
+      await press(ui, 'Sign in with Google');
+      await waitFor(() => expect(ui.getByText('Welcome back.')).toBeTruthy());
+      return ui;
+    }
+
+    it('keeps the selections and asks, instead of silently discarding or importing them', async () => {
+      const ui = await signInToExistingAccount();
+      expect(ui.getByLabelText('Review selected races')).toBeTruthy();
+      expect(ui.getByLabelText('Skip')).toBeTruthy();
+      expect(ui.getByTestId('phase-probe').props.children).toBe('onboarding'); // not in the app yet
+      const draft = await loadOnboardingDraft();
+      expect(draft?.selectedResultIds).toEqual(['r1']); // still saved
+      expect(mockUpsertAthleteProfile).not.toHaveBeenCalled();
+      expect(mockFetchRaceDetail).not.toHaveBeenCalled();
+      await act(async () => ui.unmount());
+    });
+
+    it('"Skip" goes to the app, imports nothing, and clears the draft', async () => {
+      const ui = await signInToExistingAccount();
+      await press(ui, 'Skip');
+      await waitFor(() => expect(ui.getByTestId('phase-probe').props.children).toBe('app'));
+      expect(mockUpsertAthleteProfile).not.toHaveBeenCalled();
+      expect(mockFetchRaceDetail).not.toHaveBeenCalled();
+      expect(await loadOnboardingDraft()).toBeNull();
+      await act(async () => ui.unmount());
+    });
+
+    it('"Review selected races" shows the selections; importing adds only races, leaving the profile and completion time alone', async () => {
+      const ui = await signInToExistingAccount();
+      await press(ui, 'Review selected races');
+      await waitFor(() => expect(ui.getByText('Review your selected races')).toBeTruthy());
+      expect(ui.queryByLabelText('Search again')).toBeNull();
+      await press(ui, 'Add 1 races');
+      await waitFor(() => expect(mockFetchRaceDetail).toHaveBeenCalledWith('r1', 'a1', 'M35-39'));
+      expect(mockUpsertAthleteProfile).not.toHaveBeenCalled(); // never overwrites racing name / birth year
+      expect(mockMarkOnboardingComplete).not.toHaveBeenCalled(); // never rewrites the completion time
+      await act(async () => ui.unmount());
+    });
+
+    it('reviewing can be backed out of without importing anything', async () => {
+      const ui = await signInToExistingAccount();
+      await press(ui, 'Review selected races');
+      await waitFor(() => expect(ui.getByText('Review your selected races')).toBeTruthy());
+      await press(ui, 'Back');
+      await waitFor(() => expect(ui.getByText('Welcome back.')).toBeTruthy());
+      expect(mockFetchRaceDetail).not.toHaveBeenCalled();
+      await act(async () => ui.unmount());
+    });
+
+    it('does not even ask when every selected race is already in the account: straight to the app', async () => {
+      mockFetchOnboardingCompletedAt.mockResolvedValue('2026-01-01T00:00:00Z');
+      mockFetchImported.mockResolvedValue(new Set(['r1']));
+      mockSignInWithProvider.mockResolvedValue({ status: 'success', userId: 'existing-user' });
+      const ui = await openSaveStepWithPendingDraft();
+      await press(ui, 'Sign in with Google');
+      await waitFor(() => expect(ui.getByTestId('phase-probe').props.children).toBe('app'));
+      expect(ui.queryByText('Welcome back.')).toBeNull();
+      expect(mockUpsertAthleteProfile).not.toHaveBeenCalled();
+      await act(async () => ui.unmount());
+    });
   });
 
   it('keeps the email path working from the same screen', async () => {

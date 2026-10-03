@@ -52,10 +52,12 @@ const googleIosUrlScheme =
     : null;
 const googleEnabled = Boolean(features.googleSignIn && googleIosUrlScheme && googleWebClientId);
 if (features.googleSignIn && !googleEnabled) {
-  console.warn(
-    `[app.config] ${variant}: googleSignIn is on but config/environments.json has no google.iosClientId/webClientId yet, ` +
-      'so Google sign-in is left out of this build.',
-  );
+  const message =
+    `${variant}: googleSignIn is on in config/environments.json but google.iosClientId/webClientId are missing or malformed, ` +
+    'so Google sign-in cannot be included in this build.';
+  // A production build must never silently ship without a feature the release configuration says is on.
+  if (variant === 'production') throw new Error(`[app.config] ${message}`);
+  console.warn(`[app.config] ${message}`);
 }
 
 // Expo auto-applies the config plugins of installed packages (expo-apple-authentication adds the Sign in with

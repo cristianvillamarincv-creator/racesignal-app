@@ -9,16 +9,17 @@ import { PROVIDER_LABEL } from '@/lib/socialAuthTypes';
  *  - Pending race selections are written to the draft BEFORE the provider sheet opens, exactly like the
  *    email path, so nothing is lost if the sheet is cancelled or fails.
  *  - Cancelling is not an error: nothing changes, nothing is shown.
- *  - An account that already finished onboarding (a returning athlete, including one Supabase linked to
- *    this provider by verified email) always goes to Stats via resumeReturningUser, which discards the
- *    draft rather than importing a second race list over their existing profile.
- *  - A brand-new account runs the normal onboarding import from the saved draft.
+ *  - From "Already have an account? Sign in" the athlete always goes the returning-user way (Stats, or
+ *    onboarding if that account never finished it).
+ *  - Otherwise the saved draft is resumed. That is where an account that ALREADY finished onboarding (for
+ *    example one Supabase linked to this provider by verified email) is recognised: its selections are kept and
+ *    the athlete chooses "Review selected races" or "Skip", and nothing is imported over the existing profile
+ *    (see OnboardingFlow.resumeFromDraftAndImport). A brand-new account runs the normal onboarding import.
  */
 export interface SocialFlowDeps {
   isReturningUserFlow: boolean;
   persistDraft: () => Promise<void>;
   signIn: (provider: SocialProvider) => Promise<SocialSignInResult>;
-  fetchOnboardingCompletedAt: (userId: string) => Promise<string | null>;
   resumeReturningUser: (userId: string) => Promise<void>;
   resumeFromDraftAndImport: (userId: string) => Promise<void>;
 }
@@ -35,8 +36,7 @@ export async function runSocialSignIn(provider: SocialProvider, deps: SocialFlow
   if (result.status === 'error') return { kind: 'error', message: result.message };
 
   try {
-    const completedAt = deps.isReturningUserFlow ? null : await deps.fetchOnboardingCompletedAt(result.userId);
-    if (deps.isReturningUserFlow || completedAt) {
+    if (deps.isReturningUserFlow) {
       await deps.resumeReturningUser(result.userId);
     } else {
       await deps.resumeFromDraftAndImport(result.userId);

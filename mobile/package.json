@@ -54,7 +54,8 @@
     "lint": "eslint .",
     "test": "jest",
     "start:dev": "APP_VARIANT=development expo start --dev-client",
-    "start:go": "APP_VARIANT=development expo start --go"
+    "start:go": "APP_VARIANT=development expo start --go",
+    "release:config": "node scripts/release-config-summary.js"
   },
   "private": true,
   "expo": {

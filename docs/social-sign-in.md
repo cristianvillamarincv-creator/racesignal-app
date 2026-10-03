@@ -73,14 +73,17 @@ Expo auto-applies the config plugins of any installed package (`expo-apple-authe
 
 A separate, explicit release step with its own ordered checklist: `docs/release-1.1-checklist.md` (release configuration flags, `npm run release:config`, Google/Apple/Supabase/App Store steps, verification, rollback). Production is off today and nothing in it has been done.
 
-## The system prompt: "RaceSignalDev wants to use sjmixferxnkwbzkcofnp.supabase.co to sign in"
+## Accepted for version 1.1: Google through browser OAuth (native Google sign-in deferred)
 
-That is iOS's standard confirmation for any app that signs in through a web session (`ASWebAuthenticationSession`), naming the domain the session opens. Google sign-in now opens Supabase's OAuth URL, so the domain is the Supabase project's. Browser OAuth is the **only** Google flow now, not a fallback: it replaced the native ID-token flow because Supabase rejected that flow's token (nonce, see above), and the native flow cannot be made to work with the installed build without either turning "Skip nonce check" on or changing native code.
+**Decision (owner, 2026-10-03):** version 1.1 ships Google sign-in through Supabase's browser OAuth flow. Native Google sign-in is **deferred**. "Skip nonce check" stays **off**. Apple stays native.
 
-- The native Google SDK also uses `ASWebAuthenticationSession`, so it shows the same prompt, naming `google.com` instead. The prompt is not avoidable with the native flow either.
-- The domain cannot be masked, and Supabase custom domains are a paid add-on (not used).
-- `preferEphemeralSession` would suppress the prompt, but then Google would never see the browser's existing sessions (every sign-in would type the password again, no autofill or passkeys), so it is not used.
-- A native flow that keeps "Skip nonce check" off needs one native change: GoogleSignIn-iOS 9 accepts a custom nonce (`signIn(withPresenting:hint:additionalScopes:nonce:)`), but the free React Native library does not expose it, so it means a small patch to that library and **one native rebuild** (or the paid library). It would change the prompt's domain to `google.com`, nothing more. Not done; a product decision.
+Why: the native Google ID-token flow failed on the first device test because the token carried a nonce that neither the free library nor the app could supply (see above), and Supabase requires the request and token nonces to agree. A native flow with the check left on needs a small patch to the Google library (GoogleSignIn-iOS 9 accepts a custom nonce, the free React Native wrapper does not expose it) and one native rebuild, or the paid library. Neither is part of 1.1.
+
+What the athlete sees: a standard iOS confirmation, "RaceSignalDev wants to use sjmixferxnkwbzkcofnp.supabase.co to sign in" (the production app will name the production project's domain). That is iOS's normal prompt for any web sign-in session (`ASWebAuthenticationSession`); the native Google SDK uses the same session type and prompt, naming `google.com` instead. Consequences:
+- Browser OAuth is the **only** Google flow, not a fallback.
+- The domain is not masked. Supabase custom domains are a paid add-on and are not used.
+- `preferEphemeralSession` would suppress the prompt but Google would no longer see the browser's existing sessions (password retyped every time, no autofill or passkeys), so it is not used.
+- Revisit native Google sign-in after 1.1 if the prompt's domain matters more than the extra native work.
 
 ## Same-email accounts: what we found for cristian.villamarin.cv@gmail.com (2026-10-03, read-only)
 

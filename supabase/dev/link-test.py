@@ -197,20 +197,32 @@ def snapshot(email: str):
     print(json.dumps({k: snap[k] for k in ("user_id", "identities", "race_count", "signal_free_usage")}, indent=2))
 
 
-def verify(email: str, expect_new: str):
+def verify(email: str, expect_new: str, signal_delta: int = 0):
     path = snapshot_path(email)
     if not path.exists():
         sys.exit("no snapshot for this address; run `snapshot` before the sign-in you are testing")
     before, after = json.loads(path.read_text()), state(email)
+    # RevenueCat identity. The app logs in with the Supabase user id (Purchases.logIn). The FIRST app login after a
+    # prepared account's customer was created merges the phone's anonymous RevenueCat id into that customer, so its
+    # `original_app_user_id` legitimately changes from the Supabase id to the anonymous id once; every later login
+    # must leave it alone. Entitlements and subscriptions must never change here.
+    rb, ra = before["revenuecat"], after["revenuecat"]
+    found = "error" not in ra
+    same_products = found and (rb.get("active_entitlements"), rb.get("subscriptions")) == (ra.get("active_entitlements"), ra.get("subscriptions"))
+    first_login_merge = rb.get("original_app_user_id") == before["user_id"] and str(ra.get("original_app_user_id", "")).startswith("$RCAnonymousID:")
+    same_original = rb.get("original_app_user_id") == ra.get("original_app_user_id")
+    rc_ok = found and same_products and (same_original or first_login_merge)
+    rc_label = ("RevenueCat customer resolves under the Supabase user id, entitlements/subscriptions unchanged, original id "
+                + ("unchanged" if same_original else "changed once by the expected first-login anonymous-id merge" if first_login_merge else "CHANGED UNEXPECTEDLY"))
     checks = [
         ("same Supabase user id", before["user_id"] == after["user_id"]),
         ("every earlier sign-in method is still attached", set(before["identities"]) <= set(after["identities"])),
         ("exactly one account for this address", True),  # find_user already matched a single account by address
         ("same races (count and ids)", (before["race_count"], before["race_ids_sha"]) == (after["race_count"], after["race_ids_sha"])),
         ("profile untouched (racing name, birth year, onboarding completion time)", before["profile"] == after["profile"]),
-        ("Signal free usage unchanged", before["signal_free_usage"] == after["signal_free_usage"]),
-        ("RevenueCat customer is the Supabase user id and unchanged",
-         after["revenuecat"].get("original_app_user_id") == after["user_id"] and before["revenuecat"] == after["revenuecat"]),
+        (f"Signal free usage {before['signal_free_usage']} -> {after['signal_free_usage']} (expected change: {signal_delta:+d})",
+         after["signal_free_usage"] == before["signal_free_usage"] + signal_delta),
+        (rc_label, rc_ok),
     ]
     if expect_new == "google":
         added = "google" in after["identities"] and "google" not in before["identities"]
@@ -233,11 +245,12 @@ if __name__ == "__main__":
     parser.add_argument("--yes", action="store_true", help="required for reset")
     parser.add_argument("--email", required=True)
     parser.add_argument("--expect-new", choices=["google", "email", "none"], default="google")
+    parser.add_argument("--signal-delta", type=int, default=0, help="intentional change in free Signal asks used since the snapshot")
     args = parser.parse_args()
     if args.command == "reset" and not args.yes:
         sys.exit("reset deletes a development account; re-run with --yes")
     if args.command == "verify":
-        verify(args.email, args.expect_new)
+        verify(args.email, args.expect_new, args.signal_delta)
     elif args.command == "reset":
         reset(args.email)
     else:

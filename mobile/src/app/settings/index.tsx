@@ -282,6 +282,12 @@ export default function SettingsScreen() {
               ))
             )}
             <HairlineRule color={palette.hairline} />
+            {/* The account-linking guidance that used to sit on the sign-in screen: an Apple "Hide My Email"
+                address, or any email that differs from the one you signed up with, is never matched
+                automatically, so existing athletes connect the provider here instead of creating a second account. */}
+            <Text style={styles.planDetail}>
+              Use Apple’s Hide My Email, or a different email on Apple or Google? Connect it here so it signs in to this same account.
+            </Text>
             {connectFeedback.kind === 'error' ? <Text style={styles.deleteErrorText}>{connectFeedback.text}</Text> : null}
             {connectFeedback.kind === 'notice' ? <Text style={styles.planDetail}>{connectFeedback.text}</Text> : null}
           </View>

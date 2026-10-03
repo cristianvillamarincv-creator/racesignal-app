@@ -42,23 +42,9 @@ const env = environments[variant];
 // Native sign-in / push configuration, gated per variant by config/environments.json `features` so the
 // production build is unchanged until the owner turns a feature on for a release.
 const features = env.features ?? {};
-const googleIosClientId = env.google?.iosClientId ?? null;
-const googleWebClientId = env.google?.webClientId ?? null;
-// Google's iOS URL scheme is the iOS client ID reversed ("123-abc.apps.googleusercontent.com" ->
-// "com.googleusercontent.apps.123-abc").
-const googleIosUrlScheme =
-  googleIosClientId && googleIosClientId.endsWith('.apps.googleusercontent.com')
-    ? `com.googleusercontent.apps.${googleIosClientId.replace('.apps.googleusercontent.com', '')}`
-    : null;
-const googleEnabled = Boolean(features.googleSignIn && googleIosUrlScheme && googleWebClientId);
-if (features.googleSignIn && !googleEnabled) {
-  const message =
-    `${variant}: googleSignIn is on in config/environments.json but google.iosClientId/webClientId are missing or malformed, ` +
-    'so Google sign-in cannot be included in this build.';
-  // A production build must never silently ship without a feature the release configuration says is on.
-  if (variant === 'production') throw new Error(`[app.config] ${message}`);
-  console.warn(`[app.config] ${message}`);
-}
+// Google sign-in uses Supabase's OAuth redirect flow: no native module, no URL scheme, and the app never sees
+// a Google client ID (the web client ID and secret live in the Supabase project; see docs/social-sign-in.md).
+const googleEnabled = Boolean(features.googleSignIn);
 
 // Expo auto-applies the config plugins of installed packages (expo-apple-authentication adds the Sign in with
 // Apple entitlement, expo-notifications adds aps-environment) even when app.json never lists them. A variant
@@ -87,7 +73,6 @@ function withoutDisabledEntitlements(expo) {
 
 function withNativeFeatures(expo) {
   const plugins = [...(expo.plugins ?? [])];
-  if (googleEnabled) plugins.push(['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }]);
   // expo-notifications: entitlement only (aps-environment). No background mode, no permission prompt, no
   // token registration anywhere in the app yet.
   if (features.pushEntitlement) plugins.push('expo-notifications');
@@ -102,8 +87,6 @@ function withNativeFeatures(expo) {
       auth: {
         apple: Boolean(features.appleSignIn),
         google: googleEnabled,
-        googleWebClientId: googleEnabled ? googleWebClientId : null,
-        googleIosClientId: googleEnabled ? googleIosClientId : null,
       },
     },
   };

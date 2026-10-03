@@ -1,5 +1,5 @@
 {
-  "_comment": "Non-secret identifiers only. The development Supabase project ref is a public identifier (it appears in the project URL). Production's ref is intentionally not listed here: guards only need to recognize the DEV project. `features` gates native sign-in/push configuration per variant: production stays all-false until the owner enables it for a release (and fills in the production Google client IDs). Google OAuth client IDs are public identifiers, not secrets.",
+  "_comment": "Non-secret identifiers only. The development Supabase project ref is a public identifier (it appears in the project URL). Production's ref is intentionally not listed here: guards only need to recognize the DEV project. `features` gates native sign-in/push configuration per variant: production stays all-false until the owner enables it for a release. `google.webClientId` is the Google OAuth Web client ID for that Supabase project; it is read only by supabase/dev/configure-auth.py, never by the app.",
   "development": {
     "appVariant": "development",
     "displayName": "RaceSignal Dev",
@@ -12,8 +12,7 @@
       "pushEntitlement": true
     },
     "google": {
-      "webClientId": "124971644702-0urm9vu8emtmjf8ucqni73em6ms656np.apps.googleusercontent.com",
-      "iosClientId": "124971644702-auf2ma467669l89l89an4ccbl3qmpska.apps.googleusercontent.com"
+      "webClientId": "124971644702-0urm9vu8emtmjf8ucqni73em6ms656np.apps.googleusercontent.com"
     }
   },
   "production": {
@@ -27,8 +26,7 @@
       "pushEntitlement": false
     },
     "google": {
-      "webClientId": null,
-      "iosClientId": null
+      "webClientId": null
     }
   }
 }

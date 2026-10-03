@@ -1,6 +1,8 @@
 import { isAuthApiError, isAuthRetryableFetchError } from '@supabase/supabase-js';
+import * as WebBrowser from 'expo-web-browser';
 
-import { hasAppleAuthenticationNative, hasGoogleSignInNative } from '@/lib/nativeModules';
+import { getAuthRedirectUri } from '@/lib/authRedirect';
+import { hasAppleAuthenticationNative } from '@/lib/nativeModules';
 import { createNoncePair } from '@/lib/nonce';
 import {
   PROVIDER_LABEL,
@@ -15,9 +17,20 @@ import { supabase } from '@/lib/supabaseClient';
 import { withTimeout } from '@/lib/timeout';
 
 /**
- * Native Sign in with Apple / Google, exchanged for a Supabase session with `signInWithIdToken`, and
- * explicit identity linking with `linkIdentity({ provider, token })` (installed @supabase/auth-js
- * 2.112.4 POSTs /token?grant_type=id_token with `link_identity: true` and the CURRENT session's JWT).
+ * Sign in with Apple (native) and Google (Supabase OAuth), plus explicit identity linking.
+ *
+ * APPLE: the native system sheet, exchanged with `signInWithIdToken({ provider: 'apple', token, nonce })` (and
+ * `linkIdentity` with the same arguments to connect Apple to the signed-in account). We control the nonce.
+ *
+ * GOOGLE: Supabase's OAuth redirect flow (`signInWithOAuth` / `linkIdentity` with `skipBrowserRedirect`, an
+ * in-app browser sheet, and the PKCE `?code=` exchange that magic links already use). It replaced a native
+ * Google Sign-In ID-token flow that Supabase rejected on the first real device test: GoogleSignIn-iOS puts a
+ * `nonce` claim in the ID token that the free React Native library neither lets us choose nor reveals, and
+ * Supabase requires the request nonce and the token nonce to both exist (or both be absent), so every sign-in
+ * failed with "Passed nonce and nonce in id_token should either both exist or not". The only ways to keep that
+ * native flow were Supabase's "Skip nonce check" (rejected: it removes replay protection) or the paid library.
+ * The OAuth flow has no client-side token handling at all, so there is no nonce to get wrong, and "Skip nonce
+ * check" stays off.
  *
  * Account rules (product decisions, see docs/social-sign-in.md):
  *  - No custom merge logic and no data migration, ever. A provider either (a) signs in to the account
@@ -30,32 +43,42 @@ import { withTimeout } from '@/lib/timeout';
  *  - The provider's profile name is never requested or used (the racing name from discovery stays the
  *    only name source).
  *
- * Native modules are imported lazily so a binary without them (an old dev client, Expo Go) reports the
- * provider as unavailable instead of crashing the app at launch.
+ * Logging: stage names and error codes only. Never tokens, codes, secrets, emails, or names.
+ *
+ * The Apple SDK is imported lazily and only when the binary has its native module, so an older dev client
+ * reports Apple as unavailable instead of crashing the app at launch.
  */
 export type { AppleRevocationCodeResult, ConnectedProvider, LinkProviderResult, SocialProvider, SocialSignInResult };
 export { PROVIDER_LABEL };
 
 const AUTH_CALL_TIMEOUT_MS = 20000;
 
-interface ProviderToken {
-  idToken: string;
-  /** Raw nonce to hand to Supabase. Undefined when the provider token carries no nonce claim. */
-  nonce?: string;
-  /** Apple only: single-use code that can be exchanged for a revocable refresh token. */
-  authorizationCode?: string | null;
-  /** Apple only: stable Apple user id. */
-  appleUser?: string;
-}
+type Stage = 'start' | 'sheet' | 'redirect' | 'exchange' | 'supabase' | 'session';
 
-type TokenOutcome = { kind: 'token'; token: ProviderToken } | { kind: 'cancelled' } | { kind: 'unavailable' } | { kind: 'error'; message: string };
+/** The one logging path: a provider, the stage that failed, and an error CODE. Nothing else. */
+function logFailure(provider: SocialProvider, stage: Stage, code?: string): void {
+  console.warn(`[SocialAuth] ${provider} failed at stage=${stage}${code ? ` code=${code}` : ''}`);
+}
 
 function errorCode(err: unknown): string | undefined {
   const code = (err as { code?: unknown } | null)?.code;
   return typeof code === 'string' ? code : undefined;
 }
 
-async function getAppleToken(options: { withNonce: boolean }): Promise<TokenOutcome> {
+// ---------------------------------------------------------------------------------------------------------
+// Apple (native ID token)
+// ---------------------------------------------------------------------------------------------------------
+
+interface AppleToken {
+  idToken: string;
+  nonce?: string;
+  authorizationCode?: string | null;
+  appleUser?: string;
+}
+
+type AppleOutcome = { kind: 'token'; token: AppleToken } | { kind: 'cancelled' } | { kind: 'unavailable' } | { kind: 'error'; message: string };
+
+async function getAppleToken(options: { withNonce: boolean }): Promise<AppleOutcome> {
   if (!getSocialAuthConfig().apple || !hasAppleAuthenticationNative()) return { kind: 'unavailable' };
   let Apple: typeof import('expo-apple-authentication');
   try {
@@ -63,7 +86,7 @@ async function getAppleToken(options: { withNonce: boolean }): Promise<TokenOutc
     Apple = require('expo-apple-authentication');
     if (!(await Apple.isAvailableAsync())) return { kind: 'unavailable' };
   } catch (err) {
-    console.warn('[SocialAuth] Apple module unavailable in this build:', (err as Error)?.message);
+    logFailure('apple', 'start', errorCode(err) ?? 'module_unavailable');
     return { kind: 'unavailable' };
   }
   try {
@@ -73,7 +96,10 @@ async function getAppleToken(options: { withNonce: boolean }): Promise<TokenOutc
       requestedScopes: [Apple.AppleAuthenticationScope.EMAIL],
       ...(nonce ? { nonce: nonce.hashed } : {}),
     });
-    if (!credential.identityToken) return { kind: 'error', message: 'Apple did not return a sign-in token. Please try again.' };
+    if (!credential.identityToken) {
+      logFailure('apple', 'sheet', 'no_identity_token');
+      return { kind: 'error', message: 'Apple did not return a sign-in token. Please try again.' };
+    }
     return {
       kind: 'token',
       token: {
@@ -86,54 +112,86 @@ async function getAppleToken(options: { withNonce: boolean }): Promise<TokenOutc
   } catch (err) {
     const code = errorCode(err);
     if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') return { kind: 'cancelled' };
-    console.warn('[SocialAuth] Apple sign-in failed:', code ?? (err as Error)?.message);
+    logFailure('apple', 'sheet', code);
     return { kind: 'error', message: 'Apple sign-in did not complete. Please try again.' };
   }
 }
 
-let googleConfigured = false;
+// ---------------------------------------------------------------------------------------------------------
+// Google (Supabase OAuth redirect flow)
+// ---------------------------------------------------------------------------------------------------------
 
-async function getGoogleToken(): Promise<TokenOutcome> {
-  const config = getSocialAuthConfig();
-  if (!config.google || !config.googleWebClientId || !config.googleIosClientId || !hasGoogleSignInNative()) return { kind: 'unavailable' };
-  let Google: typeof import('@react-native-google-signin/google-signin');
+type GoogleRedirect =
+  | { kind: 'code'; code: string }
+  | { kind: 'cancelled' }
+  | { kind: 'conflict' }
+  | { kind: 'unavailable' }
+  | { kind: 'error'; message: string };
+
+/** Query string AND fragment: Supabase puts an OAuth failure in whichever the flow uses. */
+function readRedirectParams(url: string): URLSearchParams {
+  const params = new URLSearchParams();
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose: see the file header
-    Google = require('@react-native-google-signin/google-signin');
-    if (!googleConfigured) {
-      Google.GoogleSignin.configure({
-        webClientId: config.googleWebClientId,
-        iosClientId: config.googleIosClientId,
-        scopes: ['email', 'profile'],
-      });
-      googleConfigured = true;
-    }
-  } catch (err) {
-    console.warn('[SocialAuth] Google module unavailable in this build:', (err as Error)?.message);
-    return { kind: 'unavailable' };
+    const parsed = new URL(url);
+    parsed.searchParams.forEach((value, key) => params.set(key, value));
+    const fragment = parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash;
+    new URLSearchParams(fragment).forEach((value, key) => {
+      if (!params.has(key)) params.set(key, value);
+    });
+  } catch {
+    // An unparseable return URL yields no params, which is reported as a generic failure by the caller.
   }
+  return params;
+}
+
+/**
+ * Opens the OAuth URL Supabase produced and reads what comes back. Returns the PKCE `code`, or a classified
+ * failure. The provider's own error text is never shown to the athlete or logged; only its error code is.
+ */
+async function openGoogleSheet(url: string): Promise<GoogleRedirect> {
+  const redirectTo = getAuthRedirectUri();
+  let result: WebBrowser.WebBrowserAuthSessionResult;
   try {
-    const response = await Google.GoogleSignin.signIn();
-    if (response.type === 'cancelled') return { kind: 'cancelled' };
-    const idToken = response.data.idToken;
-    if (!idToken) return { kind: 'error', message: 'Google did not return a sign-in token. Please try again.' };
-    // No nonce: the free Google Sign-In library has no nonce parameter on iOS (it is a paid feature), so the
-    // ID token carries no nonce claim. Supabase accepts "nonce absent in both the token and the request"
-    // without the "Skip nonce check" setting, which therefore stays OFF. If a future SDK adds a nonce claim
-    // on its own, Supabase rejects the token ("should either both exist or not") rather than weakening
-    // anything, and that surfaces as a normal sign-in error.
-    return { kind: 'token', token: { idToken } };
+    result = await WebBrowser.openAuthSessionAsync(url, redirectTo);
   } catch (err) {
-    const code = errorCode(err);
-    if (code === Google.statusCodes.SIGN_IN_CANCELLED) return { kind: 'cancelled' };
-    console.warn('[SocialAuth] Google sign-in failed:', code ?? (err as Error)?.message);
+    logFailure('google', 'sheet', errorCode(err));
     return { kind: 'error', message: 'Google sign-in did not complete. Please try again.' };
   }
+  if (result.type === 'cancel' || result.type === 'dismiss') return { kind: 'cancelled' };
+  if (result.type !== 'success' || !result.url) {
+    logFailure('google', 'sheet', result.type);
+    return { kind: 'error', message: 'Google sign-in did not complete. Please try again.' };
+  }
+
+  const params = readRedirectParams(result.url);
+  const failureCode = params.get('error_code') ?? params.get('error');
+  if (failureCode) {
+    logFailure('google', 'redirect', failureCode);
+    if (failureCode === 'access_denied') return { kind: 'cancelled' }; // the athlete declined at Google
+    if (failureCode === 'identity_already_exists') return { kind: 'conflict' };
+    if (failureCode === 'manual_linking_disabled') return { kind: 'unavailable' };
+    if (failureCode === 'signup_disabled' || failureCode === 'provider_disabled' || failureCode === 'oauth_provider_not_supported') {
+      return { kind: 'error', message: 'Google sign-in isn’t available right now. Please use your email instead.' };
+    }
+    return { kind: 'error', message: 'Couldn’t sign in with Google. Please try again, or use your email.' };
+  }
+  const code = params.get('code');
+  if (!code) {
+    logFailure('google', 'redirect', 'no_code');
+    return { kind: 'error', message: 'Couldn’t sign in with Google. Please try again, or use your email.' };
+  }
+  return { kind: 'code', code };
 }
 
-function getProviderToken(provider: SocialProvider): Promise<TokenOutcome> {
-  return provider === 'apple' ? getAppleToken({ withNonce: true }) : getGoogleToken();
-}
+const GOOGLE_OAUTH_OPTIONS = {
+  skipBrowserRedirect: true,
+  // Let the athlete pick which Google account to use instead of silently reusing the last one.
+  queryParams: { prompt: 'select_account' },
+} as const;
+
+// ---------------------------------------------------------------------------------------------------------
+// Sign in
+// ---------------------------------------------------------------------------------------------------------
 
 /** Never includes tokens, emails, or raw provider payloads. */
 function describeSupabaseAuthError(provider: SocialProvider, err: unknown): string {
@@ -146,27 +204,84 @@ function describeSupabaseAuthError(provider: SocialProvider, err: unknown): stri
   return `Couldn’t sign in with ${label}. Please try again, or use your email.`;
 }
 
-export async function signInWithProvider(provider: SocialProvider): Promise<SocialSignInResult> {
-  const outcome = await getProviderToken(provider);
+async function signInWithGoogle(): Promise<SocialSignInResult> {
+  if (!getSocialAuthConfig().google) return { status: 'unavailable' };
+
+  let url: string;
+  try {
+    const { data, error } = await withTimeout(
+      supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: getAuthRedirectUri(), ...GOOGLE_OAUTH_OPTIONS } }),
+      AUTH_CALL_TIMEOUT_MS,
+      'signInWithOAuth',
+    );
+    if (error || !data?.url) {
+      logFailure('google', 'start', errorCode(error) ?? error?.name);
+      return { status: 'error', message: describeSupabaseAuthError('google', error) };
+    }
+    url = data.url;
+  } catch {
+    logFailure('google', 'start', 'timeout');
+    return { status: 'error', message: 'Sign-in is taking longer than expected. Check your connection and try again.' };
+  }
+
+  const redirect = await openGoogleSheet(url);
+  if (redirect.kind === 'cancelled') return { status: 'cancelled' };
+  if (redirect.kind === 'unavailable') return { status: 'unavailable' };
+  if (redirect.kind === 'conflict') return { status: 'error', message: 'Couldn’t sign in with Google. Please try again, or use your email.' };
+  if (redirect.kind === 'error') return { status: 'error', message: redirect.message };
+
+  try {
+    const { data, error } = await withTimeout(supabase.auth.exchangeCodeForSession(redirect.code), AUTH_CALL_TIMEOUT_MS, 'exchangeCodeForSession');
+    if (error || !data.session) {
+      logFailure('google', 'exchange', errorCode(error) ?? error?.name);
+      return { status: 'error', message: describeSupabaseAuthError('google', error) };
+    }
+    return { status: 'success', userId: data.session.user.id };
+  } catch {
+    logFailure('google', 'exchange', 'timeout');
+    return { status: 'error', message: 'Sign-in is taking longer than expected. Check your connection and try again.' };
+  }
+}
+
+async function signInWithApple(): Promise<SocialSignInResult> {
+  const outcome = await getAppleToken({ withNonce: true });
   if (outcome.kind === 'cancelled') return { status: 'cancelled' };
   if (outcome.kind === 'unavailable') return { status: 'unavailable' };
   if (outcome.kind === 'error') return { status: 'error', message: outcome.message };
 
   try {
     const { data, error } = await withTimeout(
-      supabase.auth.signInWithIdToken({ provider, token: outcome.token.idToken, nonce: outcome.token.nonce }),
+      supabase.auth.signInWithIdToken({ provider: 'apple', token: outcome.token.idToken, nonce: outcome.token.nonce }),
       AUTH_CALL_TIMEOUT_MS,
       'signInWithIdToken',
     );
     if (error || !data.session) {
-      console.warn(`[SocialAuth] signInWithIdToken(${provider}) failed:`, errorCode(error) ?? error?.name, error?.message);
-      return { status: 'error', message: describeSupabaseAuthError(provider, error) };
+      logFailure('apple', 'supabase', errorCode(error) ?? error?.name);
+      return { status: 'error', message: describeSupabaseAuthError('apple', error) };
     }
     return { status: 'success', userId: data.session.user.id };
-  } catch (err) {
-    console.warn(`[SocialAuth] signInWithIdToken(${provider}) did not complete:`, (err as Error)?.message);
+  } catch {
+    logFailure('apple', 'supabase', 'timeout');
     return { status: 'error', message: 'Sign-in is taking longer than expected. Check your connection and try again.' };
   }
+}
+
+export function signInWithProvider(provider: SocialProvider): Promise<SocialSignInResult> {
+  return provider === 'apple' ? signInWithApple() : signInWithGoogle();
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Link (Settings -> Connected accounts)
+// ---------------------------------------------------------------------------------------------------------
+
+function conflictResult(provider: SocialProvider): LinkProviderResult {
+  const label = PROVIDER_LABEL[provider];
+  return {
+    status: 'conflict',
+    message:
+      `That ${label} account is already connected to a different RaceSignal account, so nothing was changed on either account. ` +
+      `To use that account, sign out and sign in with ${label}. To keep this one, connect a different ${label} account.`,
+  };
 }
 
 /**
@@ -181,41 +296,81 @@ export async function linkProvider(provider: SocialProvider): Promise<LinkProvid
   const before = sessionData.session;
   if (!before) return { status: 'error', message: 'Sign in first, then connect your account.' };
 
-  const outcome = await getProviderToken(provider);
+  // Defensive, for both providers: never silently replace the authenticated account.
+  const restoreIfDifferentUser = async (userId: string | undefined): Promise<LinkProviderResult | null> => {
+    if (userId === before.user.id) return null;
+    console.error(`[SocialAuth] ${provider} link returned a different user id; restoring the previous session.`);
+    await supabase.auth.setSession({ access_token: before.access_token, refresh_token: before.refresh_token });
+    return { status: 'error', message: `Couldn’t connect ${label}. Your account was not changed.` };
+  };
+
+  if (provider === 'google') {
+    if (!getSocialAuthConfig().google) return { status: 'unavailable' };
+    let url: string;
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.linkIdentity({ provider: 'google', options: { redirectTo: getAuthRedirectUri(), ...GOOGLE_OAUTH_OPTIONS } }),
+        AUTH_CALL_TIMEOUT_MS,
+        'linkIdentity',
+      );
+      if (error || !data?.url) {
+        const code = errorCode(error);
+        logFailure('google', 'start', code ?? error?.name);
+        if (code === 'identity_already_exists') return conflictResult('google');
+        if (code === 'manual_linking_disabled') return { status: 'unavailable' };
+        return { status: 'error', message: `Couldn’t connect ${label}. Please try again.` };
+      }
+      url = data.url;
+    } catch {
+      logFailure('google', 'start', 'timeout');
+      return { status: 'error', message: `Couldn’t connect ${label}. Check your connection and try again.` };
+    }
+
+    const redirect = await openGoogleSheet(url);
+    if (redirect.kind === 'cancelled') return { status: 'cancelled' };
+    if (redirect.kind === 'unavailable') return { status: 'unavailable' };
+    if (redirect.kind === 'conflict') return conflictResult('google');
+    if (redirect.kind === 'error') return { status: 'error', message: `Couldn’t connect ${label}. Please try again.` };
+
+    try {
+      const { data, error } = await withTimeout(supabase.auth.exchangeCodeForSession(redirect.code), AUTH_CALL_TIMEOUT_MS, 'exchangeCodeForSession');
+      if (error || !data.session) {
+        const code = errorCode(error);
+        logFailure('google', 'exchange', code ?? error?.name);
+        if (code === 'identity_already_exists') return conflictResult('google');
+        return { status: 'error', message: `Couldn’t connect ${label}. Please try again.` };
+      }
+      return (await restoreIfDifferentUser(data.session.user.id)) ?? { status: 'success' };
+    } catch {
+      logFailure('google', 'exchange', 'timeout');
+      return { status: 'error', message: `Couldn’t connect ${label}. Check your connection and try again.` };
+    }
+  }
+
+  const outcome = await getAppleToken({ withNonce: true });
   if (outcome.kind === 'cancelled') return { status: 'cancelled' };
   if (outcome.kind === 'unavailable') return { status: 'unavailable' };
   if (outcome.kind === 'error') return { status: 'error', message: outcome.message };
 
   try {
     const { data, error } = await withTimeout(
-      supabase.auth.linkIdentity({ provider, token: outcome.token.idToken, nonce: outcome.token.nonce }),
+      supabase.auth.linkIdentity({ provider: 'apple', token: outcome.token.idToken, nonce: outcome.token.nonce }),
       AUTH_CALL_TIMEOUT_MS,
       'linkIdentity',
     );
     if (error) {
       const code = errorCode(error);
-      console.warn(`[SocialAuth] linkIdentity(${provider}) failed:`, code ?? error.name, error.message);
-      if (code === 'identity_already_exists') {
-        return {
-          status: 'conflict',
-          message:
-            `That ${label} account is already connected to a different RaceSignal account, so nothing was changed on either account. ` +
-            `To use that account, sign out and sign in with ${label}. To keep this one, connect a different ${label} account.`,
-        };
-      }
+      logFailure('apple', 'supabase', code ?? error.name);
+      if (code === 'identity_already_exists') return conflictResult('apple');
       if (code === 'manual_linking_disabled') return { status: 'unavailable' };
-      return { status: 'error', message: isAuthApiError(error) || isAuthRetryableFetchError(error) ? describeSupabaseAuthError(provider, error) : `Couldn’t connect ${label}. Please try again.` };
+      return {
+        status: 'error',
+        message: isAuthApiError(error) || isAuthRetryableFetchError(error) ? describeSupabaseAuthError('apple', error) : `Couldn’t connect ${label}. Please try again.`,
+      };
     }
-    if (data.user?.id !== before.user.id) {
-      // Should be impossible (the server links to the caller's own user). Defensive: never silently
-      // replace the authenticated account, so put the original session back.
-      console.error('[SocialAuth] linkIdentity returned a different user id; restoring the previous session.');
-      await supabase.auth.setSession({ access_token: before.access_token, refresh_token: before.refresh_token });
-      return { status: 'error', message: `Couldn’t connect ${label}. Your account was not changed.` };
-    }
-    return { status: 'success' };
-  } catch (err) {
-    console.warn(`[SocialAuth] linkIdentity(${provider}) did not complete:`, (err as Error)?.message);
+    return (await restoreIfDifferentUser(data.user?.id)) ?? { status: 'success' };
+  } catch {
+    logFailure('apple', 'supabase', 'timeout');
     return { status: 'error', message: `Couldn’t connect ${label}. Check your connection and try again.` };
   }
 }
@@ -232,8 +387,7 @@ export async function getConnectedProviders(): Promise<ConnectedProvider[] | nul
         email: typeof identityData.email === 'string' ? identityData.email : null,
       };
     });
-  } catch (err) {
-    console.warn('[SocialAuth] getUserIdentities did not complete:', (err as Error)?.message);
+  } catch {
     return null;
   }
 }

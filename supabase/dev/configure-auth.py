@@ -4,8 +4,10 @@
   supabase/dev/configure-auth.py status    # show the relevant dev auth settings (secrets are never printed)
   supabase/dev/configure-auth.py apple     # enable Apple (native ID-token sign-in: the dev bundle ID is the only client ID needed)
                                            # and enable manual linking (needed for Settings -> Connected accounts)
-  supabase/dev/configure-auth.py google    # enable Google with the client IDs from mobile/config/environments.json;
-                                           # prompts silently for the Web client SECRET (never typed into chat or a file)
+  supabase/dev/configure-auth.py google    # enable Google (OAuth redirect flow) with the Web client ID from
+                                           # mobile/config/environments.json; prompts silently for the Web client SECRET
+                                           # (never typed into chat or a file)
+  supabase/dev/configure-auth.py google-id # change ONLY the Google client ID list (the secret stays as it is)
 
 Uses the Supabase CLI login (the token the CLI keeps in the macOS Keychain) against the Management API.
 The target is always the dev ref from mobile/config/environments.json; it refuses to run if that ref is the
@@ -63,17 +65,23 @@ def main():
                        "security_manual_linking_enabled": True})
         show("after")
     elif cmd == "google":
-        web, ios = DEV["google"]["webClientId"], DEV["google"]["iosClientId"]
-        if not web or not ios:
-            sys.exit("set development.google.webClientId and iosClientId in mobile/config/environments.json first")
+        web = DEV["google"]["webClientId"]
+        if not web:
+            sys.exit("set development.google.webClientId in mobile/config/environments.json first")
         secret = getpass.getpass("Paste the Google WEB client secret (input hidden), then press Enter: ").strip()
         if not secret:
             sys.exit("empty secret; aborting")
-        # Web client ID first, then the iOS client ID (Supabase's documented order).
-        call("PATCH", {"external_google_enabled": True, "external_google_client_id": f"{web},{ios}",
+        # Google sign-in uses Supabase's OAuth redirect flow, so only the Web client ID is needed.
+        call("PATCH", {"external_google_enabled": True, "external_google_client_id": web,
                        "external_google_secret": secret, "external_google_skip_nonce_check": False,
                        "security_manual_linking_enabled": True})
         del secret
+        show("after")
+    elif cmd == "google-id":
+        web = DEV["google"]["webClientId"]
+        if not web:
+            sys.exit("set development.google.webClientId in mobile/config/environments.json first")
+        call("PATCH", {"external_google_client_id": web})
         show("after")
     else:
         sys.exit(__doc__)

@@ -102,18 +102,6 @@ describe('app.config.js: native sign-in and push configuration (gated per varian
     return result;
   }
 
-  const withDevGoogle = (ios: string | null, web: string | null) => ({
-    ...envs,
-    development: { ...envs.development, google: { iosClientId: ios, webClientId: web } },
-  });
-
-  it('development: the committed Google client IDs enable the Google plugin with the reversed iOS client ID', () => {
-    const cfg = evaluateWith(envs, dev);
-    expect(cfg.extra.auth).toMatchObject({ google: true });
-    const plugin = cfg.plugins.find((p) => Array.isArray(p) && p[0] === '@react-native-google-signin/google-signin') as [string, { iosUrlScheme: string }];
-    expect(plugin[1].iosUrlScheme).toBe(`com.googleusercontent.apps.${envs.development.google.iosClientId.replace('.apps.googleusercontent.com', '')}`);
-  });
-
   it('development: Apple capability and the push entitlement are configured; no background mode or other notification options', () => {
     const cfg = evaluateWith(envs, dev);
     expect(cfg.ios.usesAppleSignIn).toBe(true);
@@ -122,29 +110,17 @@ describe('app.config.js: native sign-in and push configuration (gated per varian
     expect(cfg.extra.auth).toMatchObject({ apple: true });
   });
 
-  it('development: Google is left out (button hidden, no plugin) until both client IDs exist', () => {
-    const cfg = evaluateWith(withDevGoogle(null, null), dev);
-    expect(cfg.extra.auth).toMatchObject({ google: false, googleIosClientId: null, googleWebClientId: null });
-    expect(cfg.plugins.some((p) => Array.isArray(p) && p[0] === '@react-native-google-signin/google-signin')).toBe(false);
-    expect(evaluateWith(withDevGoogle('123-abc.apps.googleusercontent.com', null), dev).extra.auth).toMatchObject({ google: false });
-  });
-
-  it('development: with both Google client IDs the plugin gets the reversed iOS client ID and the button is enabled', () => {
-    const cfg = evaluateWith(withDevGoogle('123-abc.apps.googleusercontent.com', 'web-1.apps.googleusercontent.com'), dev);
-    expect(cfg.plugins).toContainEqual(['@react-native-google-signin/google-signin', { iosUrlScheme: 'com.googleusercontent.apps.123-abc' }]);
-    expect(cfg.extra.auth).toEqual({
-      apple: true,
-      google: true,
-      googleWebClientId: 'web-1.apps.googleusercontent.com',
-      googleIosClientId: '123-abc.apps.googleusercontent.com',
-    });
+  it('development: Google is a pure feature flag (no plugin, no client IDs in the app); Apple and push come from the flags', () => {
+    const cfg = evaluateWith(envs, dev);
+    expect(cfg.extra.auth).toEqual({ apple: true, google: true });
+    expect(cfg.plugins.some((p) => (Array.isArray(p) ? p[0] : p) === '@react-native-google-signin/google-signin')).toBe(false);
   });
 
   it('production: no Apple capability, no push entitlement, no Google plugin, every provider off (unchanged until the owner enables it)', () => {
     const cfg = evaluateWith(envs, {});
     expect(cfg.ios.usesAppleSignIn).toBeUndefined();
     expect(cfg.plugins).toEqual(['expo-router']);
-    expect(cfg.extra.auth).toEqual({ apple: false, google: false, googleWebClientId: null, googleIosClientId: null });
+    expect(cfg.extra.auth).toEqual({ apple: false, google: false });
   });
 
   it('production flags are ready to flip: turning them on adds the same pieces the development variant has', () => {
@@ -154,24 +130,11 @@ describe('app.config.js: native sign-in and push configuration (gated per varian
     expect(cfg.plugins).toContain('expo-notifications');
   });
 
-  it('production refuses to build with Google switched on but its client IDs missing (never silently ships without it)', () => {
-    const flipped = { ...envs, production: { ...envs.production, features: { appleSignIn: true, googleSignIn: true, pushEntitlement: true } } };
-    expect(() => evaluateWith(flipped, {})).toThrow(/googleSignIn is on/);
-  });
-
-  it('production with every release flag on and Google IDs filled in matches the development feature set', () => {
-    const release = {
-      ...envs,
-      production: {
-        ...envs.production,
-        features: { appleSignIn: true, googleSignIn: true, pushEntitlement: true },
-        google: { iosClientId: '999-prod.apps.googleusercontent.com', webClientId: 'web-prod.apps.googleusercontent.com' },
-      },
-    };
+  it('production with every release flag on matches the development feature set', () => {
+    const release = { ...envs, production: { ...envs.production, features: { appleSignIn: true, googleSignIn: true, pushEntitlement: true } } };
     const cfg = evaluateWith(release, {});
     expect(cfg.ios.usesAppleSignIn).toBe(true);
     expect(cfg.plugins).toContain('expo-notifications');
-    expect(cfg.plugins).toContainEqual(['@react-native-google-signin/google-signin', { iosUrlScheme: 'com.googleusercontent.apps.999-prod' }]);
-    expect(cfg.extra.auth).toMatchObject({ apple: true, google: true });
+    expect(cfg.extra.auth).toEqual({ apple: true, google: true });
   });
 });

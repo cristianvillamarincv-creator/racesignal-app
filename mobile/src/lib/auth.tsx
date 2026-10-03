@@ -1,9 +1,8 @@
 import type { Session } from '@supabase/supabase-js';
-import { makeRedirectUri } from 'expo-auth-session';
-import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
+import { getAuthRedirectUri } from '@/lib/authRedirect';
 import { describeAuthExchangeFailure } from '@/lib/authErrorMessages';
 import { isRetryableAuthError } from '@/lib/authRetry';
 import {
@@ -40,17 +39,7 @@ const AUTH_RETRY_DELAY_MS = 400;
  *  recoverable error well before an athlete gives up and force-quits. */
 const AUTH_CALL_TIMEOUT_MS = 20000;
 
-/** The URL scheme of the build that is actually running — `racesignal` for production,
- *  `racesignal-dev` for the development app (see app.config.js). Taken from the Expo config so a
- *  magic link always returns to the SAME app that requested it, even when both are installed. */
-const APP_SCHEME = typeof Constants.expoConfig?.scheme === 'string' ? Constants.expoConfig.scheme : 'racesignal';
-
-/** The exact redirect used for BOTH Google OAuth and the magic-link email, so there's only ever
- *  one URL per environment that needs to be registered in Supabase's Auth > URL Configuration
- *  allowlist. */
-export function getAuthRedirectUri(): string {
-  return makeRedirectUri({ scheme: APP_SCHEME, path: 'auth-callback' });
-}
+export { getAuthRedirectUri };
 
 interface AuthResult {
   error: string | null;

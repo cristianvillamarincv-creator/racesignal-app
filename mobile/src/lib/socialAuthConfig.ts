@@ -8,19 +8,12 @@ import Constants from 'expo-constants';
 export interface SocialAuthConfig {
   apple: boolean;
   google: boolean;
-  googleWebClientId: string | null;
-  googleIosClientId: string | null;
 }
 
-const OFF: SocialAuthConfig = { apple: false, google: false, googleWebClientId: null, googleIosClientId: null };
+const OFF: SocialAuthConfig = { apple: false, google: false };
 
 export function getSocialAuthConfig(): SocialAuthConfig {
   const raw = Constants.expoConfig?.extra?.auth as Partial<SocialAuthConfig> | undefined;
   if (!raw || typeof raw !== 'object') return OFF;
-  return {
-    apple: raw.apple === true,
-    google: raw.google === true && typeof raw.googleWebClientId === 'string' && typeof raw.googleIosClientId === 'string',
-    googleWebClientId: typeof raw.googleWebClientId === 'string' ? raw.googleWebClientId : null,
-    googleIosClientId: typeof raw.googleIosClientId === 'string' ? raw.googleIosClientId : null,
-  };
+  return { apple: raw.apple === true, google: raw.google === true };
 }

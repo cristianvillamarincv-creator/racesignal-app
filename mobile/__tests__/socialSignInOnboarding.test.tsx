@@ -65,12 +65,12 @@ jest.mock('@/lib/devPreview', () => ({
   useDevPreview: () => ({ mode: 'off', enterBrowse: jest.fn(), enterOnboardingReplay: jest.fn(), exit: jest.fn() }),
 }));
 
-jest.mock('@/lib/nativeModules', () => ({ hasAppleAuthenticationNative: () => mockNativePresent.apple, hasGoogleSignInNative: () => mockNativePresent.google }));
-const mockNativePresent = { apple: true, google: true };
+jest.mock('@/lib/nativeModules', () => ({ hasAppleAuthenticationNative: () => mockNativePresent.apple }));
+const mockNativePresent = { apple: true };
 
 // This build offers both providers.
 jest.mock('@/lib/socialAuthConfig', () => ({
-  getSocialAuthConfig: () => ({ apple: true, google: true, googleWebClientId: 'w', googleIosClientId: 'i' }),
+  getSocialAuthConfig: () => ({ apple: true, google: true }),
 }));
 
 // The provider layer: unit-tested separately, controlled here.
@@ -93,15 +93,6 @@ jest.mock('expo-apple-authentication', () => {
     AppleAuthenticationButton: ({ onPress }: { onPress: () => void }) =>
       R.createElement(Pressable, { onPress, accessibilityRole: 'button', accessibilityLabel: 'Continue with Apple' }, R.createElement(RNText, null, 'Apple')),
   };
-});
-jest.mock('@react-native-google-signin/google-signin', () => {
-  const { Pressable, Text: RNText } = require('react-native');
-  const R = require('react');
-  const GoogleSigninButton = ({ onPress }: { onPress: () => void }) =>
-    R.createElement(Pressable, { onPress, accessibilityRole: 'button', accessibilityLabel: 'Sign in with Google' }, R.createElement(RNText, null, 'Google'));
-  GoogleSigninButton.Size = { Wide: 1 };
-  GoogleSigninButton.Color = { Dark: 'dark', Light: 'light' };
-  return { GoogleSigninButton, GoogleSignin: {}, statusCodes: {} };
 });
 
 function Harness() {
@@ -153,21 +144,19 @@ beforeEach(async () => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
 });
 
-describe('a binary without the native sign-in modules (older dev client)', () => {
+describe('a binary without the native Apple module (older dev client)', () => {
   afterEach(() => {
     mockNativePresent.apple = true;
-    mockNativePresent.google = true;
   });
 
-  it('shows no provider buttons and leaves the email options intact', async () => {
+  it('hides Apple (Google needs no native module) and leaves the email options intact', async () => {
     mockNativePresent.apple = false;
-    mockNativePresent.google = false;
     const ui = await renderApp();
     await waitFor(() => expect(ui.getByLabelText('Already have an account? Sign in')).toBeTruthy());
     await press(ui, 'Already have an account? Sign in');
     await waitFor(() => expect(ui.getByLabelText('Send sign-in link')).toBeTruthy());
     expect(ui.queryByLabelText('Continue with Apple')).toBeNull();
-    expect(ui.queryByLabelText('Sign in with Google')).toBeNull();
+    expect(ui.getByLabelText('Continue with Google')).toBeTruthy();
     expect(ui.getByLabelText('Sign in with email and password')).toBeTruthy();
     await act(async () => ui.unmount());
   });
@@ -179,6 +168,7 @@ describe('returning athlete: "Already have an account? Sign in"', () => {
     await waitFor(() => expect(ui.getByLabelText('Already have an account? Sign in')).toBeTruthy());
     await press(ui, 'Already have an account? Sign in');
     await waitFor(() => expect(ui.getByLabelText('Continue with Apple')).toBeTruthy());
+    expect(ui.getByText('Welcome back.')).toBeTruthy();
     return ui;
   }
 
@@ -198,7 +188,7 @@ describe('returning athlete: "Already have an account? Sign in"', () => {
     mockFetchOnboardingCompletedAt.mockResolvedValue(null);
     mockSignInWithProvider.mockResolvedValue({ status: 'success', userId: 'new-user' });
     const ui = await openReturningSignIn();
-    await press(ui, 'Sign in with Google');
+    await press(ui, 'Continue with Google');
     await waitFor(() => expect(ui.getByText('What name do you race under?')).toBeTruthy());
     expect(ui.getByTestId('phase-probe').props.children).toBe('onboarding');
     await act(async () => ui.unmount());
@@ -243,10 +233,27 @@ describe('new athlete with pending race selections: save step', () => {
     return ui;
   }
 
-  it('offers Apple, Google AND email together on the save step', async () => {
+  it('offers Apple, Google AND the email form together on one screen, with the contextual heading', async () => {
     const ui = await openSaveStepWithPendingDraft();
-    expect(ui.getByLabelText('Sign in with Google')).toBeTruthy();
-    expect(ui.getByLabelText('Continue with email')).toBeTruthy();
+    expect(ui.getByText('Sign in to save 1 race.')).toBeTruthy();
+    expect(ui.getByText('Keep your race history in one place.')).toBeTruthy();
+    expect(ui.getByLabelText('Continue with Google')).toBeTruthy();
+    expect(ui.getByText('or use email')).toBeTruthy();
+    expect(ui.getByPlaceholderText('Email address')).toBeTruthy();
+    expect(ui.getByLabelText('Send sign-in link')).toBeTruthy();
+    expect(ui.getByLabelText('Sign in with email and password')).toBeTruthy();
+    // The long account-linking paragraph is gone from this screen (the guidance lives in Settings).
+    expect(ui.queryByText(/connect Apple or Google in Settings/i)).toBeNull();
+    await act(async () => ui.unmount());
+  });
+
+  it('a Google failure appears directly under the Google button, while email errors stay with the email form', async () => {
+    mockSignInWithProvider.mockResolvedValue({ status: 'error', message: 'Couldn’t sign in with Google. Please try again, or use your email.' });
+    const ui = await openSaveStepWithPendingDraft();
+    await press(ui, 'Continue with Google');
+    await waitFor(() => expect(ui.getByText('Couldn’t sign in with Google. Please try again, or use your email.')).toBeTruthy());
+    expect(ui.getByLabelText('Send sign-in link')).toBeTruthy();
+    expect(ui.queryByText('Enter a valid email address.')).toBeNull();
     await act(async () => ui.unmount());
   });
 
@@ -277,7 +284,7 @@ describe('new athlete with pending race selections: save step', () => {
       mockFetchOnboardingCompletedAt.mockResolvedValue('2026-01-01T00:00:00Z');
       mockSignInWithProvider.mockResolvedValue({ status: 'success', userId: 'existing-user' });
       const ui = await openSaveStepWithPendingDraft();
-      await press(ui, 'Sign in with Google');
+      await press(ui, 'Continue with Google');
       await waitFor(() => expect(ui.getByText('Welcome back.')).toBeTruthy());
       return ui;
     }
@@ -331,7 +338,7 @@ describe('new athlete with pending race selections: save step', () => {
       mockFetchImported.mockResolvedValue(new Set(['r1']));
       mockSignInWithProvider.mockResolvedValue({ status: 'success', userId: 'existing-user' });
       const ui = await openSaveStepWithPendingDraft();
-      await press(ui, 'Sign in with Google');
+      await press(ui, 'Continue with Google');
       await waitFor(() => expect(ui.getByTestId('phase-probe').props.children).toBe('app'));
       expect(ui.queryByText('Welcome back.')).toBeNull();
       expect(mockUpsertAthleteProfile).not.toHaveBeenCalled();
@@ -339,11 +346,20 @@ describe('new athlete with pending race selections: save step', () => {
     });
   });
 
-  it('keeps the email path working from the same screen', async () => {
+  it('keeps the email path working from the same screen (validation errors stay with the email form)', async () => {
     const ui = await openSaveStepWithPendingDraft();
-    await press(ui, 'Continue with email');
-    await waitFor(() => expect(ui.getByLabelText('Send sign-in link')).toBeTruthy());
-    expect(ui.getByLabelText('Sign in with email and password')).toBeTruthy();
+    await act(async () => {
+      fireEvent.changeText(ui.getByPlaceholderText('Email address'), 'not-an-email');
+    });
+    await press(ui, 'Send sign-in link');
+    await waitFor(() => expect(ui.getByText('Enter a valid email address.')).toBeTruthy());
+    await act(async () => ui.unmount());
+  });
+
+  it('Back returns to the race selection with it intact', async () => {
+    const ui = await openSaveStepWithPendingDraft();
+    await press(ui, 'Back');
+    await waitFor(() => expect(ui.getByLabelText('Add 1 races')).toBeTruthy());
     await act(async () => ui.unmount());
   });
 });

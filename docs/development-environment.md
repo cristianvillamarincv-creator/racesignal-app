@@ -99,7 +99,7 @@ Sign in with `dev.athlete@example.com` (password in `~/.racesignal-dev/dev-accou
 
 ## Apple and Google sign-in (development services)
 
-Design, account-linking rules, Apple token revocation on deletion, the private Google Cloud / Apple key setup, the consolidated rebuild list, and the iPhone checklist are in `docs/social-sign-in.md`. Dev-only helpers: `supabase/dev/configure-auth.py` (providers + manual linking), `supabase/dev/set-dev-apple-key.sh`, `supabase/dev/link-test.py` (real-address Google linking test). How these capabilities reach production in 1.1: `docs/release-1.1-checklist.md`.
+Design, account-linking rules, Apple token revocation on deletion, the private Google Cloud / Apple key setup, the consolidated rebuild list, and the iPhone checklist are in `docs/social-sign-in.md`. Dev-only helpers: `supabase/dev/configure-auth.py` (providers + manual linking; `google` / `google-id`), `supabase/dev/set-dev-apple-key.sh`, `supabase/dev/link-test.py` (real-address Google linking test). How these capabilities reach production in 1.1: `docs/release-1.1-checklist.md`.
 
 ## Dev account and synthetic data
 

@@ -9,10 +9,10 @@ Three places must agree. If any one is missing, that feature stays off or the bu
 | Where | What | Today |
 |---|---|---|
 | `mobile/config/environments.json` -> `production.features` | `appleSignIn`, `googleSignIn`, `pushEntitlement` (booleans) | all `false` |
-| `mobile/config/environments.json` -> `production.google` | `iosClientId`, `webClientId` (public identifiers) | `null` |
+| `mobile/config/environments.json` -> `production.google.webClientId` | the Google Web client ID, read only by the Supabase provider script | `null` |
 | Production dashboards and secrets | Supabase providers, manual linking, `APPLE_*` secrets, Apple and Google developer consoles | not touched |
 
-`app.config.js` turns the flags into native configuration and runtime behavior: `appleSignIn` -> the Sign in with Apple entitlement and the Apple button; `googleSignIn` -> the Google plugin (URL scheme) and the Google button; `pushEntitlement` -> `expo-notifications` entitlement only. With a flag **off**, Expo's automatic plugin entitlements are stripped, so the production binary and App ID capabilities stay exactly as Build 18's. A production build with `googleSignIn` on but no Google client IDs **fails at config time** instead of shipping without it.
+`app.config.js` turns the flags into native configuration and runtime behavior: `appleSignIn` -> the Sign in with Apple entitlement and the Apple button; `googleSignIn` -> the Google button (Google needs no native module or client ID in the app: it uses Supabase's OAuth redirect flow); `pushEntitlement` -> `expo-notifications` entitlement only. With a flag **off**, Expo's automatic plugin entitlements are stripped, so the production binary and App ID capabilities stay exactly as Build 18's.
 
 `cd mobile && npm run release:config` prints the production configuration as it will build (flags, entitlement/plugin presence, public Google IDs; no secrets). Run it before the release build and paste the output in the release notes.
 
@@ -22,7 +22,7 @@ Backend first, additive only, then the app. Build 18 and earlier keep working at
 
 **0. Preconditions.** The consolidated development rebuild passed the iPhone checklist in `docs/social-sign-in.md` (including the real-address Google linking test and the Apple conflict/link tests), and the owner says "release 1.1 configuration go".
 
-**1. Google Cloud (production iOS client).** In the same dedicated Google Cloud project: create an iOS OAuth client for `com.cristianvillamarin.racesignal`. Reuse the Web client (add `https://<production ref>.supabase.co/auth/v1/callback` as an authorized redirect URI). Move the consent screen's Audience to **In production** (**Publish app**). With only the basic scopes (`openid`, `email`, `profile`), Google's docs say published apps need no test-user list, show no warning, and do not expire authorizations after 7 days (in Testing, only listed test users can sign in and authorization expires after 7 days).
+**1. Google Cloud.** In the same dedicated Google Cloud project, reuse the one Web client and add `https://<production ref>.supabase.co/auth/v1/callback` as a second authorized redirect URI. No iOS client is needed (Google sign-in uses Supabase's OAuth redirect flow, not the native SDK). Move the consent screen's Audience to **In production** (**Publish app**). With only the basic scopes (`openid`, `email`, `profile`), Google's docs say published apps need no test-user list, show no warning, and do not expire authorizations after 7 days (in Testing, only listed test users can sign in and authorization expires after 7 days).
 
 **Open decision: branding verification.** Showing the app name/logo on Google's consent screen needs brand verification, which requires a domain you own and verify in Google Search Console with the privacy policy hosted on it. The Notion pages (`*.notion.site`) cannot be verified, so Google rejects them as the privacy-policy link (the Branding page reports "Missing domain"). Options: (a) accept the unbranded consent screen (users see only the application domain) and leave the links blank; (b) host the privacy policy and terms on a domain you own, add it under Authorized domains, and submit brand verification. It is **unconfirmed** whether Google requires a privacy-policy link just to publish a basic-scope app; check the Publish app screen. Decide before this step. With the native iOS sign-in, the consent UI is Google's system sheet, so (a) is the lighter path.
 
@@ -32,12 +32,12 @@ Backend first, additive only, then the app. Build 18 and earlier keep working at
 - APNs key: EAS creates or reuses one at build time (`eas credentials`); it is account-level, not per app.
 
 **3. Supabase production (explicit owner instruction, one step at a time).**
-- Authentication -> Providers: **Apple** enabled with client ID `com.cristianvillamarin.racesignal`; **Google** enabled with `<web client id>,<ios client id>` (web first) and its web client secret; **Skip nonce check stays off** (see `docs/social-sign-in.md`); **Enable manual linking** on.
+- Authentication -> Providers: **Apple** enabled with client ID `com.cristianvillamarin.racesignal`; **Google** enabled with the Web client ID and its client secret; **Skip nonce check stays off** (see `docs/social-sign-in.md`); **Enable manual linking** on.
 - Secrets (silent prompts, nothing in chat): `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_CLIENT_ID` (production bundle ID), `APPLE_PRIVATE_KEY`.
 - Deploy `delete-account` (and only it) with an explicit `--project-ref` for production; confirm `signal` and `race-discovery` versions and hashes are unchanged.
 - Verify with the production auth settings read-back (`external_apple_enabled`, `external_google_enabled`, `security_manual_linking_enabled`) and a throwaway-account deletion smoke test.
 
-**4. App configuration.** Set `production.features` to `true` for the features shipping, fill `production.google` with the production iOS and Web client IDs, run `npm run release:config` and confirm: Apple entitlement `true`, Google plugin `true`, push entitlement `true`, `runtimeAuthFlags` all on. Commit.
+**4. App configuration.** Set `production.features` to `true` for the features shipping, fill `production.google.webClientId`, run `npm run release:config` and confirm: Apple entitlement `true`, push entitlement `true`, `runtimeAuthFlags` (apple, google) both on. Commit.
 
 **5. App Store Connect and policy text** (owner decisions; this repository contains no published legal pages):
 - App Privacy: email address is collected through Sign in with Apple / Google (linked to the user, used for authentication); review the label against `docs/legal/app-store-metadata.md`. Push tokens are not collected yet.

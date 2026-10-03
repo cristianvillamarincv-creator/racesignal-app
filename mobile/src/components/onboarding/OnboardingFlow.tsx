@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HairlineRule } from '@/components/HairlineRule';
 import { RaceLineMotif } from '@/components/RaceLineMotif';
 import { SignalMark } from '@/components/SignalMark';
-import { SocialSignInButtons } from '@/components/onboarding/SocialSignInButtons';
+import { SocialSignInButtons, type ProviderErrors } from '@/components/onboarding/SocialSignInButtons';
 import { useAuth } from '@/lib/auth';
 import { RESEND_SUCCESS_MESSAGE } from '@/lib/authErrorMessages';
 import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
@@ -94,11 +94,6 @@ type Step =
 // two outstanding magic links (see the PKCE-verifier-overwrite note on handleResendMagicLink).
 const RESEND_COOLDOWN_SECONDS = 60;
 
-// Shown once beneath the Apple/Google buttons. An Apple "Hide My Email" address (or any different email)
-// can't be matched to an existing account automatically, so existing athletes are pointed at the explicit
-// Settings path instead of silently getting a second, empty account.
-const CONNECT_PROVIDER_HINT = 'Already use RaceSignal with email? Sign in with email first, then connect Apple or Google in Settings.';
-
 function unavailableCopy(reason: UnavailableReason): string {
   switch (reason) {
     case 'disabled':
@@ -156,7 +151,11 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   // the other) so a successful resend reads as reassuring progress, not another error-style message.
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [isSendingLink, setIsSendingLink] = useState(false);
-  const [isSocialSigningIn, setIsSocialSigningIn] = useState(false);
+  // Which provider's sign-in is in flight, and the last provider failure. Kept apart from `authError` (email
+  // errors) so each message sits where it belongs: provider failures directly below that provider's button.
+  const [socialBusyProvider, setSocialBusyProvider] = useState<SocialProvider | null>(null);
+  const [socialError, setSocialError] = useState<{ provider: SocialProvider; message: string } | null>(null);
+  const isSocialSigningIn = socialBusyProvider !== null;
   const [resendCooldown, setResendCooldown] = useState(0);
 
   // "Already have an account? Sign in" — a returning athlete authenticating directly, with no
@@ -606,7 +605,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   async function handleSocialSignIn(provider: SocialProvider) {
     if (isSocialSigningIn || simulateAuth) return;
     setAuthError(null);
-    setIsSocialSigningIn(true);
+    setSocialError(null);
+    setSocialBusyProvider(provider);
     const outcome = await runSocialSignIn(provider, {
       isReturningUserFlow,
       persistDraft,
@@ -614,8 +614,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
       resumeReturningUser,
       resumeFromDraftAndImport,
     });
-    setIsSocialSigningIn(false);
-    if (outcome.kind === 'error') setAuthError(outcome.message);
+    setSocialBusyProvider(null);
+    if (outcome.kind === 'error') setSocialError({ provider, message: outcome.message });
   }
 
   async function handleSendMagicLink() {
@@ -991,41 +991,27 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
               />
             ) : null}
 
-            {step === 'save' ? (
-              <SaveStep
-                selectedCount={selectedCount}
-                error={authError}
-                onSocialSignIn={handleSocialSignIn}
-                isSocialSigningIn={isSocialSigningIn}
-                onUseEmail={() => {
-                  setAuthError(null);
-                  setStep('emailForm');
-                }}
-                onBack={() => {
-                  setAuthError(null);
-                  setStep('candidates');
-                }}
-              />
-            ) : null}
-
-            {step === 'emailForm' ? (
+            {step === 'save' || step === 'emailForm' ? (
               <EmailFormStep
                 email={email}
                 onChangeEmail={setEmail}
                 error={authError}
-                onSocialSignIn={isReturningUserFlow ? handleSocialSignIn : undefined}
-                isSocialSigningIn={isSocialSigningIn}
+                isReturningUser={isReturningUserFlow}
+                onSocialSignIn={handleSocialSignIn}
+                socialBusyProvider={socialBusyProvider}
+                socialErrors={socialError ? ({ [socialError.provider]: socialError.message } as ProviderErrors) : undefined}
                 selectedCount={selectedCount}
                 isSending={isSendingLink}
                 onSendLink={handleSendMagicLink}
                 onSignInWithPassword={handlePasswordSignIn}
                 onBack={() => {
                   setAuthError(null);
+                  setSocialError(null);
                   if (isReturningUserFlow) {
                     setIsReturningUserFlow(false);
                     setStep('identity');
                   } else {
-                    setStep('save');
+                    setStep('candidates');
                   }
                 }}
               />
@@ -1468,57 +1454,6 @@ function ExistingAccountStep({ pendingCount, onReview, onSkip }: { pendingCount:
   );
 }
 
-function SaveStep({
-  selectedCount,
-  error,
-  onSocialSignIn,
-  isSocialSigningIn,
-  onUseEmail,
-  onBack,
-}: {
-  selectedCount: number;
-  error: string | null;
-  onSocialSignIn: (provider: SocialProvider) => void;
-  isSocialSigningIn: boolean;
-  onUseEmail: () => void;
-  onBack: () => void;
-}) {
-  const palette = useBrandPalette();
-  const styles = useMemo(() => createStyles(palette), [palette]);
-
-  return (
-    <View style={styles.stepGap}>
-      <View style={styles.brandMarkWrap}>
-        <SignalMark color={palette.signalBlue} size={20} />
-      </View>
-      <Text style={styles.headline}>
-        Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
-      </Text>
-      <Text style={styles.subcopy}>Your racing name stays what you typed. This just saves it to your account.</Text>
-
-      {error ? <Text style={styles.message}>{error}</Text> : null}
-
-      <SocialSignInButtons onPress={onSocialSignIn} disabled={isSocialSigningIn} caption={CONNECT_PROVIDER_HINT} />
-
-      {/* Same destination (EmailFormStep) either way — only the label changes, so a failed
-          sign-in reads as "get a fresh link" rather than the generic first-time CTA. */}
-      <Pressable
-        onPress={onUseEmail}
-        accessibilityRole="button"
-        accessibilityLabel={error ? 'Send a new sign-in link' : 'Continue with email'}
-        style={styles.primaryButton}>
-        <Text style={styles.primaryButtonLabel}>{error ? 'Send a new sign-in link' : 'Continue with email'}</Text>
-      </Pressable>
-
-      <View style={styles.secondaryActionsGroup}>
-        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-          <Text style={styles.secondaryLink}>Back</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
 /**
  * B.13 fix: this used to render BOTH the magic-link section AND (once revealed) the password
  * section at the same time — two same-looking primary buttons on screen together ("Send sign-in
@@ -1539,8 +1474,10 @@ export function EmailFormStep({
   email,
   onChangeEmail,
   error,
+  isReturningUser = false,
   onSocialSignIn,
-  isSocialSigningIn = false,
+  socialBusyProvider = null,
+  socialErrors,
   selectedCount,
   isSending,
   onSendLink,
@@ -1549,11 +1486,14 @@ export function EmailFormStep({
 }: {
   email: string;
   onChangeEmail: (value: string) => void;
+  /** Email-form errors only (sending the link). Provider failures go in `socialErrors`, under their buttons. */
   error: string | null;
-  /** Optional: only the returning-user sign-in screen passes it (new athletes see the provider buttons on
-   *  the save step instead), so existing usages and tests are unchanged. */
+  /** True for "Already have an account? Sign in" ("Welcome back."); false while saving pending onboarding results. */
+  isReturningUser?: boolean;
+  /** Optional so existing usages and tests are unchanged: without it no provider buttons render. */
   onSocialSignIn?: (provider: SocialProvider) => void;
-  isSocialSigningIn?: boolean;
+  socialBusyProvider?: SocialProvider | null;
+  socialErrors?: ProviderErrors;
   selectedCount: number;
   isSending: boolean;
   onSendLink: () => void;
@@ -1608,8 +1548,16 @@ export function EmailFormStep({
         </View>
         <Text style={styles.headline}>Enter your email and password.</Text>
 
-        <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
-        <Field label="Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <Field
+          label="Email"
+          placeholder="Email address"
+          boxed
+          value={email}
+          onChangeText={onChangeEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        <Field label="Password" placeholder="Password" boxed value={password} onChangeText={setPassword} secureTextEntry />
 
         {passwordMessage ? <Text style={styles.message}>{passwordMessage}</Text> : null}
 
@@ -1640,15 +1588,25 @@ export function EmailFormStep({
         <SignalMark color={palette.signalBlue} size={20} />
       </View>
       <Text style={styles.headline}>
-        Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
+        {isReturningUser
+          ? 'Welcome back.'
+          : `Sign in to save ${selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.`}
       </Text>
-      <Text style={styles.subcopy}>We&apos;ll email you a secure sign-in link.</Text>
+      <Text style={styles.subcopy}>Keep your race history in one place.</Text>
 
-      {onSocialSignIn ? (
-        <SocialSignInButtons onPress={onSocialSignIn} disabled={isSocialSigningIn} caption={CONNECT_PROVIDER_HINT} />
-      ) : null}
+      {onSocialSignIn ? <SocialSignInButtons onPress={onSocialSignIn} busyProvider={socialBusyProvider} errors={socialErrors} /> : null}
 
-      <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
+      <Field
+        label="Email"
+        placeholder="Email address"
+        boxed
+        value={email}
+        onChangeText={onChangeEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        returnKeyType="send"
+        onSubmitEditing={magicLinkDisabled ? undefined : onSendLink}
+      />
 
       {error ? <Text style={styles.message}>{error}</Text> : null}
 
@@ -1657,6 +1615,7 @@ export function EmailFormStep({
         disabled={magicLinkDisabled}
         accessibilityRole="button"
         accessibilityLabel="Send sign-in link"
+        accessibilityState={{ disabled: magicLinkDisabled, busy: isSending }}
         style={[styles.primaryButton, magicLinkDisabled && styles.primaryButtonDisabled]}>
         <Text style={styles.primaryButtonLabel}>{isSending ? 'Sending…' : 'Send sign-in link'}</Text>
       </Pressable>
@@ -1867,6 +1826,10 @@ function Field({
   keyboardType,
   autoCapitalize,
   secureTextEntry,
+  placeholder,
+  boxed = false,
+  returnKeyType,
+  onSubmitEditing,
 }: {
   label: string;
   value: string;
@@ -1874,21 +1837,33 @@ function Field({
   keyboardType?: 'default' | 'email-address' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences';
   secureTextEntry?: boolean;
+  placeholder?: string;
+  /** The sign-in screen's visible field: 52pt high, 14pt radius, subtle border, placeholder instead of a label.
+   *  Every other screen keeps the original underlined field. The label stays as the accessibility label. */
+  boxed?: boolean;
+  returnKeyType?: 'send' | 'done' | 'next';
+  onSubmitEditing?: () => void;
 }) {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
 
   return (
     <View style={styles.fieldWrap}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      {boxed ? null : <Text style={styles.fieldLabel}>{label}</Text>}
       <TextInput
         value={value}
         onChangeText={onChangeText}
+        placeholder={placeholder}
         placeholderTextColor={palette.inkSecondary}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        autoCorrect={keyboardType === 'email-address' ? false : undefined}
+        autoComplete={keyboardType === 'email-address' ? 'email' : secureTextEntry ? 'current-password' : undefined}
+        textContentType={keyboardType === 'email-address' ? 'emailAddress' : secureTextEntry ? 'password' : undefined}
         secureTextEntry={secureTextEntry}
-        style={styles.input}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmitEditing}
+        style={boxed ? styles.inputBoxed : styles.input}
         accessibilityLabel={label}
       />
     </View>
@@ -1910,6 +1885,7 @@ interface Styles {
   fieldWrap: ViewStyle;
   fieldLabel: TextStyle;
   input: TextStyle & ViewStyle;
+  inputBoxed: TextStyle & ViewStyle;
   primaryButton: ViewStyle;
   primaryButtonDisabled: ViewStyle;
   primaryButtonLabel: TextStyle;
@@ -2032,6 +2008,17 @@ function createStyles(palette: BrandPalette): Styles {
       borderBottomWidth: 1,
       borderBottomColor: palette.hairline,
       paddingVertical: spacing.sm,
+      fontSize: 17,
+      color: palette.ink,
+      backgroundColor: 'transparent',
+    },
+    // The sign-in screen's field: a quiet outlined box instead of a nearly invisible underline.
+    inputBoxed: {
+      minHeight: 52,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: palette.hairline,
+      paddingHorizontal: spacing.lg,
       fontSize: 17,
       color: palette.ink,
       backgroundColor: 'transparent',

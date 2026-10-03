@@ -14,7 +14,6 @@ console.log(
       bundleIdentifier: cfg.ios.bundleIdentifier ?? 'com.cristianvillamarin.racesignal (from app.json)',
       appleSignInEntitlement: cfg.ios.usesAppleSignIn === true,
       pushEntitlementPlugin: plugins.includes('expo-notifications'),
-      googleSignInPlugin: plugins.includes('@react-native-google-signin/google-signin'),
       runtimeAuthFlags: cfg.extra.auth,
     },
     null,

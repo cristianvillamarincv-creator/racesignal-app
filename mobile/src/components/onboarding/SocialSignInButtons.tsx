@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, useColorScheme, View } from 'react-native';
 
+import { hasAppleAuthenticationNative, hasGoogleSignInNative } from '@/lib/nativeModules';
 import { getSocialAuthConfig } from '@/lib/socialAuthConfig';
 import { type SocialProvider } from '@/lib/socialAuth';
 import { minTouchSize, spacing } from '@/lib/theme';
@@ -37,20 +38,20 @@ export function SocialSignInButtons({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (config.apple) {
+      if (config.apple && hasAppleAuthenticationNative()) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose (see the header)
           const module: typeof import('expo-apple-authentication') = require('expo-apple-authentication');
-          if (!cancelled && (await module.isAvailableAsync())) setApple(module);
+          if (!cancelled && module != null && (await module.isAvailableAsync())) setApple(module);
         } catch (err) {
           console.warn('[SocialAuth] Apple button unavailable in this build:', (err as Error)?.message);
         }
       }
-      if (config.google) {
+      if (config.google && hasGoogleSignInNative()) {
         try {
           // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose (see the header)
           const module: typeof import('@react-native-google-signin/google-signin') = require('@react-native-google-signin/google-signin');
-          if (!cancelled) setGoogleButton(() => module.GoogleSigninButton);
+          if (!cancelled && module != null) setGoogleButton(() => module.GoogleSigninButton);
         } catch (err) {
           console.warn('[SocialAuth] Google button unavailable in this build:', (err as Error)?.message);
         }

@@ -40,6 +40,9 @@ jest.mock('@react-native-google-signin/google-signin', () => ({
   statusCodes: { SIGN_IN_CANCELLED: 'SIGN_IN_CANCELLED' },
 }));
 
+jest.mock('@/lib/nativeModules', () => ({ hasAppleAuthenticationNative: () => mockNativePresent.apple, hasGoogleSignInNative: () => mockNativePresent.google }));
+const mockNativePresent = { apple: true, google: true };
+
 jest.mock('@/lib/nonce', () => ({ createNoncePair: jest.fn().mockResolvedValue({ raw: 'raw-nonce', hashed: 'hashed-nonce' }) }));
 
 let mockConfig = { apple: true, google: true, googleWebClientId: 'web.apps.googleusercontent.com', googleIosClientId: 'ios.apps.googleusercontent.com' };
@@ -59,6 +62,24 @@ beforeEach(() => {
   mockSignInWithIdToken.mockResolvedValue({ data: { session: { user: { id: 'user-1' } } }, error: null });
   mockGetSession.mockResolvedValue({ data: { session: SESSION } });
   mockLinkIdentity.mockResolvedValue({ data: { user: { id: 'user-1' }, session: SESSION }, error: null });
+});
+
+describe('a binary without the native modules (e.g. an older dev client)', () => {
+  afterEach(() => {
+    mockNativePresent.apple = true;
+    mockNativePresent.google = true;
+  });
+
+  it('reports Apple and Google as unavailable without touching either SDK', async () => {
+    mockNativePresent.apple = false;
+    mockNativePresent.google = false;
+    expect(await signInWithProvider('apple')).toEqual({ status: 'unavailable' });
+    expect(await signInWithProvider('google')).toEqual({ status: 'unavailable' });
+    expect(mockAppleIsAvailable).not.toHaveBeenCalled();
+    expect(mockAppleSignInAsync).not.toHaveBeenCalled();
+    expect(mockGoogleConfigure).not.toHaveBeenCalled();
+    expect(mockSignInWithIdToken).not.toHaveBeenCalled();
+  });
 });
 
 describe('signInWithProvider', () => {

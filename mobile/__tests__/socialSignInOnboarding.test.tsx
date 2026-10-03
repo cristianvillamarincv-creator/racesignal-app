@@ -65,6 +65,9 @@ jest.mock('@/lib/devPreview', () => ({
   useDevPreview: () => ({ mode: 'off', enterBrowse: jest.fn(), enterOnboardingReplay: jest.fn(), exit: jest.fn() }),
 }));
 
+jest.mock('@/lib/nativeModules', () => ({ hasAppleAuthenticationNative: () => mockNativePresent.apple, hasGoogleSignInNative: () => mockNativePresent.google }));
+const mockNativePresent = { apple: true, google: true };
+
 // This build offers both providers.
 jest.mock('@/lib/socialAuthConfig', () => ({
   getSocialAuthConfig: () => ({ apple: true, google: true, googleWebClientId: 'w', googleIosClientId: 'i' }),
@@ -148,6 +151,26 @@ beforeEach(async () => {
   mockFetchRaceDetail.mockClear();
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.spyOn(console, 'log').mockImplementation(() => {});
+});
+
+describe('a binary without the native sign-in modules (older dev client)', () => {
+  afterEach(() => {
+    mockNativePresent.apple = true;
+    mockNativePresent.google = true;
+  });
+
+  it('shows no provider buttons and leaves the email options intact', async () => {
+    mockNativePresent.apple = false;
+    mockNativePresent.google = false;
+    const ui = await renderApp();
+    await waitFor(() => expect(ui.getByLabelText('Already have an account? Sign in')).toBeTruthy());
+    await press(ui, 'Already have an account? Sign in');
+    await waitFor(() => expect(ui.getByLabelText('Send sign-in link')).toBeTruthy());
+    expect(ui.queryByLabelText('Continue with Apple')).toBeNull();
+    expect(ui.queryByLabelText('Sign in with Google')).toBeNull();
+    expect(ui.getByLabelText('Sign in with email and password')).toBeTruthy();
+    await act(async () => ui.unmount());
+  });
 });
 
 describe('returning athlete: "Already have an account? Sign in"', () => {

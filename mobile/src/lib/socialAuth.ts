@@ -1,5 +1,6 @@
 import { isAuthApiError, isAuthRetryableFetchError } from '@supabase/supabase-js';
 
+import { hasAppleAuthenticationNative, hasGoogleSignInNative } from '@/lib/nativeModules';
 import { createNoncePair } from '@/lib/nonce';
 import {
   PROVIDER_LABEL,
@@ -55,7 +56,7 @@ function errorCode(err: unknown): string | undefined {
 }
 
 async function getAppleToken(options: { withNonce: boolean }): Promise<TokenOutcome> {
-  if (!getSocialAuthConfig().apple) return { kind: 'unavailable' };
+  if (!getSocialAuthConfig().apple || !hasAppleAuthenticationNative()) return { kind: 'unavailable' };
   let Apple: typeof import('expo-apple-authentication');
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose: see the file header
@@ -94,7 +95,7 @@ let googleConfigured = false;
 
 async function getGoogleToken(): Promise<TokenOutcome> {
   const config = getSocialAuthConfig();
-  if (!config.google || !config.googleWebClientId || !config.googleIosClientId) return { kind: 'unavailable' };
+  if (!config.google || !config.googleWebClientId || !config.googleIosClientId || !hasGoogleSignInNative()) return { kind: 'unavailable' };
   let Google: typeof import('@react-native-google-signin/google-signin');
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy on purpose: see the file header

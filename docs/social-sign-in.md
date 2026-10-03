@@ -121,6 +121,30 @@ Goal: show that signing in with Google, with a real Google address you control t
 3. On the iPhone (after the rebuild): sign out -> "Already have an account? Sign in" -> **Continue with Google** -> choose that same Google account. Expect Stats with the 3 races.
 4. `python3 supabase/dev/link-test.py verify --email you@gmail.com` must print PASS for: same Supabase user id; a Google identity now attached; email identity still attached; same races (count and ids); profile untouched; Signal free usage unchanged; the RevenueCat customer is the Supabase user id and unchanged. (Without a real Google sign-in, only "a google identity is now attached" fails; that is the control.)
 
+## Authentication QA status (tracked; updated 2026-10-03)
+
+Authentication QA is **not complete**. Observed on the iPhone against the development project unless noted.
+
+**Passed**
+- Apple sign-up / sign-in (new account, native sheet). Owner-confirmed.
+- Google sign-in (browser OAuth) for a new account and an existing account. Owner-confirmed after the OAuth fix.
+- Revised sign-in screen design, owner-approved pending final visual QA.
+- Account preservation, dedicated dev account `cristian.flipd@gmail.com` (user `315411d2…`), checked with `supabase/dev/link-test.py` and `account-lookup.py`:
+  - **Email-first -> Google (leg 1):** Stats opened without onboarding, 3 races present, Google shown as connected. Verified against the before snapshot: same user id, identities `['email']` -> `['email','google']`, same races (count and ids), profile and onboarding time unchanged, Signal free usage 1 -> 2 (the one ask used on purpose), RevenueCat customer resolving under the Supabase user id with entitlements unchanged. The customer's original id changed once from the Supabase id to the phone's anonymous id: RevenueCat's expected first-login alias merge, not an identity break.
+  - **Google -> magic link (leg 2), 2026-10-03:** magic-link login worked on the iPhone. Verified against the leg 1 baseline: **same user id, identities unchanged (`email` + `google`), same races, profile and onboarding time unchanged, Signal free usage 2 -> 2, RevenueCat customer unchanged (original id unchanged); nothing differed.** Last sign-in 03:25:22 UTC. The production account for that address (`c996bd9a…`, 17 races) was untouched throughout.
+  - Same-email finding for `cristian.villamarin.cv@gmail.com`: separate production account; the dev magic-link account was an empty shell, so onboarding correctly ran after Google attached to the same user id (see above).
+
+**Not yet done (explicitly open)**
+- **Apple linking:** Connect Apple from Settings with an Apple identity unused on dev (success, same user id and data); and the **conflict** case (an Apple identity already attached to another account must be refused with both accounts intact).
+- **Google Connect from Settings** (link while signed in), including the conflict case.
+- **Apple "Hide My Email"** sign-in creating a separate account, then connecting it from the original account.
+- **Apple account deletion and revocation:** the Apple key (`supabase/dev/set-dev-apple-key.sh`, after the dev App ID has the Sign in with Apple capability) is not set, so revocation has only been exercised with a deliberately broken key (deletion still succeeds, `appleRevocation: "failed"`). Still to test on the phone: delete a throwaway Apple account, cancel the Apple sheet ("Delete anyway / Keep my account"), the manual-removal note, and a real revocation once the key is set.
+- **Cancel / failure behavior on device** for each provider sheet (sign-in and connect), and killing the app mid-flow with pending selections.
+- **Welcome-back review-or-skip** on a real completed account with pending selections.
+- Larger-text / accessibility pass on the sign-in screen, and final visual QA of the revised design.
+- Release-only items in `docs/release-1.1-checklist.md` (production providers, Apple/Google/EAS capabilities, App Store text, TestFlight verification). Nothing there has been done.
+- Housekeeping: rotate the Supabase CLI token that was exposed earlier; optionally delete the unused Google iOS client and the older Web client in Google Cloud.
+
 ## iPhone test checklist (after the consolidated rebuild)
 
 1. **Fresh account**: onboarding -> select races -> **Continue with Apple** -> lands in the app with the races imported. Repeat with Google on a second fresh dev account.

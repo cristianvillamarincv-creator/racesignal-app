@@ -75,3 +75,20 @@ adjust `findRaceByName`'s search term in `regressionCases.ts` if evaluating a di
 Each case makes 1–5 real model calls (see the table). Running everything is roughly 10-15 calls.
 Prefer naming specific cases while iterating on a fix, and only run the full set before calling a
 fix done.
+
+## Voice evaluation (P0 #2)
+
+`voiceCases.ts` runs a fixed set of cases (race comparison, year-over-year, strongest discipline, screenshot,
+sparse data, unsupported claim, short factual, two-turn follow-up) against the real deployed function with two
+**synthetic** dev athletes whose facts are fixed (`supabase/dev/seed-signal-eval.mjs`; the answer key is in the header
+comment). It writes every reply plus mechanical metrics (words, em dashes, stock phrases, headings) to a JSON file.
+The metrics only flag voice problems; a person reads the replies for correctness. See `docs/signal-voice-evaluation.md`
+for the P0 #2 results.
+
+```bash
+DEV_SUPABASE_URL=https://<dev ref>.supabase.co DEV_SERVICE_ROLE_KEY=... node supabase/dev/seed-signal-eval.mjs   # once
+SUPABASE_SERVICE_ROLE_KEY=... npx tsx --env-file=.env.development scripts/signal-eval/voiceCases.ts out.json [case ...]
+```
+
+Development project only. The rich athlete needs Premium (a RevenueCat Test Store promotional grant on the dev
+customer) because a run is about nine asks; the sparse athlete uses the free allowance.

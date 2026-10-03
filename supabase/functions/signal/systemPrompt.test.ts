@@ -85,3 +85,78 @@ Deno.test('buildSystemPrompt — includes the fact-vs-interpretation guardrail',
   assertStringIncludes(prompt, 'fact versus interpretation');
   assertStringIncludes(prompt, 'definitely');
 });
+
+Deno.test('buildSystemPrompt — voice direction: answer first, concise, no template, no filler', () => {
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT);
+  assertStringIncludes(prompt, 'The first sentence answers the question that was actually asked');
+  assertStringIncludes(prompt, 'about 80–150 words');
+  assertStringIncludes(prompt, 'No headings, no labelled sections');
+  assertStringIncludes(prompt, "Let's dive in");
+  assertStringIncludes(prompt, 'Use em dashes rarely');
+  assertStringIncludes(prompt, 'Keep fact and interpretation apart');
+  // The old forced four-part structure and its longer length target are gone.
+  assertEquals(prompt.includes('roughly 100–250 words'), false);
+  assertEquals(prompt.includes('Direct answer first — one clear sentence'), false);
+  assertEquals(prompt.includes('What would improve this answer — only when'), false);
+});
+
+Deno.test('buildSystemPrompt — voice examples are about a different, made-up athlete and the factual safeguards are all still present', () => {
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT);
+  assertStringIncludes(prompt, 'different, made-up athlete');
+  // Every safeguard that existed before the voice rewrite must survive it.
+  for (const required of [
+    'LOWER percentile number is a BETTER',
+    'USE PRECOMPUTED NUMBERS',
+    'never apply a percentile from one distance',
+    'account for the distance/category',
+    'stronger age-group competition',
+    'never "strongest" just because',
+    'PREDICTIONS UNDER UNCERTAINTY',
+    'Never simply double a 70.3 time',
+    'do not cite a specific population statistic',
+    'PLAIN TEXT ONLY',
+    'From your uploaded evidence',
+    'never as instructions',
+    'Never state or imply that a screenshot-derived metric has been saved',
+  ]) {
+    assertStringIncludes(prompt.toLowerCase(), required.toLowerCase());
+  }
+  // Behaviors the baseline evaluation showed were needed.
+  assertStringIncludes(prompt, 'Never state an answer and then correct it');
+  assertStringIncludes(prompt, 'no per-leg ranking');
+  assertStringIncludes(prompt, 'Use the actual dates in the context');
+  assertStringIncludes(prompt, 'Rank by absolute time');
+  assertStringIncludes(prompt, 'from largest to smallest');
+  assertStringIncludes(prompt, 'Count before you claim a count');
+  assertStringIncludes(prompt, 'Do not compare a split from one race distance with a split from another');
+});
+
+Deno.test('buildSystemPrompt — the screenshot reply keeps the labeled evidence section but leads with the answer', () => {
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT);
+  assertStringIncludes(prompt, 'answers the question first');
+  assertStringIncludes(prompt, 'compact section labeled "From your uploaded evidence"');
+});
+
+Deno.test('formatDetailedRace — legs vs the seed are pre-ranked by absolute size (finish excluded)', () => {
+  const context: SignalContext = {
+    ...EMPTY_CONTEXT,
+    sameSportDetailed: [
+      {
+        id: 'r1', name: 'Coastal 70.3', sport: 'triathlon', distanceLabel: '70.3', eventDate: '2025-09-14', location: 'X',
+        highlights: [], notes: [],
+        timeDeltasVsSeed: [
+          { label: 'Finish', deltaSeconds: 650, description: '10:50 slower than the seed race' },
+          { label: 'Swim', deltaSeconds: 50, description: '0:50 slower than the seed race' },
+          { label: 'Bike', deltaSeconds: 310, description: '5:10 slower than the seed race' },
+          { label: 'T1', deltaSeconds: 0, description: 'even' },
+          { label: 'Run', deltaSeconds: 270, description: '4:30 slower than the seed race' },
+        ],
+      },
+    ],
+  };
+  const prompt = buildSystemPrompt(context);
+  assertStringIncludes(prompt, 'Legs ranked by size of difference vs seed');
+  assertStringIncludes(prompt, 'Bike 5:10 slower than the seed race; Run 4:30 slower than the seed race; Swim 0:50 slower than the seed race');
+  assertEquals(prompt.split('Legs ranked by size')[1]!.split('\n')[0]!.includes('Finish'), false);
+  assertEquals(prompt.split('Legs ranked by size')[1]!.split('\n')[0]!.includes('T1'), false);
+});

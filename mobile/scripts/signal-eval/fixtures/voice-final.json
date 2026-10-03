@@ -1,0 +1,123 @@
+[
+  {
+    "name": "race-comparison",
+    "turns": [
+      {
+        "message": "How does this compare with my other 70.3?",
+        "reply": "Ridgeline 70.3 (this race, June 2026) was faster across the board than Coastal 70.3 (September 2025) — 4:58:50 vs 5:09:40, a 10:50 margin.\n\nBiggest gain was the bike, 5:10 faster, followed by the run at 4:30 faster, then the swim at 0:50 faster. T1 and T2 were each 10 seconds quicker too, so every leg improved, not just one.\n\nPlacement moved as well: Top 11% overall / Top 9% age group at Ridgeline vs Top 15% overall / Top 14% age group at Coastal. Both are legitimate 70.3 PR comparisons since they're the same distance.\n\nMy read: the bike is where you picked up the most time, but the run gain (4:30 over 13.1 miles) is proportionally the bigger jump in performance. The data doesn't say why — course, pacing, fitness gains — just that both moved in the same direction.",
+        "ms": 4577,
+        "words": 141,
+        "emDashes": 3,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "year-over-year",
+    "turns": [
+      {
+        "message": "Have I been improving year over year?",
+        "reply": "The trend is positive, but it's not a clean across-the-board line — it depends on which distance you look at.\n\n10K: yes, clearly. 46:10 at Riverside in April 2024 to 44:35 at Riverside in April 2025, a 1:35 gain on the same course.\n\n70.3: yes. Coastal 70.3 in September 2025 was 5:09:40, Ridgeline 70.3 in June 2026 was 4:58:50 — 10:50 faster, and every split improved across the board (swim, bike, and run all quicker at Ridgeline).\n\nHalf marathon and Olympic triathlon: no comparison available. You've only got one result on file for each (Spring Half, Oct 2025; Lakeview Olympic, July 2025), so there's no prior year to measure them against yet.\n\nMy read: the two distances where you have repeat data both show real, consistent improvement year over year. Whether that holds for half marathon and Olympic is unknown until you've got a second data point in each.",
+        "ms": 4230,
+        "words": 149,
+        "emDashes": 2,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "strongest-discipline",
+    "turns": [
+      {
+        "message": "What's my strongest discipline?",
+        "reply": "Close to a toss-up, but within your triathlons, run looks slightly ahead of swim and bike.\n\nLook at the three races: Lakeview Olympic (Top 8% age group), Coastal 70.3 (Top 14%), Ridgeline 70.3 (Top 9%). There's no per-discipline percentile, so I can't rank swim/bike/run with the same precision, but the run splits are where you've shown the most standout results relative to the rest of the field — your 43:10 Olympic run and 1:41:30 70.3 run (a 4:30 improvement over Coastal's 1:46:00) both came in the races with your best overall placements. Swim and bike have been steady but unremarkable by comparison, no obvious weak point, just nothing that jumps out the way the run does.\n\nZoom out to all your racing, not just triathlon, and running gets stronger: your standalone results are excellent on their own — Riverside 10K at 44:35 (Top 5% age group) and Spring Half at 1:39:20 (Top 9% age group) are both sharper placements than anything your swim or bike legs show inside a triathlon. So overall, running is the better-supported answer; within triathlon specifically, it's a close call with a slight edge to run.",
+        "ms": 5741,
+        "words": 190,
+        "emDashes": 2,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "screenshot-analysis",
+    "turns": [
+      {
+        "message": "Here is my long ride from last Saturday. What does it show?",
+        "reply": "A 92.4 km ride with 1,120 m of climbing in 2:42:10, averaging 188 W (212 W normalized) at an average HR of 148 bpm, max 171. The gap between average and normalized power (24 W) suggests a fairly variable effort, consistent with the elevation profile, rather than a steady flat grind. TSS of 168 is a solid moderate-to-hard training load for one ride.\n\nThat's useful context on its own, but RaceSignal doesn't have your other training rides to compare it against, so I can't tell you if this is a typical long ride for you or a standout one. It also doesn't connect to any specific race file since it's training data, not a race result.\n\nFrom your uploaded evidence\n- Distance: 92.4 km, Time: 2:42:10\n- Avg Power: 188 W, Normalized Power: 212 W\n- Avg HR: 148 bpm, Max HR: 171 bpm\n- Training Stress Score: 168\n- Elevation Gain: 1,120 m\n\nWere you building toward the Desert IRONMAN with this ride, or is it unrelated to that build?",
+        "ms": 4493,
+        "words": 171,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "sparse-data",
+    "turns": [
+      {
+        "message": "Am I getting faster?",
+        "reply": "Can't tell from what's on file. There's only one race in your RaceSignal history — the Parkside 5K on 2026-05-03, finished in 24:10 (overall top 33%, age group top 35%). No earlier result at any distance to compare it to, so there's no trend to point to yet.\n\nIf you've got an earlier 5K (or any earlier race) that didn't make it into this record, add it and I can give you a real answer. Otherwise your next race becomes the first real data point for a trend.",
+        "ms": 2592,
+        "words": 88,
+        "emDashes": 1,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "unsupported-claim",
+    "turns": [
+      {
+        "message": "How much of my Ridgeline improvement came from my training volume and nutrition?",
+        "reply": "I can't answer that directly — RaceSignal doesn't track training volume or nutrition, only race results and splits. So I can't attribute any part of the Ridgeline gain to either of those.\n\nWhat I can tell you is where the time actually came from, comparing Ridgeline (4:58:50) to your only other 70.3, Coastal (5:09:40, Sep 2025): you were 10:50 faster overall, and the bike was the biggest piece of that at 5:10, followed by the run at 4:30, with the swim contributing 50 seconds. Transitions were marginal (10 seconds each).\n\nSo the data can tell you bike and run are where the improvement is concentrated — it just can't tell you whether that came from more volume, better fueling, course differences, or conditions on the day. If you want to test the training or nutrition angle, you'd need to bring in logs from whatever platform tracks that (Garmin, TrainingPeaks, etc.) alongside this.",
+        "ms": 4440,
+        "words": 152,
+        "emDashes": 2,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "short-factual",
+    "turns": [
+      {
+        "message": "What's my 10K PB?",
+        "reply": "44:35, at the Riverside 10K on April 19, 2026 — top 5% overall and top 5% in your age group. That's an improvement of 1:35 over your prior Riverside 10K result of 46:10 from April 2024.",
+        "ms": 1607,
+        "words": 36,
+        "emDashes": 1,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  },
+  {
+    "name": "follow-up",
+    "turns": [
+      {
+        "message": "Break down my Ridgeline 70.3.",
+        "reply": "Ridgeline 70.3 (June 14, 2026) is your 70.3 PR: 4:58:50, good for 175/1720 overall (top 11%) and 17/198 in your age group (top 9%) — your best 70.3 age-group finish on file.\n\nSplits: swim 35:50, T1 3:00, bike 2:36:10, T2 2:20, run 1:41:30.\n\nAgainst your only other 70.3, Coastal (Sept 2025, 5:09:40), you were faster everywhere: 10:50 faster overall, with the bike the biggest single gain at 5:10, then the run at 4:30, swim 0:50, and both transitions 10 seconds quicker each. So the bike did the most work in closing the gap, with the run close behind.\n\nWorth noting the run here (1:41:30) isn't directly comparable to your Olympic or Sprint run splits — different distance, different fatigue state off a much longer bike — so I'm not reading anything into those as \"faster\" runs. Within your 70.3s specifically, bike and run are where you've made your real gains; swim has moved less.",
+        "ms": 4709,
+        "words": 154,
+        "emDashes": 3,
+        "stockPhrases": [],
+        "headings": false
+      },
+      {
+        "message": "Which leg gained the most compared with Coastal?",
+        "reply": "The bike, by 5:10 — your biggest single improvement versus Coastal. Run was next closest behind at 4:30 faster, then swim at 0:50, with both transitions improving by 10 seconds each. Bike and run together account for nearly all of your 10:50 overall gain.",
+        "ms": 2195,
+        "words": 44,
+        "emDashes": 1,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ]
+  }
+]

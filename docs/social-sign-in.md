@@ -137,7 +137,7 @@ Authentication QA is **not complete**. Observed on the iPhone against the develo
 **Not yet done (explicitly open)**
 - **Apple linking:** Connect Apple from Settings with an Apple identity unused on dev (success, same user id and data); and the **conflict** case (an Apple identity already attached to another account must be refused with both accounts intact).
 - **Google Connect from Settings** (link while signed in), including the conflict case.
-- **Apple "Hide My Email"** sign-in creating a separate account, then connecting it from the original account.
+- **Apple "Hide My Email"** sign-in on a fresh install creates separate account B. Then, from a different account A, connecting that **same** Apple identity must **conflict** (it is already attached to B; both accounts stay intact). A successful Apple link needs an Apple identity that is **unused** on development (an Apple ID that never signed in to RaceSignal Dev, or one whose dev account was deleted first).
 - **Apple account deletion and revocation:** the Apple key (`supabase/dev/set-dev-apple-key.sh`, after the dev App ID has the Sign in with Apple capability) is not set, so revocation has only been exercised with a deliberately broken key (deletion still succeeds, `appleRevocation: "failed"`). Still to test on the phone: delete a throwaway Apple account, cancel the Apple sheet ("Delete anyway / Keep my account"), the manual-removal note, and a real revocation once the key is set.
 - **Cancel / failure behavior on device** for each provider sheet (sign-in and connect), and killing the app mid-flow with pending selections.
 - **Welcome-back review-or-skip** on a real completed account with pending selections.

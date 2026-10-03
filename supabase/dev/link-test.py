@@ -6,6 +6,7 @@ dev email-authenticated account, keeps the same Supabase user id and everything 
 Signal usage, profile, and the RevenueCat identity (app user id = Supabase user id).
 
   python3 supabase/dev/link-test.py prepare --email you@gmail.com   # 1. create/complete the dev email account
+  python3 supabase/dev/link-test.py reset --email you@gmail.com --yes   # (optional) delete THAT dev account, then re-prepare
   python3 supabase/dev/link-test.py snapshot --email you@gmail.com  # 2. record the "before" state
   ... on the iPhone: dev app -> sign out -> "Already have an account?" -> Continue with Google (same address) ...
   python3 supabase/dev/link-test.py verify --email you@gmail.com --expect-new google    # 3. compare "after" against "before"
@@ -164,6 +165,24 @@ def prepare(email: str):
     print(f"ready: user {snap['user_id']}, identities {snap['identities']}, {snap['race_count']} races")
 
 
+def reset(email: str):
+    """Deletes ONE development account (cascading its profile, races and Signal usage) and prepares a fresh
+    email-first one with completed onboarding. Development only: REF above is the dev project and the module
+    refuses to load if that is the repo's production link. The RevenueCat dev customer of the old user id is left
+    behind (it cannot be deleted from here and is harmless); the new user id gets its own."""
+    user = find_user(email)
+    if not user:
+        print("no dev account for that address; preparing a fresh one")
+        return prepare(email)
+    detail = sb("GET", f"/auth/v1/admin/users/{user['id']}")
+    ids = sorted({i["provider"] for i in (detail.get("identities") or [])})
+    races = sb("GET", f"/rest/v1/races?athlete_id=eq.{user['id']}&select=id")
+    print(f"resetting DEV account {user['id']} (identities {ids}, {len(races)} races) in project {REF}")
+    sb("DELETE", f"/auth/v1/admin/users/{user['id']}")
+    print("deleted; cascading removal of its profile, races and Signal usage")
+    prepare(email)
+
+
 def snapshot_path(email: str) -> pathlib.Path:
     return HOME / f"link-test-{hashlib.sha256(email.lower().encode()).hexdigest()[:8]}.json"
 
@@ -210,11 +229,16 @@ def verify(email: str, expect_new: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["prepare", "snapshot", "verify"])
+    parser.add_argument("command", choices=["prepare", "snapshot", "verify", "reset"])
+    parser.add_argument("--yes", action="store_true", help="required for reset")
     parser.add_argument("--email", required=True)
     parser.add_argument("--expect-new", choices=["google", "email", "none"], default="google")
     args = parser.parse_args()
+    if args.command == "reset" and not args.yes:
+        sys.exit("reset deletes a development account; re-run with --yes")
     if args.command == "verify":
         verify(args.email, args.expect_new)
+    elif args.command == "reset":
+        reset(args.email)
     else:
         {"prepare": prepare, "snapshot": snapshot}[args.command](args.email)

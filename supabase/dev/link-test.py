@@ -8,7 +8,10 @@ Signal usage, profile, and the RevenueCat identity (app user id = Supabase user 
   python3 supabase/dev/link-test.py prepare --email you@gmail.com   # 1. create/complete the dev email account
   python3 supabase/dev/link-test.py snapshot --email you@gmail.com  # 2. record the "before" state
   ... on the iPhone: dev app -> sign out -> "Already have an account?" -> Continue with Google (same address) ...
-  python3 supabase/dev/link-test.py verify --email you@gmail.com    # 3. compare "after" against "before"
+  python3 supabase/dev/link-test.py verify --email you@gmail.com --expect-new google    # 3. compare "after" against "before"
+      --expect-new google|email|none   google = a Google identity must be newly attached; email = a magic link to a
+                                       Google-first account (the same user must come back; Supabase adds no email
+                                       identity); none = a returning login with a method already attached
 
 `prepare` is idempotent. If you already registered the address through the dev app's email magic link, it
 only fills in what is missing. If not, it creates the account directly in the dev auth system with the email
@@ -161,32 +164,42 @@ def prepare(email: str):
     print(f"ready: user {snap['user_id']}, identities {snap['identities']}, {snap['race_count']} races")
 
 
+def snapshot_path(email: str) -> pathlib.Path:
+    return HOME / f"link-test-{hashlib.sha256(email.lower().encode()).hexdigest()[:8]}.json"
+
+
 def snapshot(email: str):
     snap = state(email)
     HOME.mkdir(mode=0o700, exist_ok=True)
-    path = HOME / "link-test-snapshot.json"
+    path = snapshot_path(email)
     path.write_text(json.dumps(snap, indent=2))
     os.chmod(path, 0o600)
     print(f"snapshot saved to {path}")
     print(json.dumps({k: snap[k] for k in ("user_id", "identities", "race_count", "signal_free_usage")}, indent=2))
 
 
-def verify(email: str):
-    path = HOME / "link-test-snapshot.json"
+def verify(email: str, expect_new: str):
+    path = snapshot_path(email)
     if not path.exists():
-        sys.exit("no snapshot; run `snapshot` before signing in with Google")
+        sys.exit("no snapshot for this address; run `snapshot` before the sign-in you are testing")
     before, after = json.loads(path.read_text()), state(email)
     checks = [
         ("same Supabase user id", before["user_id"] == after["user_id"]),
-        ("a google identity is now attached", "google" in after["identities"] and "google" not in before["identities"]),
-        ("email identity still attached", "email" in after["identities"]),
+        ("every earlier sign-in method is still attached", set(before["identities"]) <= set(after["identities"])),
         ("exactly one account for this address", True),  # find_user already matched a single account by address
         ("same races (count and ids)", (before["race_count"], before["race_ids_sha"]) == (after["race_count"], after["race_ids_sha"])),
-        ("profile untouched (racing name, birth year, completion time)", before["profile"] == after["profile"]),
+        ("profile untouched (racing name, birth year, onboarding completion time)", before["profile"] == after["profile"]),
         ("Signal free usage unchanged", before["signal_free_usage"] == after["signal_free_usage"]),
         ("RevenueCat customer is the Supabase user id and unchanged",
          after["revenuecat"].get("original_app_user_id") == after["user_id"] and before["revenuecat"] == after["revenuecat"]),
     ]
+    if expect_new == "google":
+        added = "google" in after["identities"] and "google" not in before["identities"]
+        checks.insert(1, (f"a google identity is now attached (observed identities: {after['identities']})", added))
+    elif expect_new == "email":
+        # Observed on the dev project: signing in by magic link to a provider-first account returns the SAME user but
+        # Supabase does not add an "email" identity row, so identities are reported, not required to change.
+        print(f"note  email sign-in to a provider-first account: identities observed {before['identities']} -> {after['identities']} (an email identity is not required)")
     ok = True
     for label, passed in checks:
         print(("PASS  " if passed else "FAIL  ") + label)
@@ -199,5 +212,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["prepare", "snapshot", "verify"])
     parser.add_argument("--email", required=True)
+    parser.add_argument("--expect-new", choices=["google", "email", "none"], default="google")
     args = parser.parse_args()
-    {"prepare": prepare, "snapshot": snapshot, "verify": verify}[args.command](args.email)
+    if args.command == "verify":
+        verify(args.email, args.expect_new)
+    else:
+        {"prepare": prepare, "snapshot": snapshot}[args.command](args.email)

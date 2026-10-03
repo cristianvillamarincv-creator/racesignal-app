@@ -268,6 +268,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     // selections are kept and they decide what to do.
     if (!draft.originAthleteId) {
       const completedAt = await fetchOnboardingCompletedAt(userId);
+      // Routing diagnostics: booleans and counts only (never ids, emails, or race names).
+      console.log('[Onboarding] sign-in routing: onboardingCompleted=', Boolean(completedAt), 'pendingSelections=', draft.selectedResultIds.length);
       if (completedAt) {
         await offerExistingAccountReview(userId, draft);
         return;
@@ -302,6 +304,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     try {
       await clearOnboardingDraft();
       const completedAt = await fetchOnboardingCompletedAt(userId);
+      console.log('[Onboarding] returning-user routing: onboardingCompleted=', Boolean(completedAt));
       if (completedAt) {
         onComplete();
         return;

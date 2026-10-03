@@ -73,6 +73,41 @@ Expo auto-applies the config plugins of any installed package (`expo-apple-authe
 
 A separate, explicit release step with its own ordered checklist: `docs/release-1.1-checklist.md` (release configuration flags, `npm run release:config`, Google/Apple/Supabase/App Store steps, verification, rollback). Production is off today and nothing in it has been done.
 
+## The system prompt: "RaceSignalDev wants to use sjmixferxnkwbzkcofnp.supabase.co to sign in"
+
+That is iOS's standard confirmation for any app that signs in through a web session (`ASWebAuthenticationSession`), naming the domain the session opens. Google sign-in now opens Supabase's OAuth URL, so the domain is the Supabase project's. Browser OAuth is the **only** Google flow now, not a fallback: it replaced the native ID-token flow because Supabase rejected that flow's token (nonce, see above), and the native flow cannot be made to work with the installed build without either turning "Skip nonce check" on or changing native code.
+
+- The native Google SDK also uses `ASWebAuthenticationSession`, so it shows the same prompt, naming `google.com` instead. The prompt is not avoidable with the native flow either.
+- The domain cannot be masked, and Supabase custom domains are a paid add-on (not used).
+- `preferEphemeralSession` would suppress the prompt, but then Google would never see the browser's existing sessions (every sign-in would type the password again, no autofill or passkeys), so it is not used.
+- A native flow that keeps "Skip nonce check" off needs one native change: GoogleSignIn-iOS 9 accepts a custom nonce (`signIn(withPresenting:hint:additionalScopes:nonce:)`), but the free React Native library does not expose it, so it means a small patch to that library and **one native rebuild** (or the paid library). It would change the prompt's domain to `google.com`, nothing more. Not done; a product decision.
+
+## Same-email accounts: what we found for cristian.villamarin.cv@gmail.com (2026-10-03, read-only)
+
+`python3 supabase/dev/account-lookup.py <email>` (read-only SELECTs on development and production):
+
+| | Production | Development |
+|---|---|---|
+| Accounts for the address | 1 (`fb879b81…`), created 2026-09-27, email only | 1 (`dcf2b0a9…`), created 2026-10-03 00:32 UTC, **email + google** |
+| Onboarding / races / Signal free usage | completed 09-28 / 42 / 3 | completed 02:53:36 (after the Google sign-in) / 11 / none |
+
+- **The production account (the magic-link history with 42 races) is a different project.** It was never in development, and nothing was copied.
+- **In development there is exactly one account for the address, and Google attached to it (same user id).** Its email identity (00:32) and Google identity (02:52:42) are on the same user id. No duplicate account was created for that address.
+- **Why it looked like a new account:** the development magic-link account was an **empty shell**: the athlete profile row did not exist until 02:53:16, after the Google sign-in. A magic link had created and confirmed the login at 00:32 but onboarding was never completed in development, so there were no races or profile to preserve, and the app correctly sent that account through onboarding (new athletes import their selections). It is not a routing bug and not an account-linking bug. A separate Google-only development account (`c1245172…`, `cristian.flipd@gmail.com`) was created at 02:52:15, 27 seconds before, by the first Google attempt with that other Google address.
+- Routing now logs `onboardingCompleted=<bool> pendingSelections=<n>` at sign-in (booleans and counts only), so the next report shows which branch ran.
+
+**Observed server-side test (development, synthetic account):** a user whose only identity is a Google identity with a verified email, then a magic-link sign-in for the same address: Supabase returned the **same user id**; races, profile, Signal usage and the RevenueCat customer were unchanged; no `email` identity row was added (identities stayed `['google']`). This is why `link-test.py verify --expect-new email` does not require an email identity.
+
+### Real same-project runbook (development)
+
+Accounts you can use: `cristian.villamarin.cv@gmail.com` now has both methods and data; `cristian.flipd@gmail.com` is Google-only.
+
+**A. Magic link first, then Google (clean).** In the dev app: Settings -> Delete account on the `cv` account (your own dev account; nothing in production is affected). Sign in with a magic link to `cristian.villamarin.cv@gmail.com`, complete onboarding and import races. Then `python3 supabase/dev/account-lookup.py cristian.villamarin.cv@gmail.com` (note the dev user id and race count) and `python3 supabase/dev/link-test.py snapshot --email cristian.villamarin.cv@gmail.com`. Sign out, then "Already have an account? Sign in" -> **Continue with Google** with that exact address. Expect Stats with no onboarding. Then `python3 supabase/dev/link-test.py verify --email cristian.villamarin.cv@gmail.com --expect-new google` (expect all PASS) and run the lookup again (same user id, `email` + `google` identities, same race count).
+
+**B. Google first, then magic link.** Use `cristian.flipd@gmail.com` (Google-only, 1 race) before deleting anything: `snapshot --email cristian.flipd@gmail.com`; sign out; "Already have an account?" -> email -> **Send sign-in link** to that address (a free Supabase project's default mailer only reaches Supabase organization members; if it reports "not authorized", add the address under the organization's members or skip B, since the server-side result above already shows the behavior). Tap the link on the phone. Then `verify --email cristian.flipd@gmail.com --expect-new email` (same user id and data; identities stay `['google']`).
+
+**C. Already-linked returning login.** Any account with both methods: snapshot, sign out, sign in with the other method, `verify --expect-new none`. If authentication keeps the same id but onboarding starts again, send me the `[Onboarding] ... routing:` log lines and the lookup output.
+
 ## Verified-email Google linking test (real address, development only)
 
 Goal: show that signing in with Google, with a real Google address you control that is already an **email-authenticated dev account**, attaches Google to that same account (same Supabase user id, races, Signal usage, profile, RevenueCat customer). Do **not** use `dev.athlete@example.com`, which is not a real Google address.

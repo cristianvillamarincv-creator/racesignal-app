@@ -56,3 +56,66 @@ The account's synthetic races: Sprint triathlon 2024-06-09 (1:13:00), Olympic 20
 2. Signal tab: "What's my 10K PB?" (Expect 44:30 at the Synthetic 10K on 2025-04-20 in one or two sentences, no extra analysis.)
 3. Signal tab: "How much did my training volume and nutrition affect my 70.3?" (Expect a plain "I don't have that data" in the opening, what the race data does show, and no invented training detail.)
 4. If you want a fourth, reset the counter (`python3 supabase/dev/verify-signal.sh` clears it) and ask: "Which leg of my 70.3 was my strongest?" (A good answer hedges, since there is no per-leg ranking; watch for confident swim/bike/run verdicts.)
+
+---
+
+# Correctness pass (2026-10-03, development only)
+
+## Dates: the context was correct; the April 2025 error was a model error
+
+The exact context for "Have I been improving year over year?" was reproduced from the fixture athlete (the same `buildSignalContext` and `buildSystemPrompt` the function uses). Every race carried its correct ISO date (the 44:35 10K was `2026-04-19`, the 46:10 10K `2024-04-20`); nothing in the fixtures contradicted anything. Two things made the facts easy to cross-wire: both 10Ks share the name "Riverside 10K", and the personal-best line read "10K: Riverside 10K, 44:35" with no date. So the model attached the wrong year in one sample. The formatter now writes every date as a named month with its year ("Apr 19, 2026") and attaches the date to each personal-best line by matching name and finish time (server-side, so installed app builds benefit). That removes ambiguity but does not guarantee the model never slips; the verification below reports what actually happened.
+
+## What changed in this pass
+
+- **Strongest discipline:** the old guidance (which let the model lean toward swim or running) is replaced by a rule that never names a strongest, weakest, or "standout" discipline in any scope. The first sentence says the results don't establish one ("I can identify where you improved most, but these results don't establish your strongest discipline"), then cites separate evidence: the largest improvement between two races of the same distance (explicitly labelled as improvement, not strength), standalone results with their own distance-specific percentile, and what would settle it. Overall and age-group placement is never presented as a discipline ranking.
+- **Deterministic comparisons kept and extended:** the ranked "legs vs the seed" line is unchanged (its arithmetic and scope are correct). A new SAME-DISTANCE REPEATS block, computed in the formatter, gives earlier-to-later finish and leg differences, largest first, for any distance raced more than once (the seed-based deltas only exist when a seed race is open, and without them the model once named the run, not the bike, as the biggest gain).
+- **Voice:** no em dashes or en dashes at all (ranges are written with "to" or a plain hyphen), end when the answer is complete with no closing question or offer unless the answer genuinely needs more information, no proportional claims about gains, no volunteered cross-distance comparisons, no internal labels ("vs seed", "deltas"), and "strongest/standout" reserved for the disciplines rule (a race is the athlete's "best" or "fastest").
+- Unchanged: model, 700-token output cap (max observed 427), allowances, and every earlier factual safeguard.
+
+## Verification (fixed answer key, three runs per case, 7 cases)
+
+Cases: year over year, short factual (10K PB), strongest discipline (no seed), strongest leg within triathlon, race comparison, two-turn follow-up (breakdown, then "which leg gained the most"), two-turn screenshot follow-up. Answer key: 70.3 10:50 faster (bike 5:10, run 4:30, swim 0:50, T1 0:10, T2 0:10); 10K 46:10 (Apr 20, 2024) to 44:35 (Apr 19, 2026), 1:35 faster; one half marathon, one Olympic, one sprint; screenshot NP 212 W, average 188 W, gap 24 W. A mechanical checker scores dates, gain order, counts, discipline verdicts, dashes, trailing questions, and internal labels; every reply was also read in full. Replies are in `mobile/scripts/signal-eval/fixtures/voice-verify-{1,2,3}.json` (1 = before the repeats block, 2 = with it, 3 = final prompt).
+
+| Run | Prompt | Case-runs flagged | Real failures found by reading |
+|---|---|---|---|
+| 1 | structure of the first pass plus dates/discipline rules | 3 of 21 (after fixing checker false positives) | strongest discipline: "the run improved the most" then self-corrected to the bike; breakdown replies volunteered Olympic and Sprint comparisons with self-computed numbers (89:40, 58:20) and called Ridgeline "your strongest 70.3, full stop" |
+| 2 | + SAME-DISTANCE REPEATS | 5 of 21 | "vs-seed deltas" jargon leaked once; "strongest 70.3" wording twice; a cross-distance percentile claim; one strongest-leg reply listed whole-race placements next to disclaimers |
+| 3 (final) | + wording and internal-label rules | 5 of 21 | see below |
+
+**Final prompt, every factual failure found (21 case-runs, 27 asks):**
+1. Follow-up #1, turn 1: "The swim improved the least in absolute terms." Wrong: the transitions (0:10 each) improved least; the swim gained 0:50.
+2. Screenshot follow-up #2, turn 1: "...a longer, hillier ride than any bike leg you've raced to date." Unsupported: RaceSignal has no course profile or distance for race bike legs.
+3. Three replies compare percentiles across distances ("your best percentile on file", "your fastest percentile finish on file", strongest-discipline #2 and #3, short-factual #2), which the prompt forbids.
+4. Strongest-discipline #1 says the running results are "your most decorated placements on file" and #3 mentions "where your standout results are": both tilt toward running while saying a strongest discipline cannot be named.
+5. Follow-up #3, turn 1 mentions that the Olympic and Sprint results are faster in raw time (no numbers), an unnecessary cross-distance remark.
+6. Strongest-triathlon #1 offers the Ridgeline swim split next to the Olympic swim split ("different distances, can't be compared"), which is off topic.
+
+**Not failures in the final run:** all dates correct in 6 of 6 date-sensitive replies (3 year-over-year, 3 short factual); the largest gain named correctly in 12 of 12 gain-ordering replies and 3 of 3 "which leg gained the most" follow-ups; no em dashes, no closing questions, no internal labels in any final reply; every screenshot number correct, "From your uploaded evidence" present, and every screenshot follow-up gave 212 W and 24 W without resending the image; in all 6 strongest-discipline and strongest-leg replies the first sentence says the results don't establish a strongest discipline and none names one.
+
+**Token totals (exact, from `signal_usage_log`, 27 asks each):** run 1 input 190,601 / output 6,665; run 2 input 202,211 / output 6,579; run 3 (final) input 206,982 / output 6,451 (max single reply 427 output tokens, far below the 700 cap). Per ask the final prompt averages 7,666 input and 239 output tokens, against 5,664 input and 387 output for the original prompt (the first evaluation's nine asks: 50,977 input, 3,487 output). Dollar cost is not estimated here.
+
+## Unresolved
+
+The prompt reduces but does not eliminate these slips; sampling still produces occasional ones. The answer is probably a stricter content check or further examples for the strongest-discipline and cross-distance-percentile cases; that was not attempted in this pass.
+
+## iPhone test (development app, `dev.athlete@example.com`, password sign-in)
+
+**Account preparation (already done, nothing runs when you test):** earlier in this session I cleared this synthetic account's free-ask counter once, so it has all **3 free asks** and nothing has used one since (checked just now: no usage row). Each question below uses one ask, and no script, sign-in, or screen consumes or resets asks on its own. The facts below are read from the account's actual data through the app's own context builder:
+
+| Race | Date | Finish | Placement |
+|---|---|---|---|
+| Synthetic IRONMAN 70.3 | Jun 14, 2026 | 5:14:10 | overall Top 12% (210/1800), age group Top 12% (22/190) |
+| Synthetic Olympic Triathlon | Jul 12, 2025 | 2:33:30 | overall Top 15% (58/410), age group Top 6% (3/52) |
+| Synthetic Half Marathon | Oct 5, 2025 | 1:38:12 | overall Top 9% (340/3900) |
+| Synthetic 10K | Apr 20, 2025 | 44:30 | overall Top 6% (120/2100) |
+| Synthetic Marathon | Oct 13, 2024 | 3:29:55 | overall Top 13% (800/6200) |
+| Synthetic Sprint Triathlon | Jun 9, 2024 | 1:13:00 | overall Top 13% (41/320), age group Top 14% (5/38) |
+| Synthetic Manual 5K | Sep 17, 2023 | 21:40 | none |
+| Synthetic Upcoming IRONMAN | Dec 16, 2026 | upcoming | |
+
+No distance is repeated, so there are no same-distance comparisons on this account.
+
+1. Signal tab: "What's my half marathon PB?" Expect 1:38:12 at the Synthetic Half Marathon on Oct 5, 2025, top 9% overall, in one or two sentences, no dashes, no closing question.
+2. Open the 70.3 race, tap Ask Signal: "How does this compare with my Olympic?" Expect it to say they are different distances so there is no like-for-like comparison (70.3 5:14:10, Olympic 2:33:30), not a leg-by-leg analysis.
+3. Signal tab: "What's my strongest discipline?" Expect the first sentence to say the results don't establish one, that there is no per-leg ranking, and no swim, bike, or run named as strongest. Flag it if it says running (or anything) "stands out".
+4. Signal tab: "Have I been improving year over year?" Expect it to say no distance has been raced twice, so there is no like-for-like pair, and to list single results with the correct years (Sprint 2024, Olympic 2025, half marathon 2025, 10K 2025, 70.3 2026, marathon 2024).

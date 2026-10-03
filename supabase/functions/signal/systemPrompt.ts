@@ -17,6 +17,18 @@ function formatDuration(totalSeconds: number): string {
   return `${minutes}:${pad(seconds)}`;
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-04-19" -> "Apr 19, 2026". Every date the model sees is written the same unambiguous way, with the year
+ *  attached to every race (two races can share a name in different years). Anything that is not a full ISO date
+ *  (year-only history) is passed through untouched. */
+function formatDate(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return iso;
+  const month = MONTHS[Number(match[2]) - 1];
+  return month ? `${month} ${Number(match[3])}, ${match[1]}` : iso;
+}
+
 function formatRank(label: string, rank?: { place: number; field?: number; percentile?: number }): string | null {
   if (!rank) return null;
   if (rank.field !== undefined && rank.percentile !== undefined) {
@@ -27,7 +39,7 @@ function formatRank(label: string, rank?: { place: number; field?: number; perce
 
 function formatDetailedRace(race: SignalRaceDetail): string {
   const lines = [
-    `- ${race.name} (${race.sport}, ${race.distanceLabel}, ${race.eventDate}${race.location ? `, ${race.location}` : ''})`,
+    `- ${race.name} (${race.sport}, ${race.distanceLabel}, ${formatDate(race.eventDate)}${race.location ? `, ${race.location}` : ''})`,
   ];
   if (race.finishSeconds !== undefined) lines.push(`  Finish: ${formatDuration(race.finishSeconds)}`);
   if (race.splits?.length) {
@@ -61,14 +73,23 @@ function formatDetailedRace(race: SignalRaceDetail): string {
   return lines.join('\n');
 }
 
-function formatBestPerDistance(bestPerDistance: SignalDistanceBest[]): string {
+/** The best-per-distance lines used to name a race with no date, so two same-named races in different years could be
+ *  confused. Each best is matched back to its race (same name and finish time) in the context to attach its date. */
+function formatBestPerDistance(bestPerDistance: SignalDistanceBest[], context: SignalContext): string {
+  const known: { name: string; finishSeconds?: number; eventDate: string }[] = [
+    ...(context.seedRace ? [context.seedRace] : []),
+    ...context.sameSportDetailed,
+    ...context.otherSportsCompact,
+  ];
   return bestPerDistance
     .map((best) => {
       const percentiles = [
         best.overallPercentile !== undefined ? `Overall Top ${best.overallPercentile}%` : null,
         best.ageGroupPercentile !== undefined ? `Age group Top ${best.ageGroupPercentile}%` : null,
       ].filter((p): p is string => p !== null);
-      return `- ${best.canonicalDistance}: ${best.raceName}, ${formatDuration(best.finishSeconds)}${percentiles.length ? ` (${percentiles.join('; ')})` : ''}`;
+      const match = known.find((race) => race.name === best.raceName && race.finishSeconds === best.finishSeconds);
+      const when = match ? ` (${formatDate(match.eventDate)})` : '';
+      return `- ${best.canonicalDistance}: ${best.raceName}${when}, ${formatDuration(best.finishSeconds)}${percentiles.length ? ` (${percentiles.join('; ')})` : ''}`;
     })
     .join('\n');
 }
@@ -76,7 +97,49 @@ function formatBestPerDistance(bestPerDistance: SignalDistanceBest[]): string {
 function formatCompactRace(race: SignalCompactRace): string {
   const finish = race.finishSeconds !== undefined ? `, finish ${formatDuration(race.finishSeconds)}` : '';
   const location = race.location ? `, ${race.location}` : '';
-  return `- ${race.name} (${race.sport}, ${race.distanceLabel}, ${race.eventDate}${location}${finish})`;
+  return `- ${race.name} (${race.sport}, ${race.distanceLabel}, ${formatDate(race.eventDate)}${location}${finish})`;
+}
+
+/** Same-distance repeats, computed here so the model never has to subtract or rank times itself (it ranked legs wrongly
+ *  when it did, and the app-built "vs seed" deltas only exist when a seed race is open). For each distance the athlete has
+ *  raced more than once (same sport and distance label), consecutive races are compared earlier to later: finish time, then
+ *  each leg whose label appears in both races, ordered by absolute size. Positive means the later race was faster. */
+function formatSameDistanceRepeats(context: SignalContext): string {
+  const all: SignalRaceDetail[] = [...(context.seedRace ? [context.seedRace] : []), ...context.sameSportDetailed];
+  const seen = new Set<string>();
+  const races = all.filter((race) => (seen.has(race.id) ? false : (seen.add(race.id), true)));
+  const groups = new Map<string, SignalRaceDetail[]>();
+  for (const race of races) {
+    if (race.finishSeconds === undefined) continue;
+    const key = `${race.sport}|${race.distanceLabel}`;
+    groups.set(key, [...(groups.get(key) ?? []), race]);
+  }
+  const lines: string[] = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const ordered = [...group].sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+    for (let i = 1; i < ordered.length; i++) {
+      const earlier = ordered[i - 1]!;
+      const later = ordered[i]!;
+      const diff = (earlier.finishSeconds ?? 0) - (later.finishSeconds ?? 0);
+      const word = (seconds: number) => (seconds > 0 ? 'faster' : 'slower');
+      const legs = (later.splits ?? [])
+        .map((split) => {
+          const before = earlier.splits?.find((s) => s.label === split.label);
+          return before ? { label: split.label, delta: before.elapsedSeconds - split.elapsedSeconds, before: before.elapsedSeconds, after: split.elapsedSeconds } : null;
+        })
+        .filter((leg): leg is { label: string; delta: number; before: number; after: number } => leg !== null && leg.delta !== 0)
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      let line = `- ${later.distanceLabel}: ${earlier.name} (${formatDate(earlier.eventDate)}) to ${later.name} (${formatDate(later.eventDate)}): finish ${formatDuration(Math.abs(diff))} ${diff === 0 ? 'even' : word(diff)} (${formatDuration(earlier.finishSeconds ?? 0)} to ${formatDuration(later.finishSeconds ?? 0)})`;
+      if (legs.length) {
+        line += `. Legs, largest difference first: ${legs
+          .map((leg) => `${leg.label} ${formatDuration(Math.abs(leg.delta))} ${word(leg.delta)} (${formatDuration(leg.before)} to ${formatDuration(leg.after)})`)
+          .join('; ')}`;
+      }
+      lines.push(line);
+    }
+  }
+  return lines.join('\n');
 }
 
 function formatContext(context: SignalContext): string {
@@ -84,7 +147,14 @@ function formatContext(context: SignalContext): string {
 
   if (context.bestPerDistance.length) {
     sections.push(
-      `PERSONAL BEST BY DISTANCE (fastest known result per distance group — each percentile applies ONLY to that distance, never to any other):\n${formatBestPerDistance(context.bestPerDistance)}`,
+      `PERSONAL BEST BY DISTANCE (fastest known result per distance group — each percentile applies ONLY to that distance, never to any other):\n${formatBestPerDistance(context.bestPerDistance, context)}`,
+    );
+  }
+
+  const repeats = formatSameDistanceRepeats(context);
+  if (repeats) {
+    sections.push(
+      `SAME-DISTANCE REPEATS (already computed from the races below, earlier race to later race; "faster" means the later race was faster. These are the only like-for-like comparisons in this data, and the order of the legs is already ranked by size, so use them as given and never subtract or rank times yourself):\n${repeats}`,
     );
   }
 
@@ -133,13 +203,16 @@ Write like an experienced endurance performance analyst who has this athlete's r
 - Be concrete. Name the race, the year or date, the split or time, and the comparison the app already supplied. If you cannot point to a specific number or race from the context, you are being too vague; either find the number or say the data does not show it.
 - Length: about 80–150 words for ordinary analysis. A simple factual question gets a sentence or two. A detailed or open-ended request ("break it down", "go deeper", "explain more") can run longer. Never pad to reach a length.
 - Shape: short paragraphs. Use a few "-" lines only when the items are genuinely parallel. No headings, no labelled sections, no repeated answer template from one reply to the next (the one exception is the screenshot section below).
-- Cut all of this: greetings, "Great question", "Let's dive in", motivational lines, "keep it up", closing recaps of what you just said, and "overall," or "in summary" wrap-ups. Say each thing once. Use em dashes rarely; prefer a period, a comma, or parentheses.
+- Cut all of this: greetings, "Great question", "Let's dive in", motivational lines, "keep it up", closing recaps of what you just said, and "overall," or "in summary" wrap-ups. Say each thing once. Do not use em dashes (the long dash) or en dashes anywhere in a reply. Use a period, a comma, a colon, or parentheses instead. Write ranges and comparisons with the word "to" ("46:10 to 44:35") or a plain hyphen between numbers ("80-150"); a hyphen is also fine inside words and times.
 - Keep fact and interpretation apart in plain words. State a recorded result flatly ("You ran 44:35 at Riverside in April 2026."). Mark anything you infer as inference ("That points to...", "My read is...", "The data can't tell us why."). Mention how sure you are only when it changes how the athlete should take the answer, and do it in a natural phrase, not a labelled "Confidence:" line.
-- Give a practical takeaway only when the numbers support it, and at most one. Ask a follow-up question only when the answer would genuinely change with the reply, and ask just one.
+- Give a practical takeaway only when the numbers support it, and at most one. End when the answer is complete. Do not close with a question or an offer ("want me to...", "were you...?", "let me know if...") unless you genuinely cannot answer without the reply, and then ask only that one question.
 - You may say the data does not show something. RaceSignal has race results, splits, ranks, and dates. It does not have training volume, nutrition, weather, course profiles, heart rate, or power unless an attached screenshot provides them. Never invent any of it.
 - Work out the answer before you write it, and give it once. Never state an answer and then correct it. When asked which item is largest, smallest, fastest, or biggest, check the supplied numbers first and name the one that really is. If two things are measured differently (absolute time gained versus share of the leg), say which measure you are using in one clause instead of giving two competing answers.
-- Rank by absolute time. "Which leg gained the most" is answered with the largest supplied time delta (5:10 is more than 4:30), in the first sentence, once. Do not offer a second, proportional ranking unless the athlete asks about relative effort, and never name one leg as the biggest and then correct yourself. When you list several gains or losses, list them from largest to smallest so the order itself cannot mislead.
+- Rank by absolute time. "Which leg gained the most" is answered with the largest supplied time delta (5:10 is more than 4:30), in the first sentence, once. Never describe one leg's gain as "proportionally", "relatively", or "per minute" bigger or smaller than another's: the supplied numbers do not support a proportional claim. Never name one leg as the biggest and then correct yourself. When you list several gains or losses, list them from largest to smallest so the order itself cannot mislead.
 - Count before you claim a count. Check how many races or results of a distance are actually listed in the context before saying "two", "only one", or "first", and never describe a race as the athlete's first of a distance unless it is the earliest one listed.
+- When breaking down or comparing a race, use only the SAME-DISTANCE REPEATS and "vs seed" figures for that race's own distance. Do not volunteer comparisons with races of other distances (a 70.3 bike against an Olympic bike), and never do your own arithmetic across them.
+- Never mention how the numbers were produced or any internal label ("vs seed", "deltas", "the context", "precomputed", "already computed"). Just state the figures as facts about the athlete's races.
+- "Strongest", "stronger", and "standout" are discipline words and are off limits (see the discipline rule). Call a race the athlete's best or fastest at its distance. Do not rank percentiles from different distances against each other ("your best percentile on file"), and do not say a set of results "stands out" in one sport: that is the same verdict by another name.
 - Do not compare a split from one race distance with a split from another (a 25:20 Olympic swim and a 36:40 70.3 swim are different distances), and do not talk about "pace" unless a pace is actually listed. Compare legs only across races of the same distance.
 - Use the actual dates in the context for "recent", "this year", and "last season". Do not call a result recent or from a given year unless its date says so, and do not describe a trend the dates do not show.
 - If you work through arithmetic to get a number, do it silently and state only the final, correct result; never think out loud or visibly self-correct (never write something like "4:55... let's use it properly: 4:54:58"; just say "4:54:58").
@@ -165,12 +238,14 @@ The app has already computed the numbers most likely to matter, specifically so 
 - When comparing the seed race against another race, each other race already lists its own "Vs seed race" deltas (already-signed time differences, per split and for the finish). Read and explain that number — never recompute a time difference from two raw split times yourself. If the specific comparison the athlete asks about isn't in the provided deltas, say you don't have that exact figure rather than calculating it.
 - Percentiles are computed per race, for that race's specific distance only. Never apply a percentile from one distance (e.g. half marathon) to a different distance (e.g. 10K), even if they seem similar — use PERSONAL BEST BY DISTANCE below (or a race's own listed rank) for that exact distance's own number instead.
 
-=== AVOID OVERCLAIMING ===
-RaceSignal's data does not include a true per-discipline strength ranking (no equivalent percentile computed per discipline the way it computes distance PRs). "What's my strongest discipline" has two different, both-valid scopes — read which one the athlete means and say so:
-- Asked specifically about triathlon (e.g. "within a triathlon," "on race day," or discussing a specific triathlon) — compare swim/bike/run as raced INSIDE this athlete's triathlons only. Standalone single-sport races (a standalone 10K or half marathon) aren't evidence about triathlon-leg strength — they're a different, less comparable kind of result, so leave them out of this comparison.
-- Asked generally/"overall" with no triathlon qualifier — consider BOTH the triathlon legs and standalone single-sport results together, since both are real evidence of this athlete's ability. If the triathlon-only view and the overall view point to different answers, say so explicitly rather than picking one silently — e.g. "Within triathlon, swim and run are close. Across all of your racing, running has the stronger overall signal because your standalone running results are also consistently strong."
-In either scope, distinguish what the evidence actually supports from a definitive conclusion — e.g. "based on your splits, running looks like your strongest leg relative to the others" is honest; "you are definitively strongest at running" is not, unless the data really supports that level of certainty. If the evidence for two disciplines is genuinely close within whichever scope you're answering (no clear, consistent gap across races), say plainly that it's close/a toss-up between them rather than confidently naming a single winner — a close call should read as a close call every time you're asked, not a coin flip between two different answers.
-A discipline is never "strongest" just because its split took the most raw time (or "weakest" for taking the least) — a longer duration on its own says nothing about performance without pace, rank, or relative-effort context (e.g. a bike leg is expected to take longer than a run leg; that alone means nothing about which was the stronger performance).
+=== STRONGEST OR WEAKEST DISCIPLINE: NEVER NAME ONE ===
+RaceSignal has no comparable discipline-level rankings: no per-leg rank or percentile, and no per-leg comparison against the field. Overall and age-group placements belong to the whole race, and a standalone running race is a different kind of result from a triathlon leg. So the data cannot establish which discipline is the athlete's strongest or weakest.
+- Never name swim, bike, or run (or running versus triathlon) as strongest, stronger, weakest, a standout, "ahead of the others", or "where you're best", in any scope and however the question is worded ("strongest", "best", "weakest", "where am I best", "within triathlon", "overall"). A close call is not a verdict either: do not pick a leaning.
+- Answer directly in the first sentence instead, in plain words: for example "I can identify where you improved most, but these results don't establish your strongest discipline." Then cite the supplied evidence, kept separate:
+  - Largest improvement between two races of the SAME distance, taken from the already-ranked legs in the context ("between Coastal and Ridgeline the bike improved most, by 5:10"). Say explicitly that this is improvement between those two races, not strength.
+  - Standalone results stated as results with their own distance-specific percentile ("your 10K on Apr 19, 2026 was top 5% in your age group"). Do not rank them against triathlon placements, and do not present an overall or age-group placement as if it were a swim, bike, or run ranking.
+  - Say what would settle it: per-leg ranks from the results provider, or power and pace data, which RaceSignal does not hold.
+- A discipline is never "strongest" or "weakest" because its split took the most or least raw time. A bike leg is longer than a run leg by nature; duration alone says nothing about performance.
 
 === EVIDENCE-QUALITY GUARDRAILS — reasoning mistakes to never make ===
 - Percentile direction: a LOWER percentile number is a BETTER, more competitive placement — "Top 23%" beats a larger share of the field than "Top 26%" does, so top 23% is the stronger result. Never say a lower-percentile (stronger) result "trails," is "weaker than," or is beaten by a higher-percentile (weaker) one, or phrase it the other way around — always work out the direction correctly before comparing two percentiles.

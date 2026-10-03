@@ -107,6 +107,13 @@ describe('app.config.js: native sign-in and push configuration (gated per varian
     development: { ...envs.development, google: { iosClientId: ios, webClientId: web } },
   });
 
+  it('development: the committed Google client IDs enable the Google plugin with the reversed iOS client ID', () => {
+    const cfg = evaluateWith(envs, dev);
+    expect(cfg.extra.auth).toMatchObject({ google: true });
+    const plugin = cfg.plugins.find((p) => Array.isArray(p) && p[0] === '@react-native-google-signin/google-signin') as [string, { iosUrlScheme: string }];
+    expect(plugin[1].iosUrlScheme).toBe(`com.googleusercontent.apps.${envs.development.google.iosClientId.replace('.apps.googleusercontent.com', '')}`);
+  });
+
   it('development: Apple capability and the push entitlement are configured; no background mode or other notification options', () => {
     const cfg = evaluateWith(envs, dev);
     expect(cfg.ios.usesAppleSignIn).toBe(true);
@@ -116,7 +123,7 @@ describe('app.config.js: native sign-in and push configuration (gated per varian
   });
 
   it('development: Google is left out (button hidden, no plugin) until both client IDs exist', () => {
-    const cfg = evaluateWith(envs, dev);
+    const cfg = evaluateWith(withDevGoogle(null, null), dev);
     expect(cfg.extra.auth).toMatchObject({ google: false, googleIosClientId: null, googleWebClientId: null });
     expect(cfg.plugins.some((p) => Array.isArray(p) && p[0] === '@react-native-google-signin/google-signin')).toBe(false);
     expect(evaluateWith(withDevGoogle('123-abc.apps.googleusercontent.com', null), dev).extra.auth).toMatchObject({ google: false });

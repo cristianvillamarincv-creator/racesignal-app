@@ -12,8 +12,8 @@
       "pushEntitlement": true
     },
     "google": {
-      "webClientId": null,
-      "iosClientId": null
+      "webClientId": "124971644702-5bd23u8e5ou026ncnhmg2d6b2sdmm663.apps.googleusercontent.com",
+      "iosClientId": "124971644702-auf2ma467669l89l89an4ccbl3qmpska.apps.googleusercontent.com"
     }
   },
   "production": {

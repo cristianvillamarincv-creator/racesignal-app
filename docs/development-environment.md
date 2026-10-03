@@ -97,6 +97,10 @@ cd mobile && npm run start:dev      # open RaceSignal Dev and connect to Metro
 ```
 Sign in with `dev.athlete@example.com` (password in `~/.racesignal-dev/dev-account-password`; reveal it only in your own terminal, e.g. `pbcopy < ~/.racesignal-dev/dev-account-password`).
 
+## Apple and Google sign-in (development services)
+
+Design, account-linking rules, Apple token revocation on deletion, the private Google Cloud / Apple key setup, the consolidated rebuild list, and the iPhone checklist are in `docs/social-sign-in.md`. Dev-only helpers: `supabase/dev/configure-auth.py` (providers + manual linking), `supabase/dev/set-dev-apple-key.sh`.
+
 ## Dev account and synthetic data
 
 `supabase/dev/seed-dev.mjs` creates/refreshes the dev athlete and synthetic races (`--reset` to rebuild). It refuses to run against any host other than the dev project. Needs `DEV_SUPABASE_URL` and `DEV_SERVICE_ROLE_KEY` in the environment (get the service key with `supabase projects api-keys --project-ref <dev ref>`). The dev password lives in `~/.racesignal-dev/dev-account-password` (not in the repo; regenerate by re-running the seed after deleting the file). No production users, races, conversations, or reviewer credentials were copied.

@@ -12,9 +12,9 @@ Postgres schema (with row-level security), three Edge Functions, and Auth for th
 |---|---|---|
 | `race-discovery` | `verify_jwt = false` (deliberate; `detail` validates the JWT itself) | Sportstats search / athlete history / single-result detail. Never writes athlete data; the client persists selected races under RLS. Per-IP daily request cap and a `provider_config` kill switch. Parses unofficial public Sportstats endpoints, including an embedded Next.js payload in an HTML page, so a page-shape change can break it. |
 | `signal` | `verify_jwt = true` | Signal chat. Calls the Anthropic Messages API (model `claude-sonnet-5` by default), enforces allowances, checks Premium via the RevenueCat REST API, dedups retries by `requestId`. Prompt: `functions/signal/systemPrompt.ts`. |
-| `delete-account` | `verify_jwt = true` | Calls `auth.admin.deleteUser`; foreign-key cascades delete all athlete data. Does not touch RevenueCat. |
+| `delete-account` | `verify_jwt = true` | Calls `auth.admin.deleteUser`; foreign-key cascades delete all athlete data. Does not touch RevenueCat. Optionally revokes Sign in with Apple tokens first when the app sends a fresh `appleAuthorizationCode` and the `APPLE_*` secrets exist (best-effort, never blocks deletion; see `../docs/social-sign-in.md`). |
 
-Tests: `cd functions/signal && deno test --allow-read --no-check` (32), `cd functions/race-discovery && deno test --allow-read --no-check` (11). `functions/race-discovery/repair_*.ts` are one-time maintenance scripts that have already been run; they are not deployed. **Do not rerun them.**
+Tests: `cd functions/signal && deno test --allow-read --no-check` (32), `cd functions/race-discovery && deno test --allow-read --no-check` (11), `cd functions/delete-account && deno test --allow-read --no-check` (8, Apple token revocation). `functions/race-discovery/repair_*.ts` are one-time maintenance scripts that have already been run; they are not deployed. **Do not rerun them.**
 
 ### Migrations (`migrations/`)
 

@@ -6,6 +6,15 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 
 import { describeAuthExchangeFailure } from '@/lib/authErrorMessages';
 import { isRetryableAuthError } from '@/lib/authRetry';
+import {
+  getConnectedProviders,
+  linkProvider,
+  signInWithProvider,
+  type ConnectedProvider,
+  type LinkProviderResult,
+  type SocialProvider,
+  type SocialSignInResult,
+} from '@/lib/socialAuth';
 import { supabase } from '@/lib/supabaseClient';
 import { withTimeout } from '@/lib/timeout';
 
@@ -56,12 +65,16 @@ export interface AuthContextValue {
   /** Sends a magic link to the given email. Creates the account on first use. The link opens
    *  `racesignal://auth-callback` in this build — see completeAuthFromUrl. */
   requestMagicLink: (email: string) => Promise<{ error: string | null }>;
-  /** Opens Google's OAuth consent screen in an in-app browser sheet and exchanges the result for
-   *  a session. Never reads the Google profile name into anything — the racing name collected
-   *  during discovery stays the only source for that (see OnboardingFlow / raceMapping). */
-  signInWithGoogle: () => Promise<AuthResult>;
-  /** Turns an incoming `racesignal://auth-callback...` URL (from either Google or a tapped magic
-   *  link) into a session. Exposed so OnboardingFlow can also call it directly for a deep link
+  /** Native Sign in with Apple / Google (system sheet, no browser), exchanged for a Supabase session via
+   *  signInWithIdToken. Supabase links the provider to an existing account only when its VERIFIED email
+   *  matches; otherwise a new account is created. See lib/socialAuth.ts and docs/social-sign-in.md. */
+  signInWithProvider: (provider: SocialProvider) => Promise<SocialSignInResult>;
+  /** Connects a provider to the CURRENTLY signed-in account (Settings -> Connected accounts). Never replaces
+   *  the signed-in account; a provider owned by another account is reported as a conflict. */
+  linkProvider: (provider: SocialProvider) => Promise<LinkProviderResult>;
+  /** The sign-in methods attached to the signed-in account, or null if they could not be read. */
+  getConnectedProviders: () => Promise<ConnectedProvider[] | null>;
+  /** Turns an incoming `racesignal://auth-callback...` URL (a tapped magic link) into a session. Exposed so OnboardingFlow can also call it directly for a deep link
    *  received while the app is already running (Linking's 'url' event) or recovered from the
    *  app's cold-start launch URL. */
   completeAuthFromUrl: (url: string) => Promise<AuthResult>;
@@ -261,35 +274,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: describeAuthExchangeFailure(null), userId: null };
   };
 
-  const signInWithGoogle = async (): Promise<AuthResult> => {
-    const redirectTo = getAuthRedirectUri();
-    console.log('[Auth] starting Google sign-in, redirectTo =', redirectTo);
-
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo, skipBrowserRedirect: true },
-    });
-    if (error || !data.url) {
-      console.warn('[Auth] signInWithOAuth failed to produce a URL:', error?.message);
-      return {
-        error: `Could not start Google sign-in (${error?.message ?? 'no URL returned'}) — check that Google is enabled under Supabase Auth > Providers.`,
-        userId: null,
-      };
-    }
-    console.log('[Auth] opening Google consent screen…');
-
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-    console.log('[Auth] browser session closed with result type:', result.type);
-    if (result.type === 'cancel' || result.type === 'dismiss') {
-      return { error: null, userId: null };
-    }
-    if (result.type !== 'success' || !result.url) {
-      return { error: `Google sign-in didn’t complete (browser closed with "${result.type}").`, userId: null };
-    }
-
-    return completeAuthFromUrl(result.url);
-  };
-
   /** Plain email+password sign-in — no signup path here (Supabase's `signUp` is never called from
    *  this app; the one account meant to use this is created ahead of time via the Admin API). A
    *  wrong password/unknown email both surface as the same generic message, matching Supabase
@@ -316,7 +300,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ isReady, session, requestMagicLink, signInWithGoogle, completeAuthFromUrl, signInWithPassword, signOut }}>
+      value={{
+        isReady,
+        session,
+        requestMagicLink,
+        signInWithProvider,
+        linkProvider,
+        getConnectedProviders,
+        completeAuthFromUrl,
+        signInWithPassword,
+        signOut,
+      }}>
       {children}
     </AuthContext.Provider>
   );

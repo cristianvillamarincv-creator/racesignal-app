@@ -39,10 +39,11 @@ Do **not** create a TestFlight build per change. Group changes into checkpoints 
 cd mobile
 npx tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npx jest                       # 31 suites / 249 tests on release-1.1
+npx jest                       # 35 suites / 301 tests on release-1.1
 npx expo-doctor                # 18/18 at 8e3f0ec
 cd ../supabase/functions/signal && deno test --allow-read --no-check          # 32 tests
 cd ../race-discovery && deno test --allow-read --no-check                      # 11 tests
+cd ../delete-account && deno test --allow-read --no-check                      # 8 tests (Apple revocation)
 ```
 
 Jest conventions (RTL 14 is async): `await render(...)`; wrap every `fireEvent` and `unmount` in `await act(async () => …)`; keep real `import`s above `jest.mock` calls (babel-jest hoists mocks; satisfies `import/first`); mock the Supabase client, AsyncStorage, and `expo-linking`. A full-router test via `expo-router/testing-library`'s `renderRouter()` is **not usable** on the current versions (`expo-router@6.0.24` does not await RTL 14's async `render()`); test routing logic in isolation instead (see `mobile/__tests__/tabsDefaultRouteEffect.test.tsx`).

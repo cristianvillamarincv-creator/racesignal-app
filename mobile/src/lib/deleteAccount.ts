@@ -9,12 +9,20 @@ import { withTimeout } from '@/lib/timeout';
  */
 const DELETE_ACCOUNT_TIMEOUT_MS = 20000;
 
-export type DeleteAccountResult = { available: true } | { available: false; reason: 'unauthorized' | 'server_error' | 'network_error' };
+export type AppleRevocationStatus = 'revoked' | 'failed' | 'not_attempted';
 
-export async function deleteAccount(): Promise<DeleteAccountResult> {
+export type DeleteAccountResult =
+  | { available: true; appleRevocation: AppleRevocationStatus }
+  | { available: false; reason: 'unauthorized' | 'server_error' | 'network_error' };
+
+/** `appleAuthorizationCode` (optional) lets the server revoke the athlete's Sign in with Apple tokens as
+ *  part of deletion. It is never required: without it the account is deleted all the same. */
+export async function deleteAccount(options: { appleAuthorizationCode?: string } = {}): Promise<DeleteAccountResult> {
   try {
     const { data, error } = await withTimeout(
-      supabase.functions.invoke('delete-account', { body: {} }),
+      supabase.functions.invoke('delete-account', {
+        body: options.appleAuthorizationCode ? { appleAuthorizationCode: options.appleAuthorizationCode } : {},
+      }),
       DELETE_ACCOUNT_TIMEOUT_MS,
       'delete-account',
     );
@@ -22,8 +30,12 @@ export async function deleteAccount(): Promise<DeleteAccountResult> {
       console.warn('[deleteAccount] functions.invoke failed —', error.message ?? error);
       return { available: false, reason: 'network_error' };
     }
-    const body = data as { available?: boolean; reason?: 'unauthorized' | 'server_error' } | null;
-    if (body?.available) return { available: true };
+    const body = data as {
+      available?: boolean;
+      reason?: 'unauthorized' | 'server_error';
+      data?: { appleRevocation?: AppleRevocationStatus };
+    } | null;
+    if (body?.available) return { available: true, appleRevocation: body.data?.appleRevocation ?? 'not_attempted' };
     return { available: false, reason: body?.reason ?? 'server_error' };
   } catch (err) {
     console.warn('[deleteAccount] did not complete —', err);

@@ -59,7 +59,7 @@ Do not use bare `expo start` for QA. Expo Go cannot test purchases or the magic-
 ```bash
 npm run typecheck            # tsc --noEmit
 npx eslint src __tests__ --max-warnings=0
-npm test                     # jest: 31 suites / 249 tests on release-1.1
+npm test                     # jest: 35 suites / 301 tests on release-1.1
 npx expo-doctor
 ```
 

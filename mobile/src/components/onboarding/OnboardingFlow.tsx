@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HairlineRule } from '@/components/HairlineRule';
 import { RaceLineMotif } from '@/components/RaceLineMotif';
 import { SignalMark } from '@/components/SignalMark';
+import { SocialSignInButtons } from '@/components/onboarding/SocialSignInButtons';
 import { useAuth } from '@/lib/auth';
 import { RESEND_SUCCESS_MESSAGE } from '@/lib/authErrorMessages';
 import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
@@ -34,6 +35,8 @@ import { AppIcon } from '@/lib/icons';
 import { normalizeNameForQuery } from '@/lib/nameNormalization';
 import { isPlausibleEmail, normalizeEmailInput } from '@/lib/emailInput';
 import { clearOnboardingDraft, loadOnboardingDraft, saveOnboardingDraft } from '@/lib/onboardingDraft';
+import { type SocialProvider } from '@/lib/socialAuth';
+import { runSocialSignIn } from '@/lib/socialSignInFlow';
 import { candidateDetailToInsertRow } from '@/lib/raceMapping';
 import {
   fetchCandidateHistory,
@@ -90,6 +93,11 @@ type Step =
 // two outstanding magic links (see the PKCE-verifier-overwrite note on handleResendMagicLink).
 const RESEND_COOLDOWN_SECONDS = 60;
 
+// Shown once beneath the Apple/Google buttons. An Apple "Hide My Email" address (or any different email)
+// can't be matched to an existing account automatically, so existing athletes are pointed at the explicit
+// Settings path instead of silently getting a second, empty account.
+const CONNECT_PROVIDER_HINT = 'Already use RaceSignal with email? Sign in with email first, then connect Apple or Google in Settings.';
+
 function unavailableCopy(reason: UnavailableReason): string {
   switch (reason) {
     case 'disabled':
@@ -126,7 +134,7 @@ interface OnboardingFlowProps {
 }
 
 export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedComplete }: OnboardingFlowProps) {
-  const { session, requestMagicLink, completeAuthFromUrl, signInWithPassword, signOut } = useAuth();
+  const { session, requestMagicLink, completeAuthFromUrl, signInWithPassword, signInWithProvider, signOut } = useAuth();
   const { applyImportedRaces } = useAthleteRaces();
 
   const [step, setStep] = useState<Step>('restoring');
@@ -147,6 +155,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   // the other) so a successful resend reads as reassuring progress, not another error-style message.
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [isSendingLink, setIsSendingLink] = useState(false);
+  const [isSocialSigningIn, setIsSocialSigningIn] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
   // "Already have an account? Sign in" — a returning athlete authenticating directly, with no
@@ -531,10 +540,27 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
     });
   }
 
-  // Google sign-in is hidden for now (P1-6) — not configured yet, so exposing it would just be a
-  // broken action. The underlying `signInWithGoogle()` utility stays in lib/auth.tsx; re-adding a
-  // handler here (persist draft -> signInWithGoogle -> runImport, same shape as the email path)
-  // is a small diff whenever it's revisited ahead of App Store release.
+  /**
+   * Native Apple / Google sign-in, offered beside the email option on the save step (new athletes) and
+   * on the returning-user sign-in screen. The branching lives in lib/socialSignInFlow.ts (tested there).
+   * Cancelling the provider sheet changes nothing and shows nothing. Magic-link and password sign-in
+   * are untouched.
+   */
+  async function handleSocialSignIn(provider: SocialProvider) {
+    if (isSocialSigningIn || simulateAuth) return;
+    setAuthError(null);
+    setIsSocialSigningIn(true);
+    const outcome = await runSocialSignIn(provider, {
+      isReturningUserFlow,
+      persistDraft,
+      signIn: signInWithProvider,
+      fetchOnboardingCompletedAt,
+      resumeReturningUser,
+      resumeFromDraftAndImport,
+    });
+    setIsSocialSigningIn(false);
+    if (outcome.kind === 'error') setAuthError(outcome.message);
+  }
 
   async function handleSendMagicLink() {
     if (isSendingLink) return;
@@ -898,6 +924,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
               <SaveStep
                 selectedCount={selectedCount}
                 error={authError}
+                onSocialSignIn={handleSocialSignIn}
+                isSocialSigningIn={isSocialSigningIn}
                 onUseEmail={() => {
                   setAuthError(null);
                   setStep('emailForm');
@@ -914,6 +942,8 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
                 email={email}
                 onChangeEmail={setEmail}
                 error={authError}
+                onSocialSignIn={isReturningUserFlow ? handleSocialSignIn : undefined}
+                isSocialSigningIn={isSocialSigningIn}
                 selectedCount={selectedCount}
                 isSending={isSendingLink}
                 onSendLink={handleSendMagicLink}
@@ -1330,11 +1360,15 @@ function CandidateRow({
 function SaveStep({
   selectedCount,
   error,
+  onSocialSignIn,
+  isSocialSigningIn,
   onUseEmail,
   onBack,
 }: {
   selectedCount: number;
   error: string | null;
+  onSocialSignIn: (provider: SocialProvider) => void;
+  isSocialSigningIn: boolean;
   onUseEmail: () => void;
   onBack: () => void;
 }) {
@@ -1352,6 +1386,8 @@ function SaveStep({
       <Text style={styles.subcopy}>Your racing name stays what you typed. This just saves it to your account.</Text>
 
       {error ? <Text style={styles.message}>{error}</Text> : null}
+
+      <SocialSignInButtons onPress={onSocialSignIn} disabled={isSocialSigningIn} caption={CONNECT_PROVIDER_HINT} />
 
       {/* Same destination (EmailFormStep) either way — only the label changes, so a failed
           sign-in reads as "get a fresh link" rather than the generic first-time CTA. */}
@@ -1392,6 +1428,8 @@ export function EmailFormStep({
   email,
   onChangeEmail,
   error,
+  onSocialSignIn,
+  isSocialSigningIn = false,
   selectedCount,
   isSending,
   onSendLink,
@@ -1401,6 +1439,10 @@ export function EmailFormStep({
   email: string;
   onChangeEmail: (value: string) => void;
   error: string | null;
+  /** Optional: only the returning-user sign-in screen passes it (new athletes see the provider buttons on
+   *  the save step instead), so existing usages and tests are unchanged. */
+  onSocialSignIn?: (provider: SocialProvider) => void;
+  isSocialSigningIn?: boolean;
   selectedCount: number;
   isSending: boolean;
   onSendLink: () => void;
@@ -1490,6 +1532,10 @@ export function EmailFormStep({
         Sign in to save {selectedCount > 0 ? `${selectedCount} race${selectedCount === 1 ? '' : 's'}` : 'your history'}.
       </Text>
       <Text style={styles.subcopy}>We&apos;ll email you a secure sign-in link.</Text>
+
+      {onSocialSignIn ? (
+        <SocialSignInButtons onPress={onSocialSignIn} disabled={isSocialSigningIn} caption={CONNECT_PROVIDER_HINT} />
+      ) : null}
 
       <Field label="Email" value={email} onChangeText={onChangeEmail} keyboardType="email-address" autoCapitalize="none" />
 

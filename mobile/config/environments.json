@@ -1,16 +1,34 @@
 {
-  "_comment": "Non-secret identifiers only. The development Supabase project ref is a public identifier (it appears in the project URL). Production's ref is intentionally not listed here: guards only need to recognize the DEV project.",
+  "_comment": "Non-secret identifiers only. The development Supabase project ref is a public identifier (it appears in the project URL). Production's ref is intentionally not listed here: guards only need to recognize the DEV project. `features` gates native sign-in/push configuration per variant: production stays all-false until the owner enables it for a release (and fills in the production Google client IDs). Google OAuth client IDs are public identifiers, not secrets.",
   "development": {
     "appVariant": "development",
     "displayName": "RaceSignal Dev",
     "bundleIdentifier": "com.cristianvillamarin.racesignal.dev",
     "scheme": "racesignal-dev",
-    "supabaseProjectRef": "sjmixferxnkwbzkcofnp"
+    "supabaseProjectRef": "sjmixferxnkwbzkcofnp",
+    "features": {
+      "appleSignIn": true,
+      "googleSignIn": true,
+      "pushEntitlement": true
+    },
+    "google": {
+      "webClientId": null,
+      "iosClientId": null
+    }
   },
   "production": {
     "appVariant": "production",
     "displayName": "RaceSignal",
     "bundleIdentifier": "com.cristianvillamarin.racesignal",
-    "scheme": "racesignal"
+    "scheme": "racesignal",
+    "features": {
+      "appleSignIn": false,
+      "googleSignIn": false,
+      "pushEntitlement": false
+    },
+    "google": {
+      "webClientId": null,
+      "iosClientId": null
+    }
   }
 }

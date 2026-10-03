@@ -8,6 +8,8 @@ import { SectionHeader } from '@/components/SectionHeader';
 import { useAppPhase } from '@/lib/appPhase';
 import { useAuth } from '@/lib/auth';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
+import { APPLE_MANUAL_REMOVAL_MESSAGE, needsManualAppleRemovalNotice, planAppleRevocation } from '@/lib/accountDeletion';
+import { buildConnectedAccountRows, feedbackForLinkResult, type ConnectFeedback } from '@/lib/connectedAccounts';
 import { deleteAccount } from '@/lib/deleteAccount';
 import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { clearFindRacesRetryDraft } from '@/lib/findRacesRetryDraft';
@@ -18,6 +20,8 @@ import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { clearSignalConsent, hasAgreedToSignalDisclosure } from '@/lib/signalConsent';
+import { requestAppleRevocationCode, type ConnectedProvider, type SocialProvider } from '@/lib/socialAuth';
+import { getSocialAuthConfig } from '@/lib/socialAuthConfig';
 import { minTouchSize, spacing } from '@/lib/theme';
 
 // Blocked Users (not a genuine V1 requirement) stays fully hidden until it's real. Privacy/Support
@@ -33,13 +37,19 @@ const ACCOUNT_ROWS: { label: string; url: string }[] = [
 export default function SettingsScreen() {
   const router = useRouter();
   const { resetToOnboarding } = useAppPhase();
-  const { session, signOut } = useAuth();
+  const { session, signOut, linkProvider, getConnectedProviders } = useAuth();
   const { racingName } = useAthleteRaces();
   const displayName = racingName ?? session?.user.email ?? 'Athlete';
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const socialAuth = getSocialAuthConfig();
+  const showConnectedAccounts = socialAuth.apple || socialAuth.google;
+  const [connectedProviders, setConnectedProviders] = useState<ConnectedProvider[] | null>(null);
+  const [connectedLoaded, setConnectedLoaded] = useState(false);
+  const [connectingProvider, setConnectingProvider] = useState<SocialProvider | null>(null);
+  const [connectFeedback, setConnectFeedback] = useState<ConnectFeedback>({ kind: 'none' });
   const [hasSignalConsent, setHasSignalConsent] = useState(false);
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
@@ -59,6 +69,30 @@ export default function SettingsScreen() {
       cancelled = true;
     };
   }, [session?.user.id]);
+
+  async function refreshConnectedProviders() {
+    const identities = await getConnectedProviders();
+    setConnectedProviders(identities);
+    setConnectedLoaded(true);
+  }
+
+  useEffect(() => {
+    if (!showConnectedAccounts || !session?.user.id) return;
+    void refreshConnectedProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showConnectedAccounts, session?.user.id]);
+
+  /** Connects a provider to the account that is signed in now. Supabase refuses (and we report, changing
+   *  neither account) if that provider already belongs to another account. */
+  async function handleConnectProvider(provider: SocialProvider) {
+    if (connectingProvider) return;
+    setConnectingProvider(provider);
+    setConnectFeedback({ kind: 'none' });
+    const result = await linkProvider(provider);
+    setConnectingProvider(null);
+    setConnectFeedback(feedbackForLinkResult(provider, result));
+    if (result.status === 'success') await refreshConnectedProviders();
+  }
 
   async function handleWithdrawSignalConsent() {
     await clearSignalConsent();
@@ -93,16 +127,47 @@ export default function SettingsScreen() {
     }
   }
 
+  /** Cancelling Apple's sheet during deletion is not a barrier: ask once whether to delete anyway. */
+  function confirmDeleteWithoutApple(): Promise<boolean> {
+    return new Promise((resolve) => {
+      Alert.alert(
+        'Delete without disconnecting Apple?',
+        'We couldn’t confirm with Apple, so Sign in with Apple can’t be disconnected automatically. Your RaceSignal account can still be deleted now; you can remove RaceSignal later in your Apple ID settings.',
+        [
+          { text: 'Keep my account', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Delete anyway', style: 'destructive', onPress: () => resolve(true) },
+        ],
+        { cancelable: false },
+      );
+    });
+  }
+
   async function handleDeleteAccountConfirmed() {
     if (isDeletingAccount) return;
     setIsDeletingAccount(true);
     setDeleteError(null);
-    const result = await deleteAccount();
+
+    // Sign in with Apple tokens must be revoked on deletion. That needs a fresh code from Apple, which
+    // can be cancelled, unavailable, or fail; none of those may stop the deletion itself.
+    const identities = socialAuth.apple ? await getConnectedProviders() : null;
+    const sessionProviders = (session?.user.app_metadata?.providers as string[] | undefined) ?? [];
+    const applePlan = socialAuth.apple
+      ? await planAppleRevocation(identities, sessionProviders, requestAppleRevocationCode)
+      : ({ kind: 'none' } as const);
+    if (applePlan.kind === 'cancelled' && !(await confirmDeleteWithoutApple())) {
+      setIsDeletingAccount(false);
+      return;
+    }
+
+    const result = await deleteAccount(applePlan.kind === 'revoke' ? { appleAuthorizationCode: applePlan.authorizationCode } : {});
     if (!result.available) {
       console.warn('[Settings] account deletion failed:', result.reason);
       setDeleteError('Something went wrong deleting your account. Please try again.');
       setIsDeletingAccount(false);
       return;
+    }
+    if (needsManualAppleRemovalNotice(applePlan, result.appleRevocation)) {
+      Alert.alert('Account deleted', APPLE_MANUAL_REMOVAL_MESSAGE);
     }
     // The server-side account is gone; also clear any local pending-import drafts for it (Build
     // 11 — see findRacesRetryDraft.ts / onboardingDraft.ts's account-binding doc comments). Their
@@ -184,6 +249,43 @@ export default function SettingsScreen() {
             palette={palette}
           />
         </View>
+
+        {showConnectedAccounts ? (
+          <View style={styles.section}>
+            <SectionHeader title="Connected accounts" />
+            <HairlineRule color={palette.hairline} />
+            <PlanStatusRow
+              title="Email"
+              detail={session?.user.email ? `${session.user.email} · sign-in link or password` : 'Sign-in link or password'}
+              styles={styles}
+            />
+            {connectedLoaded && connectedProviders === null ? (
+              <>
+                <HairlineRule color={palette.hairline} />
+                <ActionRow label="Couldn’t load connected accounts. Tap to retry" onPress={refreshConnectedProviders} styles={styles} palette={palette} />
+              </>
+            ) : (
+              buildConnectedAccountRows(connectedProviders, socialAuth).map((row) => (
+                <View key={row.provider}>
+                  <HairlineRule color={palette.hairline} />
+                  {row.connected ? (
+                    <PlanStatusRow title={row.label} badge="CONNECTED" detail="You can sign in with it." styles={styles} />
+                  ) : (
+                    <ActionRow
+                      label={connectingProvider === row.provider ? `Connecting ${row.label}…` : `Connect ${row.label}`}
+                      onPress={() => handleConnectProvider(row.provider)}
+                      styles={styles}
+                      palette={palette}
+                    />
+                  )}
+                </View>
+              ))
+            )}
+            <HairlineRule color={palette.hairline} />
+            {connectFeedback.kind === 'error' ? <Text style={styles.deleteErrorText}>{connectFeedback.text}</Text> : null}
+            {connectFeedback.kind === 'notice' ? <Text style={styles.planDetail}>{connectFeedback.text}</Text> : null}
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <SectionHeader title="Account" />

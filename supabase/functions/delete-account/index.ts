@@ -17,6 +17,8 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
+import { type AppleRevocationStatus, readAppleConfig, revokeAppleSignIn } from './apple.ts';
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -58,11 +60,22 @@ Deno.serve(async (req) => {
   const user = await requireAuthenticatedUser(req);
   if (!user) return unavailable('unauthorized', 401);
 
+  // Optional: a single-use Sign in with Apple authorization code from a fresh Apple sign-in at deletion
+  // time. Revocation is best-effort and bounded; it can never stop the account from being deleted (Apple
+  // itself says deletion must be fulfilled even without the tokens), so every outcome falls through.
+  let appleRevocation: AppleRevocationStatus = 'not_attempted';
+  const body = await req.json().catch(() => null);
+  const code = typeof body?.appleAuthorizationCode === 'string' ? body.appleAuthorizationCode : '';
+  if (code && code.length <= 4096) {
+    const appleConfig = readAppleConfig(Deno.env);
+    if (appleConfig) appleRevocation = await revokeAppleSignIn(code, appleConfig);
+  }
+
   const { error } = await serviceRoleClient().auth.admin.deleteUser(user.id);
   if (error) {
     console.warn('[delete-account] admin.deleteUser failed for', user.id, '-', error.message);
     return unavailable('server_error', 500);
   }
 
-  return json({ available: true, data: { deleted: true } });
+  return json({ available: true, data: { deleted: true, appleRevocation } });
 });

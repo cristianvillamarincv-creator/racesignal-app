@@ -82,3 +82,68 @@ describe('app.config.js', () => {
     expect(() => evaluate({ APP_VARIANT: 'production', EXPO_PUBLIC_REVENUECAT_IOS_API_KEY: 'test_abc' })).toThrow(/Test Store/);
   });
 });
+
+describe('app.config.js: native sign-in and push configuration (gated per variant)', () => {
+  const envs = jest.requireActual('../config/environments.json');
+  type Plugins = (string | [string, Record<string, unknown>])[];
+  type FullCfg = { ios: { usesAppleSignIn?: boolean }; plugins: Plugins; extra: { auth: Record<string, unknown> } };
+
+  function evaluateWith(environmentsOverride: unknown, env: Record<string, string>): FullCfg {
+    KEYS.forEach((k) => delete process.env[k]);
+    Object.assign(process.env, env);
+    let result!: FullCfg;
+    jest.isolateModules(() => {
+      jest.doMock('../config/environments.json', () => environmentsOverride);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- config is evaluated at require time
+      const factory = require('../app.config.js');
+      result = factory({ config: { name: 'RaceSignal', scheme: 'racesignal', ios: {}, plugins: ['expo-router'], extra: {} } });
+    });
+    jest.dontMock('../config/environments.json');
+    return result;
+  }
+
+  const withDevGoogle = (ios: string | null, web: string | null) => ({
+    ...envs,
+    development: { ...envs.development, google: { iosClientId: ios, webClientId: web } },
+  });
+
+  it('development: Apple capability and the push entitlement are configured; no background mode or other notification options', () => {
+    const cfg = evaluateWith(envs, dev);
+    expect(cfg.ios.usesAppleSignIn).toBe(true);
+    expect(cfg.plugins).toContain('expo-notifications'); // the bare plugin: entitlement only
+    expect(cfg.plugins.some((p) => Array.isArray(p) && p[0] === 'expo-notifications')).toBe(false);
+    expect(cfg.extra.auth).toMatchObject({ apple: true });
+  });
+
+  it('development: Google is left out (button hidden, no plugin) until both client IDs exist', () => {
+    const cfg = evaluateWith(envs, dev);
+    expect(cfg.extra.auth).toMatchObject({ google: false, googleIosClientId: null, googleWebClientId: null });
+    expect(cfg.plugins.some((p) => Array.isArray(p) && p[0] === '@react-native-google-signin/google-signin')).toBe(false);
+    expect(evaluateWith(withDevGoogle('123-abc.apps.googleusercontent.com', null), dev).extra.auth).toMatchObject({ google: false });
+  });
+
+  it('development: with both Google client IDs the plugin gets the reversed iOS client ID and the button is enabled', () => {
+    const cfg = evaluateWith(withDevGoogle('123-abc.apps.googleusercontent.com', 'web-1.apps.googleusercontent.com'), dev);
+    expect(cfg.plugins).toContainEqual(['@react-native-google-signin/google-signin', { iosUrlScheme: 'com.googleusercontent.apps.123-abc' }]);
+    expect(cfg.extra.auth).toEqual({
+      apple: true,
+      google: true,
+      googleWebClientId: 'web-1.apps.googleusercontent.com',
+      googleIosClientId: '123-abc.apps.googleusercontent.com',
+    });
+  });
+
+  it('production: no Apple capability, no push entitlement, no Google plugin, every provider off (unchanged until the owner enables it)', () => {
+    const cfg = evaluateWith(envs, {});
+    expect(cfg.ios.usesAppleSignIn).toBeUndefined();
+    expect(cfg.plugins).toEqual(['expo-router']);
+    expect(cfg.extra.auth).toEqual({ apple: false, google: false, googleWebClientId: null, googleIosClientId: null });
+  });
+
+  it('production flags are ready to flip: turning them on adds the same pieces the development variant has', () => {
+    const flipped = { ...envs, production: { ...envs.production, features: { appleSignIn: true, googleSignIn: false, pushEntitlement: true } } };
+    const cfg = evaluateWith(flipped, {});
+    expect(cfg.ios.usesAppleSignIn).toBe(true);
+    expect(cfg.plugins).toContain('expo-notifications');
+  });
+});

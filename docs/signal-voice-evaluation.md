@@ -176,3 +176,14 @@ Findings, separated:
 - No dashes, no closing questions, no internal labels.
 
 Remaining limitations (prompt tuning stops here for iPhone review): the speculative cause and closing remark on screenshots persist; the app does not send leg ranks, so the discipline-verdict branch cannot occur on a device until a results provider supplies them.
+
+## Unresolved after the final revision (recorded, not fixed; prompt tuning stopped for iPhone review)
+
+1. Screenshot analysis can still offer an unsupported cause for the power variation ("likely due to the 1,120 m of climbing") although the prompt says not to list causes unless asked.
+2. Screenshot analysis can still end with a repetitive closing remark ("This is training data, not tied to any race on your file...") and restates most of the figures in the narrative before the evidence section.
+3. With no per-leg ranks, the first sentence can be an awkward blend of the limitation and the improvement evidence ("In these two 70.3s, where leg ranks aren't listed but the paired comparison ... is, ..."); the content is correct.
+4. The per-leg verdict branch cannot occur on a device until a results provider supplies leg ranks (the app does not send them).
+
+## iPhone test account preparation (2026-10-04)
+
+`cristian.flipd@gmail.com` (user `315411d2-f74b-49ac-9f40-8a818064d4c8`, racesignal-dev `sjmixferxnkwbzkcofnp`, verified against `mobile/config/environments.json` and not the repo's production link): its free-ask counter (`signal_free_usage.lifetime_count`) was reset from 2 to 0 for the review, so all 3 lifetime asks are available (cap 3, no dev secret overrides it). Its 3 races, profile, email and Google identities, sign-in record and monthly rate rows were compared before and after and are unchanged; RevenueCat was not touched.

@@ -47,7 +47,7 @@ jest.mock('@/lib/db/signal', () => ({
 jest.mock('@/lib/signalContext', () => ({
   buildSignalContext: () => ({}),
   buildConversationTitle: () => 'Signal chat',
-  getSuggestedPrompts: () => ['What was my strongest discipline?'],
+  getSuggestedPrompts: () => ["What's my 10K personal best?"],
 }));
 
 const mockSendSignalMessage = jest.fn();
@@ -79,7 +79,7 @@ describe('Signal first-use consent gate — suggestion chip entry point', () => 
   it('gates a tapped suggestion chip exactly like a typed message', async () => {
     const ui = await render(<SignalScreen />);
     await act(async () => {
-      fireEvent.press(ui.getByLabelText('What was my strongest discipline?'));
+      fireEvent.press(ui.getByLabelText("What's my 10K personal best?"));
     });
 
     await waitFor(() => expect(ui.getByText(CONSENT_TITLE)).toBeTruthy());
@@ -89,7 +89,7 @@ describe('Signal first-use consent gate — suggestion chip entry point', () => 
       fireEvent.press(ui.getByLabelText('Agree and continue'));
     });
     await waitFor(() => expect(mockSendSignalMessage).toHaveBeenCalledTimes(1));
-    expect(mockSendSignalMessage).toHaveBeenCalledWith({}, [], 'What was my strongest discipline?', 'req-1', undefined);
+    expect(mockSendSignalMessage).toHaveBeenCalledWith({}, [], "What's my 10K personal best?", 'req-1', undefined);
     await act(async () => {
       ui.unmount();
     });
@@ -98,7 +98,7 @@ describe('Signal first-use consent gate — suggestion chip entry point', () => 
   it('"Not now" on a tapped suggestion chip sends nothing — the suggestion row stays available to tap again', async () => {
     const ui = await render(<SignalScreen />);
     await act(async () => {
-      fireEvent.press(ui.getByLabelText('What was my strongest discipline?'));
+      fireEvent.press(ui.getByLabelText("What's my 10K personal best?"));
     });
     await waitFor(() => expect(ui.getByText(CONSENT_TITLE)).toBeTruthy());
 
@@ -108,7 +108,7 @@ describe('Signal first-use consent gate — suggestion chip entry point', () => 
     await waitFor(() => expect(ui.queryByText(CONSENT_TITLE)).toBeNull());
 
     expect(mockSendSignalMessage).not.toHaveBeenCalled();
-    expect(ui.getByLabelText('What was my strongest discipline?')).toBeTruthy();
+    expect(ui.getByLabelText("What's my 10K personal best?")).toBeTruthy();
     await act(async () => {
       ui.unmount();
     });

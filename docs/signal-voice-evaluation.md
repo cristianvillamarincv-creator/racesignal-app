@@ -187,3 +187,26 @@ Remaining limitations (prompt tuning stops here for iPhone review): the speculat
 ## iPhone test account preparation (2026-10-04)
 
 `cristian.flipd@gmail.com` (user `315411d2-f74b-49ac-9f40-8a818064d4c8`, racesignal-dev `sjmixferxnkwbzkcofnp`, verified against `mobile/config/environments.json` and not the repo's production link): its free-ask counter (`signal_free_usage.lifetime_count`) was reset from 2 to 0 for the review, so all 3 lifetime asks are available (cap 3, no dev secret overrides it). Its 3 races, profile, email and Google identities, sign-in record and monthly rate rows were compared before and after and are unchanged; RevenueCat was not touched.
+
+
+---
+
+# iPhone review findings and corrections (2026-10-04)
+
+Three questions in one Signal thread on the iPhone, account `cristian.flipd@gmail.com` (3 completed races, no ranks, no splits):
+
+| Question | Result |
+|---|---|
+| "What's my strongest discipline overall?" | **Failed the missing-evidence behaviour.** Correctly named no discipline, but gave three paragraphs of unnecessary explanation; "I can't actually call one" and "If you want a real answer" read as dismissive; the suggestion offered a question the account's data cannot answer. |
+| "What is my 10K personal best?" | **Pass.** "44:30, set at the Link Test 10K on April 20, 2025." Directness to be preserved. |
+| "Which race was that and what year?" | **Pass** for conversational context: it correctly referred to the preceding 10K answer. This verifies continuity within the open thread only. |
+
+Screenshot interpretation remains untested on the phone. Its previously observed unsupported cause ("likely due to the 1,120 m of climbing") and repetitive closing remark remain open.
+
+## Corrections
+
+- **Layout:** questions are right-aligned muted blue-grey bubbles (85% max width, 16pt regular, 14pt padding, 16pt corners); answers sit on the canvas (17pt regular, 25pt line height) under the Signal mark and a small SIGNAL label on every answer (replacing "ANALYSIS"); the first paragraph is no longer bold; 12pt between a question and its answer, 28pt before the next question, no rules between messages; screen-reader labels identify "Your question" and "Signal's answer"; no fixed-height containers. New content follows to the end only while the athlete is near the end or has just sent a message.
+- **Missing evidence:** when the data cannot answer and no relevant comparison exists, one short paragraph: the limitation and the specific missing evidence. Another race's split times alone do not establish discipline strength. The conditional verdict (per-race leg ranks) and supported improvement comparisons are preserved.
+- **Suggested questions** are deterministic and read the evidence from the context Signal would receive: strongest discipline needs comparable swim, bike and run leg ranks (the race model has none, so no real account sees it); year-over-year or comparison needs two completed results at the same sport and distance; the pacing question needs two or more splits; personal best and race summary need a completed result; next-race questions need an upcoming race and completed history. Nothing fills an empty slot. The Signal tab, the unseeded chat, a seeded race chat, the next-race module on the Signal tab and on an upcoming race, and the Signal module on a race with no result were all brought in line.
+
+No new paid model evaluation was run for these changes and no allowance was reset; the prompt change is checked by prompt-string tests only, so the real-model behaviour of the new missing-evidence paragraph is untested.

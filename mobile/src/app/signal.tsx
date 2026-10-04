@@ -42,6 +42,7 @@ import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
 import { formatSignalUsageLabel } from '@/lib/signalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
+import { isNearBottom, messageTopGap, QUESTION_BUBBLE_MAX_WIDTH } from '@/lib/signalLayout';
 import { minTouchSize, spacing } from '@/lib/theme';
 
 interface ChatMessage {
@@ -190,10 +191,9 @@ export default function SignalScreen() {
 
   const seedRace = effectiveSeedRaceId ? races.data.find((race) => race.id === effectiveSeedRaceId) : undefined;
   const suggestions = getSuggestedPrompts(races.data, effectiveSeedRaceId);
-  // Only the first analysis in a thread gets the "Analysis" kicker — repeating it above every
-  // reply would read as chrome, not as a report; later replies are still clearly set apart by the
-  // extra spacing/rule around each assistant block (see messageBlockAssistant).
-  const firstAssistantMessageId = messages.find((message) => message.role === 'assistant')?.id;
+  // Whether new content should pull the view to the end: true while the athlete is at (or near) the end, and set again
+  // whenever they send a message; false once they scroll up to read earlier messages.
+  const followLatestRef = useRef(true);
 
   useEffect(() => {
     // Developer Preview never persists a conversation, so there's nothing to fetch — and this must
@@ -300,6 +300,7 @@ export default function SignalScreen() {
       }
     }
 
+    followLatestRef.current = true;
     isSendingRef.current = true;
     setIsSending(true);
     setErrorText(null);
@@ -468,7 +469,14 @@ export default function SignalScreen() {
             ref={scrollRef}
             contentContainerStyle={styles.content}
             contentInsetAdjustmentBehavior="automatic"
-            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
+            scrollEventThrottle={16}
+            onScroll={(event) => {
+              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+              followLatestRef.current = isNearBottom({ contentOffsetY: contentOffset.y, contentHeight: contentSize.height, viewportHeight: layoutMeasurement.height });
+            }}
+            onContentSizeChange={() => {
+              if (followLatestRef.current) scrollRef.current?.scrollToEnd({ animated: true });
+            }}>
             {seedRace ? (
               <Text style={styles.seedNote}>
                 Signal has your {seedRace.name} result and your full race history.
@@ -479,54 +487,42 @@ export default function SignalScreen() {
 
             {messages.length > 0 ? (
               <View style={styles.messages}>
-                {messages.map((message) => (
-                  <View
-                    key={message.id}
-                    style={[
-                      styles.messageBlock,
-                      // Extra separation ahead of each analysis reply — the athlete's question above
-                      // it stays visually distinct rather than the reply reading as a quick follow-up.
-                      message.role === 'assistant' ? styles.messageBlockAssistant : null,
-                    ]}>
-                    <View style={message.role === 'user' ? styles.messageUser : styles.messageAssistant}>
-                      {message.role === 'assistant' && message.id === firstAssistantMessageId ? (
-                        <View style={styles.assistantLabelRow}>
-                          <SignalMark color={palette.inkSecondary} size={11} />
-                          <Text style={styles.assistantLabel}>
-                            {isPreviewMode ? 'Sample analysis (Developer Preview)' : 'Analysis'}
+                {messages.map((message, index) => {
+                  const topGap = messageTopGap(message.role, messages[index - 1]?.role);
+                  if (message.role === 'user') {
+                    return (
+                      <View key={message.id} style={[styles.questionRow, { marginTop: topGap }]}>
+                        <View
+                          style={styles.questionBubble}
+                          accessible
+                          accessibilityLabel={`Your question${message.hadImage ? ', with a screenshot attached' : ''}. ${message.text}`}>
+                          {message.hadImage ? (
+                            <View style={styles.imageTagRow}>
+                              <AppIcon name="camera-outline" size={13} color={palette.inkSecondary} />
+                              <Text style={styles.imageTag}>Screenshot attached</Text>
+                            </View>
+                          ) : null}
+                          <Text style={styles.questionText}>{message.text}</Text>
+                        </View>
+                      </View>
+                    );
+                  }
+                  return (
+                    <View key={message.id} style={[styles.answerBlock, { marginTop: topGap }]}>
+                      <View style={styles.assistantLabelRow} accessible accessibilityRole="header" accessibilityLabel="Signal's answer">
+                        <SignalMark color={palette.inkSecondary} size={11} />
+                        <Text style={styles.assistantLabel}>{isPreviewMode ? 'Signal sample (Developer Preview)' : 'Signal'}</Text>
+                      </View>
+                      <View style={styles.assistantParagraphs}>
+                        {splitParagraphs(message.text).map((paragraph, paragraphIndex) => (
+                          <Text key={paragraphIndex} style={styles.answerText}>
+                            {paragraph}
                           </Text>
-                        </View>
-                      ) : null}
-                      {message.hadImage ? (
-                        <View style={styles.imageTagRow}>
-                          <AppIcon name="camera-outline" size={13} color={palette.inkSecondary} />
-                          <Text style={styles.imageTag}>Screenshot attached</Text>
-                        </View>
-                      ) : null}
-                      {message.role === 'user' ? (
-                        // The athlete's own question — a distinct, headline-like line of context
-                        // (ink-colored, left-aligned, medium-bold), not a right-aligned chat bubble
-                        // utterance — so it reads as "here's what was asked" before the analysis.
-                        <Text style={styles.messageTextUser}>{message.text}</Text>
-                      ) : (
-                        // The analysis reply, split into paragraphs on a blank line. The first
-                        // paragraph gets a slightly larger, medium-bold editorial "lede" treatment;
-                        // the rest are standard, generously line-spaced body text. Spacing between
-                        // paragraphs comes entirely from `assistantParagraphs`' own gap — no
-                        // hairlines or manufactured section headings between them, only real
-                        // paragraph breaks in the (unaltered) reply text itself.
-                        <View style={styles.assistantParagraphs}>
-                          {splitParagraphs(message.text).map((paragraph, index) => (
-                            <Text key={index} style={index === 0 ? styles.messageLede : styles.messageTextAssistant}>
-                              {paragraph}
-                            </Text>
-                          ))}
-                        </View>
-                      )}
+                        ))}
+                      </View>
                     </View>
-                    <HairlineRule color={palette.hairline} />
-                  </View>
-                ))}
+                  );
+                })}
                 {isSending ? (
                   <View style={styles.thinkingRow}>
                     <SignalMark color={palette.inkSecondary} size={12} />
@@ -536,7 +532,7 @@ export default function SignalScreen() {
               </View>
             ) : null}
 
-            {messages.length === 0 && !isSending ? (
+            {messages.length === 0 && !isSending && suggestions.length > 0 ? (
               <View style={styles.suggestionRow}>
                 <HairlineRule color={palette.hairline} />
                 {suggestions.map((suggestion, index) => (
@@ -659,16 +655,14 @@ interface Styles {
   content: ViewStyle;
   seedNote: TextStyle;
   messages: ViewStyle;
-  messageBlock: ViewStyle;
-  messageBlockAssistant: ViewStyle;
-  messageUser: ViewStyle;
-  messageAssistant: ViewStyle;
+  questionRow: ViewStyle;
+  questionBubble: ViewStyle;
+  questionText: TextStyle;
+  answerBlock: ViewStyle;
+  answerText: TextStyle;
   assistantLabelRow: ViewStyle;
   assistantLabel: TextStyle;
-  messageTextUser: TextStyle;
   assistantParagraphs: ViewStyle;
-  messageLede: TextStyle;
-  messageTextAssistant: TextStyle;
   imageTagRow: ViewStyle;
   imageTag: TextStyle;
   thinkingRow: ViewStyle;
@@ -713,35 +707,42 @@ function createStyles(palette: BrandPalette): Styles {
       fontSize: 13,
       color: palette.inkSecondary,
     },
-    messages: {
-      gap: spacing.md,
+    messages: {},
+    // Questions: right-aligned, muted blue-grey bubble (the brand's signal blue at low strength over the canvas, so it
+    // follows light and dark), at most 85% of the width, 16pt regular text, 14pt padding, 16pt corners. No fixed height,
+    // so larger text sizes grow the bubble rather than clip it.
+    questionRow: {
+      alignItems: 'flex-end',
     },
-    messageBlock: {
-      gap: spacing.sm,
+    questionBubble: {
+      maxWidth: QUESTION_BUBBLE_MAX_WIDTH,
+      padding: 14,
+      borderRadius: 16,
+      gap: 6,
+      backgroundColor: withAlpha(palette.signalBlue, palette.statusBarStyle === 'dark' ? 0.12 : 0.22),
     },
-    // Generous separation between the athlete's question and Signal's reply — pulled apart well
-    // beyond the default rhythm between turns, so the reply reads as a distinct, considered piece
-    // of writing (a report beginning) rather than the next line of a quick back-and-forth.
-    messageBlockAssistant: {
-      marginTop: spacing.lg,
+    questionText: {
+      fontSize: 16,
+      fontWeight: '400',
+      color: palette.ink,
     },
-    // Left-aligned like everything else on the screen — a clear line of context/heading to read
-    // before the analysis, not a right-aligned chat-bubble utterance.
-    messageUser: {
+    // Answers: left-aligned on the canvas itself, no card, no rule. The mark and a small SIGNAL label sit above every answer.
+    answerBlock: {
       alignItems: 'flex-start',
-      gap: 4,
+      gap: 8,
     },
-    messageAssistant: {
-      alignItems: 'flex-start',
-      gap: 10,
+    answerText: {
+      fontSize: 17,
+      fontWeight: '400',
+      lineHeight: 25,
+      color: palette.ink,
     },
     assistantLabelRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
     },
-    // Kicker-style label above the first analysis in a thread — small caps, letter-spaced, quiet
-    // ink-secondary — reads as a report heading rather than repeated chat chrome.
+    // Small SIGNAL label above every answer: letter-spaced caps in the quiet secondary ink, next to the mark.
     assistantLabel: {
       fontSize: 11,
       fontWeight: '700',
@@ -749,34 +750,10 @@ function createStyles(palette: BrandPalette): Styles {
       textTransform: 'uppercase',
       color: palette.inkSecondary,
     },
-    // The question itself, read distinctly — ink-colored and a touch heavier than plain body text,
-    // like a clear line of context/context heading rather than a dimmed chat utterance.
-    messageTextUser: {
-      fontSize: 16,
-      fontWeight: '600',
-      lineHeight: 22,
-      color: palette.ink,
-    },
-    // Strong spacing between paragraphs (not just one line-height applied to the whole reply) —
-    // this is the entire source of the reply's visual hierarchy, alongside `messageLede` below.
+    // Paragraph breaks in the reply text itself, with no weight difference between paragraphs.
     assistantParagraphs: {
-      gap: spacing.lg,
-    },
-    // The reply's first paragraph only — a slightly larger, medium-bold editorial "lede" so the
-    // analysis opens with a moment of emphasis, the way a coach's note or a short report would,
-    // never a manufactured heading (the paragraph is real reply text, just weighted differently).
-    messageLede: {
-      fontSize: 17,
-      fontWeight: '600',
-      lineHeight: 25,
-      color: palette.ink,
-    },
-    // Every paragraph after the lede — generous line-height so an analysis reads as a considered
-    // piece of writing, not a quick chat bubble.
-    messageTextAssistant: {
-      fontSize: 15,
-      lineHeight: 24,
-      color: palette.ink,
+      alignSelf: 'stretch',
+      gap: spacing.md,
     },
     imageTagRow: {
       flexDirection: 'row',

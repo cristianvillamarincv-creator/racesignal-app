@@ -1,5 +1,5 @@
 import type { Race } from '@/fixtures/races';
-import { buildConversationTitle, buildSignalContext, getSuggestedPrompts } from '@/lib/signalContext';
+import { buildConversationTitle, buildSignalContext, getSuggestedPrompts, hasCompletedResults, hasComparableLegRanks } from '@/lib/signalContext';
 
 /** Minimal synthetic race — only the fields Signal's context assembly actually reads. */
 function race(overrides: Partial<Race> & Pick<Race, 'id' | 'eventDate' | 'distanceLabel'>): Race {
@@ -207,146 +207,116 @@ describe('buildSignalContext — precomputed facts (Step 5 accuracy pass)', () =
   });
 });
 
-describe('getSuggestedPrompts', () => {
-  it('returns generic prompts with no seed race', () => {
-    const prompts = getSuggestedPrompts([]);
-    expect(prompts.length).toBeGreaterThan(0);
-    expect(prompts.join(' ')).not.toMatch(/this race/i);
+/** Minimal completed result for suggestion-eligibility tests. */
+function completedResult(finishSeconds: number, splits: { label: string; elapsedSeconds: number }[] = [], extra: Record<string, unknown> = {}) {
+  return { finishSeconds, splits, sourceStatus: 'imported_confirmed' as const, ...extra };
+}
+
+// The development test account used for the iPhone review: three completed races, no ranks, no splits, no repeated
+// distance, no upcoming race.
+const THREE_RACE_ACCOUNT: Race[] = [
+  race({ id: 'sprint', name: 'Link Test Sprint Triathlon', eventDate: '2024-06-09', distanceLabel: 'Sprint Triathlon', sport: 'triathlon', result: completedResult(4380) }),
+  race({ id: 'ten-k', name: 'Link Test 10K', eventDate: '2025-04-20', distanceLabel: '10km', sport: 'running', result: completedResult(2670) }),
+  race({ id: 'half', name: 'Link Test Half Marathon', eventDate: '2025-10-05', distanceLabel: 'Half Marathon', sport: 'running', result: completedResult(5892) }),
+];
+
+describe('getSuggestedPrompts: unseeded (Signal tab and unseeded chat)', () => {
+  it('offers nothing for an athlete with no races, rather than filling slots', () => {
+    expect(getSuggestedPrompts([])).toEqual([]);
   });
 
-  it('suggests "strongest discipline" only for a multi-discipline (triathlon-shaped) seed race', () => {
-    const seed = race({
-      id: 'multi',
-      eventDate: '2025-01-01',
-      distanceLabel: '70.3',
-      result: {
-        finishSeconds: 100,
-        splits: [
-          { label: 'Swim', elapsedSeconds: 10 },
-          { label: 'Bike', elapsedSeconds: 50 },
-          { label: 'Run', elapsedSeconds: 40 },
-        ],
-        sourceStatus: 'imported_confirmed',
-      },
-    });
-    const prompts = getSuggestedPrompts([seed], seed.id);
-    expect(prompts).toContain('What was my strongest discipline?');
+  it('for the three-race test account: no strongest-discipline and no improvement question, but supported ones', () => {
+    const prompts = getSuggestedPrompts(THREE_RACE_ACCOUNT);
+    expect(prompts).not.toContain("What's my strongest discipline?");
+    expect(prompts).not.toContain("What's my strongest discipline overall?");
+    expect(prompts).not.toContain('Have I been improving year over year?');
+    expect(prompts).not.toContain('What would most improve my next race?');
+    expect(prompts).toEqual(["What's my Half Marathon personal best?", "What's my 10K personal best?", 'How did my Link Test Half Marathon go?']);
   });
 
-  it('suggests prediction-oriented prompts for an upcoming seed race', () => {
+  it('offers the year-over-year question only when a distance has two or more completed results', () => {
+    const earlier = race({ id: 'ten-k-2024', name: 'Riverside 10K', eventDate: '2024-04-20', distanceLabel: '10K', sport: 'running', result: completedResult(2770) });
+    const later = race({ id: 'ten-k-2026', name: 'Riverside 10K', eventDate: '2026-04-19', distanceLabel: '10km', sport: 'running', result: completedResult(2675) });
+    expect(getSuggestedPrompts([earlier])).not.toContain('Have I been improving year over year?');
+    expect(getSuggestedPrompts([earlier, later])).toContain('Have I been improving year over year?');
+    // Same distance in a different sport is not a repeat.
+    const otherSport = race({ id: 'ten-k-bike', eventDate: '2025-04-20', distanceLabel: '10K', sport: 'cycling', result: completedResult(1000) });
+    expect(getSuggestedPrompts([earlier, otherSport])).not.toContain('Have I been improving year over year?');
+  });
+
+  it('offers a strongest-discipline question only when comparable swim, bike, and run leg ranks exist in the context', () => {
+    const legs = (withRanks: boolean) =>
+      ['Swim', 'Bike', 'Run'].map((label, i) => ({ label, elapsedSeconds: 1000 + i, ...(withRanks ? { legRank: { place: 10 + i, field: 100, percentile: 10 } } : {}) }));
+    const tri = (withRanks: boolean): Race =>
+      race({ id: 't', eventDate: '2025-06-01', distanceLabel: '70.3', result: completedResult(20000, legs(withRanks)) });
+    // The race model has no leg ranks, so a real account never qualifies; with splits alone it must not.
+    expect(getSuggestedPrompts([tri(false)])).not.toContain("What's my strongest discipline?");
+    // The eligibility check itself reads leg ranks from the context shape the function receives.
+    const context = buildSignalContext([tri(false)]);
+    expect(hasComparableLegRanks(context)).toBe(false);
+    const ranked = { ...context, sameSportDetailed: context.sameSportDetailed.map((r) => ({ ...r, splits: legs(true) })) };
+    expect(hasComparableLegRanks(ranked)).toBe(true);
+    const partial = { ...context, sameSportDetailed: context.sameSportDetailed.map((r) => ({ ...r, splits: legs(true).slice(0, 2) })) };
+    expect(hasComparableLegRanks(partial)).toBe(false);
+  });
+
+  it('offers a next-race question only with an upcoming race and completed history', () => {
+    const upcoming = race({ id: 'next', name: 'IRONMAN California', eventDate: '2027-04-17', distanceLabel: 'IRONMAN', status: 'registered' });
+    expect(getSuggestedPrompts([upcoming])).toEqual([]);
+    const withHistory = getSuggestedPrompts([...THREE_RACE_ACCOUNT, upcoming]);
+    expect(withHistory).toContain('What does my history suggest for IRONMAN California?');
+    expect(hasCompletedResults([upcoming])).toBe(false);
+    expect(hasCompletedResults(THREE_RACE_ACCOUNT)).toBe(true);
+  });
+});
+
+describe('getSuggestedPrompts: seeded race', () => {
+  it('suggests prediction questions for an upcoming seed race only when completed history exists', () => {
     const seed = race({ id: 'upcoming', eventDate: '2027-01-01', distanceLabel: 'IRONMAN', status: 'registered' });
-    const prompts = getSuggestedPrompts([seed], seed.id);
+    expect(getSuggestedPrompts([seed], seed.id)).toEqual([]);
+    const prompts = getSuggestedPrompts([seed, ...THREE_RACE_ACCOUNT], seed.id);
     expect(prompts).toContain('What does my history suggest for this race?');
+    // Course and conditions are not in the context, so "what should I expect" is no longer offered.
+    expect(prompts).not.toContain('What should I expect going in?');
   });
 
-  // Task 3.2 (chip relevance) regressions — a running race must never surface a swim/bike/run
-  // discipline-breakdown chip, even though several distinct CHECKPOINT split labels (not
-  // disciplines) can legitimately exist on a single-sport race.
-  it('never suggests "strongest discipline" for a single-sport race, even with multiple distinct split labels', () => {
-    const seed = race({
-      id: 'marathon-with-checkpoints',
-      eventDate: '2025-01-01',
-      distanceLabel: 'Marathon',
-      sport: 'running',
-      result: {
-        finishSeconds: 15000,
-        splits: [
-          { label: '5K', elapsedSeconds: 1500 },
-          { label: '10K', elapsedSeconds: 3000 },
-          { label: 'Half', elapsedSeconds: 6300 },
-        ],
-        sourceStatus: 'imported_confirmed',
-      },
-    });
-    const prompts = getSuggestedPrompts([seed], seed.id);
-    expect(prompts).not.toContain('What was my strongest discipline?');
+  it('offers the analysis questions for a completed race with a result, and none for one without', () => {
+    const withResult = THREE_RACE_ACCOUNT[1]!;
+    expect(getSuggestedPrompts(THREE_RACE_ACCOUNT, withResult.id)).toEqual(['Analyze this race', 'What went well?']);
+    const noResult = race({ id: 'blank', eventDate: '2025-01-01', distanceLabel: '10K', sport: 'running' });
+    expect(getSuggestedPrompts([noResult], noResult.id)).toEqual([]);
   });
 
-  it('never suggests a pacing/"where did I lose time" chip for a race with no splits', () => {
-    const seed = race({
-      id: 'no-splits-run',
-      eventDate: '2025-01-01',
-      distanceLabel: '10K',
-      sport: 'running',
-      result: { finishSeconds: 2400, splits: [], sourceStatus: 'imported_confirmed' },
-    });
-    const prompts = getSuggestedPrompts([seed], seed.id);
-    expect(prompts).not.toContain('Where did I lose the most time?');
-    expect(prompts).not.toContain('What was my strongest discipline?');
+  it('never suggests "strongest discipline" from splits alone: multi-discipline, single-sport, or checkpoint-labelled', () => {
+    const triSplits = [{ label: 'Swim', elapsedSeconds: 1500 }, { label: 'Bike', elapsedSeconds: 5000 }, { label: 'Run', elapsedSeconds: 2500 }];
+    const tri = race({ id: 'real-tri', eventDate: '2025-01-01', distanceLabel: 'Olympic', result: completedResult(9000, triSplits) });
+    const marathon = race({ id: 'm', eventDate: '2025-01-01', distanceLabel: 'Marathon', sport: 'running', result: completedResult(15000, [{ label: '5K', elapsedSeconds: 1500 }, { label: '10K', elapsedSeconds: 3000 }, { label: 'Half', elapsedSeconds: 6300 }]) });
+    const checkpoints = race({ id: 'c', eventDate: '2025-01-01', distanceLabel: '70.3', result: completedResult(17698, [{ label: 'Checkpoint 1', elapsedSeconds: 2379 }, { label: 'Checkpoint 2', elapsedSeconds: 223 }, { label: 'Finish', elapsedSeconds: 5854 }]) });
+    for (const seed of [tri, marathon, checkpoints]) {
+      expect(getSuggestedPrompts([seed], seed.id)).not.toContain('What was my strongest discipline?');
+    }
+    // The pacing question needs splits to compare, and still appears for any race that has them.
+    expect(getSuggestedPrompts([tri], tri.id)).toContain('Where did I lose the most time?');
+    expect(getSuggestedPrompts([checkpoints], checkpoints.id)).toContain('Where did I lose the most time?');
   });
 
-  it('offers the pacing chip, but never the discipline chip, for a running race that does have splits', () => {
-    const seed = race({
-      id: 'run-with-splits',
-      eventDate: '2025-01-01',
-      distanceLabel: '10K',
-      sport: 'running',
-      result: {
-        finishSeconds: 2400,
-        splits: [
-          { label: 'Mile 1', elapsedSeconds: 400 },
-          { label: 'Mile 2', elapsedSeconds: 800 },
-        ],
-        sourceStatus: 'imported_confirmed',
-      },
-    });
-    const prompts = getSuggestedPrompts([seed], seed.id);
-    expect(prompts).toContain('Where did I lose the most time?');
-    expect(prompts).not.toContain('What was my strongest discipline?');
+  it('offers the pacing question only with two or more splits', () => {
+    const none = race({ id: 'a', eventDate: '2025-01-01', distanceLabel: '10K', sport: 'running', result: completedResult(2400, []) });
+    const one = race({ id: 'b', eventDate: '2025-01-01', distanceLabel: '10K', sport: 'running', result: completedResult(2400, [{ label: 'Half', elapsedSeconds: 1200 }]) });
+    const two = race({ id: 'c', eventDate: '2025-01-01', distanceLabel: '10K', sport: 'running', result: completedResult(2400, [{ label: 'Mile 1', elapsedSeconds: 400 }, { label: 'Mile 2', elapsedSeconds: 800 }]) });
+    expect(getSuggestedPrompts([none], none.id)).not.toContain('Where did I lose the most time?');
+    expect(getSuggestedPrompts([one], one.id)).not.toContain('Where did I lose the most time?');
+    expect(getSuggestedPrompts([two], two.id)).toContain('Where did I lose the most time?');
   });
 
-  it('offers a same-sport comparison chip only when comparable history actually exists', () => {
-    const seed = race({ id: 'solo-tri', eventDate: '2025-01-01', distanceLabel: 'Olympic', sport: 'triathlon' });
-    const noHistory = getSuggestedPrompts([seed], seed.id);
-    expect(noHistory.some((p) => p.startsWith('How does this compare'))).toBe(false);
-
-    const otherTri = race({ id: 'other-tri', eventDate: '2024-01-01', distanceLabel: '70.3', sport: 'triathlon' });
-    const withHistory = getSuggestedPrompts([seed, otherTri], seed.id);
-    expect(withHistory.some((p) => p.startsWith('How does this compare'))).toBe(true);
-  });
-
-  it('still suggests "strongest discipline" for a genuinely multi-discipline triathlon with real per-leg splits', () => {
-    const seed = race({
-      id: 'real-tri',
-      eventDate: '2025-01-01',
-      distanceLabel: 'Olympic',
-      sport: 'triathlon',
-      result: {
-        finishSeconds: 9000,
-        splits: [
-          { label: 'Swim', elapsedSeconds: 1500 },
-          { label: 'Bike', elapsedSeconds: 5000 },
-          { label: 'Run', elapsedSeconds: 2500 },
-        ],
-        sourceStatus: 'imported_confirmed',
-      },
-    });
-    const prompts = getSuggestedPrompts([seed], seed.id);
-    expect(prompts).toContain('What was my strongest discipline?');
-  });
-
-  it('never suggests "strongest discipline" for a triathlon whose splits are the generic per-checkpoint fallback (B.12 regression) — uniquely numbered checkpoints are not distinct disciplines', () => {
-    const seed = race({
-      id: 'unclassified-tri',
-      eventDate: '2025-01-01',
-      distanceLabel: '70.3',
-      sport: 'triathlon',
-      result: {
-        finishSeconds: 17698,
-        splits: [
-          { label: 'Checkpoint 1', elapsedSeconds: 2379 },
-          { label: 'Checkpoint 2', elapsedSeconds: 223 },
-          { label: 'Checkpoint 3', elapsedSeconds: 1045 },
-          { label: 'Finish', elapsedSeconds: 5854 },
-        ],
-        sourceStatus: 'imported_confirmed',
-      },
-    });
-    const prompts = getSuggestedPrompts([seed], seed.id);
-    expect(prompts).not.toContain('What was my strongest discipline?');
-    // Still a real, useful chip for this same race — falling back on discipline labels shouldn't
-    // also suppress the general pacing question, which only needs *some* splits to exist.
-    expect(prompts).toContain('Where did I lose the most time?');
+  it('offers a comparison only with another completed result at the same sport and distance', () => {
+    const seed = race({ id: 'solo-tri', eventDate: '2025-01-01', distanceLabel: 'Olympic', result: completedResult(9000) });
+    expect(getSuggestedPrompts([seed], seed.id).some((p) => p.startsWith('How does this compare'))).toBe(false);
+    // A different distance in the same sport is not a like-for-like comparison.
+    const otherDistance = race({ id: 'other-tri', eventDate: '2024-01-01', distanceLabel: '70.3', result: completedResult(18000) });
+    expect(getSuggestedPrompts([seed, otherDistance], seed.id).some((p) => p.startsWith('How does this compare'))).toBe(false);
+    const sameDistance = race({ id: 'same-tri', eventDate: '2024-06-01', distanceLabel: 'Olympic Triathlon', result: completedResult(9100) });
+    expect(getSuggestedPrompts([seed, sameDistance], seed.id)).toContain('How does this compare with my other Olympic races?');
   });
 });
 

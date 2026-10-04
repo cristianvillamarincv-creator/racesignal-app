@@ -138,12 +138,7 @@ export default function RaceResultDetailScreen() {
           <Text style={styles.subcopy}>No finish time recorded for this race yet.</Text>
 
           <View style={styles.utilitySpacer} />
-          <SignalModule
-            title="What does this race tell you?"
-            supportingText="See how it fits your training history and what it means for what's next."
-            onPress={() => router.push({ pathname: '/signal', params: { raceId: race.id } })}
-            colors={signalModuleColors}
-          />
+          {/* No Signal module here: with no result recorded there is nothing for Signal to say about this race. */}
           <UtilityActions race={race} styles={styles} onEdit={() => router.push(`/race/add?raceId=${race.id}`)} onRemove={confirmRemove} />
         </ScrollView>
       </View>

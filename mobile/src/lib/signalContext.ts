@@ -40,7 +40,10 @@ export interface SignalRaceDetail {
   eventDate: string;
   location: string;
   finishSeconds?: number;
-  splits?: { label: string; elapsedSeconds: number; paceLabel?: string }[];
+  /** `legRank` (the athlete's rank in that leg against the same race field) mirrors the Edge Function's optional field. The
+   *  app's race model carries no per-leg rankings, so nothing here populates it today; suggestion eligibility reads it so a
+   *  strongest-discipline question appears only once such evidence actually exists in the context. */
+  splits?: { label: string; elapsedSeconds: number; paceLabel?: string; legRank?: SignalRank }[];
   overallRank?: SignalRank;
   genderRank?: SignalRank;
   ageGroupRank?: SignalRank;
@@ -221,61 +224,91 @@ export function buildSignalContext(races: Race[], seedRaceId?: string): SignalCo
   };
 }
 
+/** True when some race in the context carries the athlete's swim, bike, and run leg ranks against the same race field: the
+ *  only evidence that can support a strongest-discipline answer. Duration, overall placement, and standalone running
+ *  results do not qualify. The race model has no per-leg rankings today, so this is false for every real account. */
+export function hasComparableLegRanks(context: SignalContext): boolean {
+  const races = [...(context.seedRace ? [context.seedRace] : []), ...context.sameSportDetailed];
+  return races.some((race) => ['swim', 'bike', 'run'].every((leg) => race.splits?.some((split) => split.label.toLowerCase() === leg && split.legRank)));
+}
+
+/** Completed races with a finish time, grouped by sport and canonical distance; only groups with two or more races are
+ *  comparable like for like. */
+function sameDistanceGroups(races: Race[]): Race[][] {
+  const groups = new Map<string, Race[]>();
+  for (const race of getCompletedRaces(races)) {
+    if (race.result?.finishSeconds === undefined) continue;
+    const key = `${race.sport}|${canonicalDistanceLabel(race.distanceLabel)}`;
+    groups.set(key, [...(groups.get(key) ?? []), race]);
+  }
+  return [...groups.values()].filter((group) => group.length >= 2);
+}
+
+/** Completed history Signal can reason from for a next-race question: at least one completed race with a finish time. */
+export function hasCompletedResults(races: Race[]): boolean {
+  return getCompletedRaces(races).some((race) => race.result?.finishSeconds !== undefined);
+}
+
+const MAX_PERSONAL_BEST_PROMPTS = 2;
+
 /**
- * Deterministic, template-based suggested prompts — never model-generated — keyed off the seed
- * race's own shape. No seed race (the Signal tab's unseeded "Ask Signal" entry) gets generic
- * questions instead.
+ * Deterministic, template-based suggested prompts, never model-generated. A question is offered only when the evidence it
+ * needs is present in the context Signal would actually receive (buildSignalContext for the same races and seed): nothing
+ * fills an empty slot, and a custom question is always available in the composer.
+ *
+ *  - strongest discipline: comparable swim, bike, and run leg ranks (hasComparableLegRanks)
+ *  - improvement or comparison: two or more completed results at the same sport and distance
+ *  - where did I lose time: two or more splits on the race
+ *  - personal best / race summary: a completed race with a finish time
+ *  - next-race questions: an upcoming race plus completed history to reason from
  */
 export function getSuggestedPrompts(races: Race[], seedRaceId?: string): string[] {
   const seedRace = seedRaceId ? races.find((race) => race.id === seedRaceId) : undefined;
+  const context = buildSignalContext(races, seedRaceId);
+  const completed = getCompletedRaces(races).filter((race) => race.result?.finishSeconds !== undefined);
+  const nextRace = getUpcomingRaces(races)[0];
 
   if (!seedRace) {
-    return [
-      "What's my strongest discipline overall?",
-      'Have I been improving year over year?',
-      'What would most improve my next race?',
-    ];
+    const prompts: string[] = [];
+    if (hasComparableLegRanks(context)) prompts.push("What's my strongest discipline?");
+    if (sameDistanceGroups(races).length > 0) prompts.push('Have I been improving year over year?');
+    // Personal-best questions for the distances raced most recently (only distances that have a current PB in the context).
+    const recentFirst = [...completed].sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+    const distances: string[] = [];
+    for (const race of recentFirst) {
+      const distance = canonicalDistanceLabel(race.distanceLabel);
+      if (!distances.includes(distance) && context.bestPerDistance.some((best) => best.canonicalDistance === distance)) distances.push(distance);
+    }
+    for (const distance of distances.slice(0, MAX_PERSONAL_BEST_PROMPTS)) prompts.push(`What's my ${distance} personal best?`);
+    const mostRecent = recentFirst[0];
+    if (mostRecent) prompts.push(`How did my ${mostRecent.name} go?`);
+    if (nextRace && completed.length > 0) prompts.push(`What does my history suggest for ${nextRace.name}?`);
+    return prompts;
   }
 
   if (seedRace.status !== 'completed') {
-    return [
-      'What does my history suggest for this race?',
-      'What should I expect going in?',
-      'What evidence would improve this prediction?',
-    ];
+    // A prediction needs completed history to reason from; without it there is nothing to suggest.
+    if (completed.length === 0) return [];
+    return ['What does my history suggest for this race?', 'What evidence would improve this prediction?'];
   }
 
-  const prompts = ['Analyze this race', 'What went well?'];
+  const prompts: string[] = [];
+  if (seedRace.result?.finishSeconds !== undefined) prompts.push('Analyze this race', 'What went well?');
 
-  // Task 3.2 (chip relevance) — a detailed "where did I lose time" question implies real split
-  // data to point to; without any splits at all there's nothing for Signal to break down, so never
-  // offer it. Checked before anything else that also depends on `splits` below.
   const splits = seedRace.result?.splits ?? [];
-  if (splits.length > 0) prompts.push('Where did I lose the most time?');
+  if (splits.length > 1) prompts.push('Where did I lose the most time?');
 
-  // A discipline-breakdown question ("swim/bike/run") only ever makes sense for a genuinely
-  // multi-discipline race — never for a standalone running/cycling/swimming race, even though this
-  // same athlete may also have triathlons elsewhere in their history (that's a different race, not
-  // this one). Distinct split LABELS alone isn't enough either: a running race can have several
-  // checkpoint splits (e.g. "5K"/"10K"/"Half"), and — the B.12 device-QA regression — a triathlon
-  // whose provider payload didn't classify into disciplines falls back to per-checkpoint labels
-  // ("Checkpoint 1", "Checkpoint 2", ...), which are all mutually distinct too. Neither case is a
-  // real discipline breakdown, so this counts actual Swim/Bike/Run-labeled splits specifically
-  // (matching the same label convention results/[id].tsx uses to lay out the primary splits row),
-  // not just "how many differently-labeled rows exist."
-  const isMultiDisciplineSport = seedRace.sport === 'triathlon' || seedRace.sport === 'duathlon';
-  const PRIMARY_DISCIPLINE_LABELS = ['Swim', 'Bike', 'Run'];
-  const disciplineCount = new Set(
-    splits.map((split) => split.label).filter((label) => PRIMARY_DISCIPLINE_LABELS.some((discipline) => label.startsWith(discipline))),
-  ).size;
-  if (isMultiDisciplineSport && disciplineCount > 1) prompts.push('What was my strongest discipline?');
+  const seedDetail = context.seedRace;
+  if (seedDetail && hasComparableLegRanks({ ...context, sameSportDetailed: [], seedRace: seedDetail })) {
+    prompts.push('What was my strongest discipline?');
+  }
 
-  const hasComparableRace = getCompletedRaces(races).some(
-    (race) => race.id !== seedRace.id && race.sport === seedRace.sport,
+  const seedKey = `${seedRace.sport}|${canonicalDistanceLabel(seedRace.distanceLabel)}`;
+  const hasComparableResult = sameDistanceGroups(races).some(
+    (group) => group.some((race) => race.id === seedRace.id) && `${group[0]!.sport}|${canonicalDistanceLabel(group[0]!.distanceLabel)}` === seedKey,
   );
-  if (hasComparableRace) prompts.push(`How does this compare with my other ${seedRace.sport} races?`);
+  if (hasComparableResult) prompts.push(`How does this compare with my other ${seedRace.distanceLabel} races?`);
 
-  const nextRace = getUpcomingRaces(races)[0];
   if (nextRace) prompts.push(`What does this suggest for ${nextRace.name}?`);
 
   return prompts;

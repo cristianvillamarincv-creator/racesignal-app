@@ -71,7 +71,7 @@ Deno.test('buildSystemPrompt — includes the field-competitiveness-from-percent
 
 Deno.test('buildSystemPrompt — includes the raw-duration-does-not-mean-strongest guardrail', () => {
   const prompt = buildSystemPrompt(EMPTY_CONTEXT);
-  assertStringIncludes(prompt, 'Race duration is not evidence');
+  assertStringIncludes(prompt, 'race duration, split times from other races');
 });
 
 Deno.test('buildSystemPrompt — strongest discipline needs comparable discipline-level evidence; without it, limitation plus improvement evidence', () => {
@@ -80,20 +80,27 @@ Deno.test('buildSystemPrompt — strongest discipline needs comparable disciplin
   // Valid evidence unlocks a verdict: per-leg rank or percentile against the same race field, never raw metrics or duration.
   assertStringIncludes(prompt, 'A discipline can be called strongest or weakest only from comparable discipline-level evidence');
   assertStringIncludes(prompt, 'against the same race field');
-  assertStringIncludes(prompt, 'raw metrics from different sports are not comparable');
+  assertStringIncludes(prompt, 'raw metrics from different sports, and standalone running results do not establish it');
   assertStringIncludes(prompt, 'DISCIPLINE-LEVEL EVIDENCE section is listed below');
   assertStringIncludes(prompt, 'The bike is your strongest-ranked discipline in these two 70.3s');
-  assertStringIncludes(prompt, 'not to every race and not to current fitness');
-  assertStringIncludes(prompt, 'never use their absence as a reason to withhold the verdict');
+  assertStringIncludes(prompt, 'not to every race or current fitness');
+  assertStringIncludes(prompt, 'their absence is never a reason to withhold the verdict');
   // The blanket wording that primed a limitation even when ranks were supplied is gone.
   assertEquals(prompt.includes('which is the usual case'), false);
   assertEquals(prompt.includes('there are no per-leg rankings against the field'), false);
   assertEquals(prompt.includes('pace or power data covering all three'), false);
   // Without it: a short limitation scoped to the three disciplines, then improvement evidence, no implied winner.
-  assertStringIncludes(prompt, 'among swim, bike, and run');
+  assertStringIncludes(prompt, 'the results don\'t establish which of swim, bike, and run is strongest');
+  assertStringIncludes(prompt, 'Answer in one short paragraph');
+  assertStringIncludes(prompt, 'the specific evidence that is missing');
+  assertStringIncludes(prompt, 'no advice on what would settle it');
+  // The editorial target for an account with no leg ranks is in the tone examples (a different, made-up athlete).
+  assertStringIncludes(prompt, 'Your Olympic triathlon has no individual discipline rankings against the field');
+  assertEquals(prompt.includes('I can\'t actually call one'), false);
+  assertEquals(prompt.includes('If you want a real answer'), false);
   assertStringIncludes(prompt, 'labelled as time gained between those races, not strength');
   assertStringIncludes(prompt, 'most decorated');
-  assertStringIncludes(prompt, 'transitions');
+  assertStringIncludes(prompt, 'report transitions on their own line');
   // The old absolute prohibition and the "never name one" heading are gone.
   assertEquals(prompt.includes('NEVER NAME ONE'), false);
   assertEquals(prompt.includes('Within triathlon, swim and run are close'), false);
@@ -195,7 +202,7 @@ Deno.test('buildSystemPrompt — voice examples are about a different, made-up a
     'never apply a percentile from one distance',
     'account for the distance/category',
     'stronger age-group competition',
-    'Race duration is not evidence',
+    'race duration, split times from other races',
     'PREDICTIONS UNDER UNCERTAINTY',
     'Never simply double a 70.3 time',
     'do not cite a specific population statistic',
@@ -208,7 +215,9 @@ Deno.test('buildSystemPrompt — voice examples are about a different, made-up a
   }
   // Behaviors the baseline evaluation showed were needed.
   assertStringIncludes(prompt, 'no visible self-correction');
-  assertStringIncludes(prompt, 'no race has leg ranks');
+  assertStringIncludes(prompt, 'Otherwise no race has leg ranks');
+  assertStringIncludes(prompt, 'one short paragraph: the limitation and the specific missing evidence');
+  assertStringIncludes(prompt, 'Do not list unrelated races or repeat the limitation');
   assertStringIncludes(prompt, 'Use the actual dates in the context');
   assertStringIncludes(prompt, 'ranked by absolute time');
   assertStringIncludes(prompt, 'Never mention how the numbers were produced');

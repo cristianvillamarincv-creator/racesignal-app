@@ -14,7 +14,7 @@ import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme'
 import { fetchRecentSignalConversations, type SignalConversationRow } from '@/lib/db/signal';
 import { formatRelativeDate } from '@/lib/format';
 import { AppIcon } from '@/lib/icons';
-import { getSuggestedPrompts } from '@/lib/signalContext';
+import { getSuggestedPrompts, hasCompletedResults } from '@/lib/signalContext';
 import { getNextRace } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
@@ -66,7 +66,13 @@ export default function AskScreen() {
   }
 
   const nextRace = getNextRace(races.data);
-  const suggestions = getSuggestedPrompts(races.data).slice(0, 3);
+  // The next-race question is the module above, so it is never repeated as a row; the module itself needs completed
+  // history to reason from, so it is hidden for an athlete who has only upcoming races.
+  const canAskAboutNextRace = !!nextRace && hasCompletedResults(races.data);
+  const nextRaceQuestion = nextRace ? `What does my history suggest for ${nextRace.name}?` : null;
+  const suggestions = getSuggestedPrompts(races.data)
+    .filter((suggestion) => !(canAskAboutNextRace && suggestion === nextRaceQuestion))
+    .slice(0, 3);
 
   function openSignal(raceId?: string) {
     router.push(raceId ? { pathname: '/signal', params: { raceId } } : '/signal');
@@ -104,7 +110,7 @@ export default function AskScreen() {
         {/* 1 — Next race: the most prominent thing on this screen. The analytical question is the
             entry point itself — athlete-specific, interrogative, forward-looking — rather than a
             separate generic "what Signal is" paragraph above it. */}
-        {nextRace ? (
+        {nextRace && canAskAboutNextRace ? (
           <View style={styles.nextRaceBlock}>
             <Text style={styles.kicker}>Your next race</Text>
             <SignalModule

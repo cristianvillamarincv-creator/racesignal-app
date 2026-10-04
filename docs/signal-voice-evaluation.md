@@ -119,3 +119,33 @@ No distance is repeated, so there are no same-distance comparisons on this accou
 2. Open the 70.3 race, tap Ask Signal: "How does this compare with my Olympic?" Expect it to say they are different distances so there is no like-for-like comparison (70.3 5:14:10, Olympic 2:33:30), not a leg-by-leg analysis.
 3. Signal tab: "What's my strongest discipline?" Expect the first sentence to say the results don't establish one, that there is no per-leg ranking, and no swim, bike, or run named as strongest. Flag it if it says running (or anything) "stands out".
 4. Signal tab: "Have I been improving year over year?" Expect it to say no distance has been raced twice, so there is no like-for-like pair, and to list single results with the correct years (Sprint 2024, Olympic 2025, half marathon 2025, 10K 2025, 70.3 2026, marathon 2024).
+
+
+---
+
+# Second revision (2026-10-04, development only): consolidation, conditional strength rule, screenshot caution
+
+## What changed
+
+- **Prompt consolidated.** Ten overlapping voice bullets (self-correction, absolute-time ranking, counting, same-distance scope, internal labels, "strongest" wording, cross-distance splits, arithmetic, certainty, per-leg ranking) became three: get the numbers right, keep comparisons in scope, stop at the answer. The static prompt (empty context) went from 16,105 to 15,591 characters (2,705 to 2,618 words).
+- **Fact versus interpretation** now reads: separate observed facts from supported interpretation, explain useful patterns when the evidence supports them, do not invent causes or turn a result into an unsupported claim about fitness, course difficulty, or field strength.
+- **Cross-distance discussion** is allowed when the athlete asks for it, with its scope stated. Raw times, splits and percentiles from different distances are never ranked against each other as equivalent measures.
+- **Strongest or weakest discipline** may be named only from comparable discipline-level evidence: the athlete's rank or percentile in swim, bike and run against the same race field (a "leg rank" on a split). Pace, power, duration and overall or age-group placement do not qualify. Without that evidence: a short limitation scoped to "among swim, bike, and run", then the improvement evidence, no implied winner, transitions separate. The Edge Function formatter renders an optional `legRank` on a split. The app does not send it today, so production behaviour is unchanged.
+- **Screenshot:** the "From your uploaded evidence" section stays the complete factual record; the narrative is selective and cautious; no load judgements; no invented causes; a difference between two screenshot figures is never presented as read from the image (if asked, it is shown as inline arithmetic, e.g. "212 W minus 188 W is 24 W"); no derived figure in the evidence section.
+- Replies use the first person ("I don't have your training volume") instead of "RaceSignal doesn't have...".
+
+## Live check: six asks, run once, nothing repeated
+
+Cases: strongest discipline (no per-leg evidence); strongest discipline with synthetic per-leg ranks (Ridgeline swim 412/1720 Top 24%, bike 96/1720 Top 6%, run 188/1720 Top 11%; Coastal swim 395/1650 Top 24%, bike 143/1650 Top 9%, run 221/1650 Top 14%); same-distance race comparison; "Break down my Ridgeline 70.3" then "Which leg gained the most compared with Coastal?" (2 asks); screenshot analysis. Replies: `mobile/scripts/signal-eval/fixtures/voice-rev5.json`.
+
+Tokens (exact, `signal_usage_log`): 6 asks, input 46,104 (6,949; 7,069; 7,487; 7,489; 7,881; 9,229 with image), output 1,660 (209; 285; 301; 374; 151; 340). Longest reply 374 of the 700 cap.
+
+Failures found (reading every reply, then rescored with the corrected checker):
+1. Strongest with per-leg ranks: opens with "The results don't establish which of swim, bike, and run is your strongest: there are no per-leg rankings against the field for every race, though Ridgeline 70.3 and Coastal 70.3 both have them." The evidence branch did not produce a direct verdict; the body gives the right ranks (bike Top 6% and Top 9%, run Top 11% and Top 14%, swim Top 24% twice) and says bike ranks ahead of run and run ahead of swim in both races, but never says "strongest". It also says "The swim gained the least" for the two-race gain, which is true among the three disciplines but unscoped (the transitions gained less).
+2. Race comparison: the closing paragraph says the finish moved the athlete "from first-recorded-70.3 territory into a PR with a notable age-group result", unsupported and generic; the opening sentence repeats itself.
+3. Breakdown, turn 1: "The bike and run account for almost all of the 10:50 overall improvement" is a proportional claim from the model's own arithmetic (9:40 of 10:50); it also volunteers a strongest-discipline remark nobody asked about and adds "which fits with the across-the-board time drop".
+4. Screenshot: lists "climbs, surges, terrain changes" as examples of why power varied, then says it can't say what caused it; it closes with a generic remark ("a training ride, not a race result... I haven't compared it to any of your triathlon bike legs").
+
+Not failures: strongest discipline without evidence (correct limitation, bike gain 5:10 then run 4:30 then swim 0:50, no implied winner), the 24 W shown as "(212 minus 188)", no load judgement, evidence section complete with no derived figure, "Which leg gained the most" correct, no dashes, no closing questions, dates correct.
+
+Checker note: the first automatic score flagged "names a strongest discipline" on a reply that restates the question ("which of swim, bike, and run is your strongest"); that was a false positive and is fixed. It missed the proportional claim, "notable/territory", the invented-cause list and the generic add-on; those are now flagged. Prompt-string tests and the checker are supporting checks; the replies were read against the fixture facts.

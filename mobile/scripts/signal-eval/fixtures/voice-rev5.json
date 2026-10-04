@@ -1,0 +1,99 @@
+[
+  {
+    "name": "strongest-discipline",
+    "turns": [
+      {
+        "message": "What's my strongest discipline?",
+        "reply": "The results don't establish which of swim, bike, and run is your strongest: there are no per-leg rankings against the field in any of these races.\n\nWhat I can tell you is where you gained the most time between your two 70.3s. From Coastal 70.3 (Sep 14, 2025) to Ridgeline 70.3 (Jun 14, 2026), the bike improved the most, 5:10 (2:41:20 to 2:36:10), followed by the run, 4:30 (1:46:00 to 1:41:30), then the swim, 0:50 (36:40 to 35:50). That's time gained between those two races, not a measure of which leg is strongest.",
+        "ms": 3269,
+        "words": 93,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": [
+      "NAMES A STRONGEST DISCIPLINE (or a leaning)"
+    ]
+  },
+  {
+    "name": "strongest-with-leg-ranks",
+    "turns": [
+      {
+        "message": "What's my strongest discipline?",
+        "reply": "The results don't establish which of swim, bike, and run is your strongest: there are no per-leg rankings against the field for every race, though Ridgeline 70.3 and Coastal 70.3 both have them.\n\nAcross those two 70.3s, the bike shows the biggest gain between races, 5:10 faster (2:41:20 to 2:36:10), and it's also your best-placed leg in both races by rank: Top 6% at Ridgeline versus Top 9% at Coastal. The run improved too, 4:30 faster (1:46:00 to 1:41:30), ranking Top 11% at Ridgeline and Top 14% at Coastal. The swim gained the least, 0:50 faster (36:40 to 35:50), sitting around Top 24% both times. That's a consistent picture across two races: bike ranks ahead of run, and run ahead of swim, in both.",
+        "ms": 3672,
+        "words": 124,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": [
+      "reply: FACT ERROR: says the swim improved the least (transitions improved least)",
+      "FACT ERROR: names the run or swim as strongest",
+      "declines although comparable per-leg ranks were supplied"
+    ]
+  },
+  {
+    "name": "race-comparison",
+    "turns": [
+      {
+        "message": "How does this compare with my other 70.3?",
+        "reply": "You went 10:50 faster at Ridgeline 70.3 (4:58:50, Jun 14, 2026) than at Coastal 70.3 (5:09:40, Sep 14, 2025), your only other 70.3 and the two make up the only same-distance repeat you've got at this distance.\n\nThe bike was the biggest gain, 5:10 (2:41:20 to 2:36:10), followed by the run at 4:30 (1:46:00 to 1:41:30), then swim at 0:50 (36:40 to 35:50), with both transitions 0:10 faster each. Placement improved too: overall went from top 15% to top 11%, age group from top 14% to top 9%.\n\nEvery leg got faster, with the bike contributing the most time, and the finish moved you from first-recorded-70.3 territory into a PR with a notable age-group result. The data doesn't say why the bike and run improved by that much, just that they did.",
+        "ms": 4175,
+        "words": 132,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": []
+  },
+  {
+    "name": "follow-up",
+    "turns": [
+      {
+        "message": "Break down my Ridgeline 70.3.",
+        "reply": "Ridgeline 70.3, June 14, 2026: 4:58:50, a 70.3 PR, 175th of 1720 overall (top 11%) and 17th of 198 in your age group (top 9%).\n\nSplits: swim 35:50, T1 3:00, bike 2:36:10, T2 2:20, run 1:41:30.\n\nThis is your best 70.3 result against your only other same-distance race, Coastal 70.3 (Sep 14, 2025, 5:09:40). You were faster everywhere: bike 5:10 faster, run 4:30 faster, swim 0:50 faster, and both transitions 10 seconds faster each. The bike and run account for almost all of the 10:50 overall improvement, with the bike leg the single biggest gain.\n\nI don't have leg-by-leg rankings against the field for either race, so I can't say which of swim, bike, or run is strongest relative to other athletes here, just that bike and run show the largest time gains between your two 70.3s. Your age-group placement also moved from top 14% to top 9%, which fits with the across-the-board time drop, though the data doesn't tell you why it happened.",
+        "ms": 4744,
+        "words": 164,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      },
+      {
+        "message": "Which leg gained the most compared with Coastal?",
+        "reply": "The bike. It went from 2:41:20 at Coastal 70.3 (Sep 14, 2025) to 2:36:10 at Ridgeline 70.3 (Jun 14, 2026), a gain of 5:10, the largest of any leg. The run was next at 4:30 faster (1:46:00 to 1:41:30), then the swim at 0:50 faster (36:40 to 35:50), with both transitions improving by 10 seconds each.",
+        "ms": 2327,
+        "words": 56,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": []
+  },
+  {
+    "name": "screenshot-analysis",
+    "turns": [
+      {
+        "message": "Here is my long ride from last Saturday. What does it show?",
+        "reply": "Normalized power of 212 W came in above average power of 188 W, a gap of 24 W (212 minus 188). That spread usually means the power output wasn't steady, it varied enough over the ride (climbs, surges, terrain changes) that NP pulled higher than the simple average. I can't say what caused it specifically since the image doesn't show a power graph or route profile, just the summary numbers.\n\nAvg HR of 148 bpm against a max of 171 bpm is the other data point here, but without your threshold or zones on file I can't tell you what effort level that represents.\n\nFrom your uploaded evidence:\n- Distance: 92.4 km\n- Time: 2:42:10\n- Avg Power: 188 W\n- Normalized Power: 212 W\n- Avg HR: 148 bpm\n- Max HR: 171 bpm\n- Training Stress Score: 168\n- Elevation Gain: 1,120 m\n\nThis is a training ride, not a race result, so it sits outside your race history and I haven't compared it to any of your triathlon bike legs.",
+        "ms": 4964,
+        "words": 173,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": [
+      "reply: invents or mislabels a cause or pattern for the power gap"
+    ]
+  }
+]

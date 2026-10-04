@@ -104,8 +104,12 @@ export async function sendTurn(
   history: Turn[],
   message: string,
   image?: { base64: string; mediaType: string },
+  /** Evaluation-only hook: lets a case send a synthetic context variant (for example one carrying per-leg ranks the app
+   *  does not produce today) through the same deployed function. Never used by the app. */
+  transformContext?: (context: SignalContext) => SignalContext,
 ): Promise<SendTurnResult> {
-  const context: SignalContext = buildSignalContext(env.races, seedRaceId);
+  const built: SignalContext = buildSignalContext(env.races, seedRaceId);
+  const context = transformContext ? transformContext(built) : built;
   const body = { context, history, message, image };
   const requestBytes = JSON.stringify(body).length;
   const startedAt = Date.now();

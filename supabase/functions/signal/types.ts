@@ -30,7 +30,10 @@ export interface SignalRaceDetail {
   eventDate: string;
   location: string;
   finishSeconds?: number;
-  splits?: { label: string; elapsedSeconds: number; paceLabel?: string }[];
+  /** `legRank` is the athlete's rank in that leg against the same race field. The app does not send it today (results
+   *  providers' per-leg ranks are not stored); the formatter renders it when present so that comparable discipline-level
+   *  evidence, once it exists, is what a strongest-discipline answer rests on. */
+  splits?: { label: string; elapsedSeconds: number; paceLabel?: string; legRank?: SignalRank }[];
   overallRank?: SignalRank;
   genderRank?: SignalRank;
   ageGroupRank?: SignalRank;

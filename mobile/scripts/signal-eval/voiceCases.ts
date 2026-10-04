@@ -6,6 +6,7 @@
 //
 //   SUPABASE_SERVICE_ROLE_KEY=... npx tsx --env-file=.env.development scripts/signal-eval/voiceCases.ts out.json [case ...]
 import { readFileSync, writeFileSync } from 'node:fs';
+import type { SignalContext } from '../../src/lib/signalContext';
 import { fetchTestAthleteRaces, findRaceByName, mintTestSession, sendTurn, type SignalEvalEnv, type Turn } from './harness';
 
 const RICH_EMAIL = 'signal.eval@example.com';
@@ -27,8 +28,8 @@ function metrics(message: string, reply: string | null, ms: number, failure?: st
   };
 }
 
-async function ask(env: SignalEvalEnv, seedRaceId: string | undefined, history: Turn[], message: string, image?: { base64: string; mediaType: string }): Promise<TurnRecord & { text: string | null }> {
-  const r = await sendTurn(env, seedRaceId, history, message, image);
+async function ask(env: SignalEvalEnv, seedRaceId: string | undefined, history: Turn[], message: string, image?: { base64: string; mediaType: string }, transform?: (context: SignalContext) => SignalContext): Promise<TurnRecord & { text: string | null }> {
+  const r = await sendTurn(env, seedRaceId, history, message, image, transform);
   const j = r.json as { available?: boolean; data?: { reply?: string }; reason?: string };
   const reply = j.available && j.data?.reply ? j.data.reply : null;
   return { ...metrics(message, reply, r.elapsedMs, reply ? undefined : `status=${r.status} reason=${j.reason ?? 'unknown'}`), text: reply };
@@ -63,6 +64,9 @@ const OTHER_DISTANCES = /\b(Lakeview|Olympic|Harbor|Sprint)\b/;
 const TEN_FIFTY = /10:50|10 minutes,? 50|10m ?50|nearly 11 minutes|almost 11 minutes/i;
 const FIVE_TEN = /5:10|5 minutes,? 10 seconds|5m ?10/i;
 
+/** "...which of swim, bike, and run is your strongest" restates the question; it is not a verdict. */
+const withoutQuestionRestated = (text: string) => text.replace(/which (of )?(swim|the three|your)[^.:\n]{0,40}(strongest|weakest)/gi, '');
+
 function voiceFailures(text: string, label: string): string[] {
   const out: string[] = [];
   if (SWIM_LEAST.test(text)) out.push(`${label}: FACT ERROR: says the swim improved the least (transitions improved least)`);
@@ -72,6 +76,15 @@ function voiceFailures(text: string, label: string): string[] {
   if (/\b(strongest|stronger|standout) (70\.3|race|result|10K|half|olympic|sprint)\b/i.test(text)) out.push(`${label}: uses "strongest" for a race`);
   if (/stands? out|stood out|stand out/i.test(text) && /\\b(run|running|swim|bike)\\b/i.test(text)) out.push(`${label}: says a sport's results "stand out"`);
   if (/(best|top) (age-group )?percentile (of anything|on file)|best age-group percentile/i.test(text)) out.push(`${label}: ranks percentiles across distances`);
+  if (/\b(solid|solidly|demanding|not extreme|moderate load|hard session|easy (day|session|ride))\b/i.test(text)) out.push(`${label}: judges the load or effort for this athlete (no baseline exists)`);
+  if (/uneven power|stop-start|surges/i.test(text)) out.push(`${label}: invents or mislabels a cause or pattern for the power gap`);
+  if (/\b(fitter|fitness|better shape|in better form|stronger athlete)\b/i.test(text)) out.push(`${label}: turns a result into a fitness claim`);
+  if (/makes sense (since|because)|only so much time to find|typical(ly)? for|expected given/i.test(text)) out.push(`${label}: adds a generic explanation after answering`);
+  if (/RaceSignal (doesn'?t|does not|has no|holds no|only has)/i.test(text)) out.push(`${label}: refers to RaceSignal in the third person ("RaceSignal doesn't...")`);
+  if (/(almost|nearly) all of|most of the (overall |total )?(gain|improvement|time)|account(s|ed)? for [^.\n]{0,40}(of the|%)/i.test(text)) out.push(`${label}: proportional claim about gains`);
+  if (/\bnotable\b|territory/i.test(text)) out.push(`${label}: unsupported characterisation ("notable", "territory")`);
+  if (/(climbs|surges|terrain changes)\)/i.test(text)) out.push(`${label}: lists invented causes for the power gap`);
+  if (/this is a training ride, not a race|outside your race history/i.test(text)) out.push(`${label}: generic add-on after the answer`);
   if (/[—–]/.test(text)) out.push(`${label}: contains a long dash (${(text.match(/[—–]/g) ?? []).length})`);
   if (/\?\s*$/.test(text.trim()) && !/FROM YOUR UPLOADED/i.test(text.trim().slice(-5))) out.push(`${label}: ends with a question`);
   return out;
@@ -101,7 +114,7 @@ const CHECKS: Record<string, (replies: string[]) => string[]> = {
   },
   'strongest-discipline': ([r]) => {
     const f: string[] = [...voiceFailures(r!, 'reply')];
-    if (NAMES_A_WINNER.some((re) => re.test(r!))) f.push('NAMES A STRONGEST DISCIPLINE (or a leaning)');
+    if (NAMES_A_WINNER.some((re) => re.test(withoutQuestionRestated(r!)))) f.push('NAMES A STRONGEST DISCIPLINE (or a leaning)');
     if (!DECLINES.test(r!)) f.push('does not plainly decline to establish a strongest discipline');
     if (!FIVE_TEN.test(r!)) f.push('does not cite the largest improvement (bike, 5:10)');
     if (WRONG_LARGEST.test(r!)) f.push('FACT ERROR: names the run or swim as the largest improvement (the bike gained most)');
@@ -110,7 +123,7 @@ const CHECKS: Record<string, (replies: string[]) => string[]> = {
   },
   'strongest-triathlon': ([r]) => {
     const f: string[] = [...voiceFailures(r!, 'reply')];
-    if (NAMES_A_WINNER.some((re) => re.test(r!))) f.push('NAMES A STRONGEST DISCIPLINE (or a leaning)');
+    if (NAMES_A_WINNER.some((re) => re.test(withoutQuestionRestated(r!)))) f.push('NAMES A STRONGEST DISCIPLINE (or a leaning)');
     if (!DECLINES.test(r!)) f.push('does not plainly decline to establish a strongest discipline');
     if (/(Top|top) \d+% (overall|age group)[^.\n]{0,60}\b(swim|bike|run)\b/.test(r!)) f.push('uses an overall/age-group placement as a discipline ranking');
     return f;
@@ -136,11 +149,43 @@ const CHECKS: Record<string, (replies: string[]) => string[]> = {
     if (WRONG_LARGEST.test(t1! + ' ' + t2!)) f.push('FACT ERROR: names the run or swim as the largest improvement');
     if (OTHER_DISTANCES.test(t1!)) f.push('TURN 1: volunteers a comparison with races of other distances');
     if (/full stop|strongest 70\.3|strongest data point/i.test(t1!)) f.push('TURN 1: unsupported superlative');
+    if (/which of (swim|bike)|(strongest|weakest) (discipline|leg)|leg-by-leg rank/i.test(t1!)) f.push('TURN 1: volunteers a strongest-discipline remark nobody asked for');
     if (/apolog|actually|correction|to be precise/i.test(t2!)) f.push('TURN 2: self-correction language');
     if (/(proportion|relative(ly)? (bigger|larger|more)|per[- ]minute)/i.test(t1! + t2!)) f.push('PROPORTIONAL CLAIM about gains');
     const b1 = t1!.search(/bike[^.\n]{0,40}5:10|5:10[^.\n]{0,40}bike/i);
     const r1 = t1!.search(/run[^.\n]{0,40}4:30|4:30[^.\n]{0,40}run/i);
     if (b1 >= 0 && r1 >= 0 && r1 < b1) f.push('TURN 1 ORDER ERROR: run listed before bike');
+    return f;
+  },
+  'strongest-with-leg-ranks': ([r]) => {
+    const f: string[] = [...voiceFailures(r!, 'reply')];
+    // Answer key (synthetic per-leg ranks vs the same race field): Ridgeline swim 412/1720 (Top 24%), bike 96/1720 (Top 6%),
+    // run 188/1720 (Top 11%); Coastal swim 395/1650 (Top 24%), bike 143/1650 (Top 9%), run 221/1650 (Top 14%).
+    // The evidence supports: bike strongest, swim weakest, consistent across both races.
+    if (!/bike/i.test(r!.slice(0, 160))) f.push('FIRST SENTENCE does not name the bike as the strongest');
+    if (!/(Top 6%|96(\/| of )1720|6%)/.test(r!)) f.push('does not cite the bike rank at Ridgeline (96/1720, Top 6%)');
+    if (!/(Top 9%|143(\/| of )1650)/.test(r!)) f.push('does not cite the bike rank at Coastal (143/1650, Top 9%)');
+    if (/(run|swim)[^.\n]{0,40}\b(is|are|was) (your )?(the )?strongest/i.test(withoutQuestionRestated(r!))) f.push('FACT ERROR: names the run or swim as strongest');
+    if (/bike[^.\n]{0,40}(weakest)|weakest[^.\n]{0,30}bike/i.test(r!)) f.push('FACT ERROR: names the bike as weakest');
+    if (/(2:36:10|2:41:20|longest|took the most time)[^.\n]{0,60}(strongest|because)/i.test(r!)) f.push('bases strength on raw duration');
+    if (/can'?t (name|establish|tell)|don'?t establish|no per-leg/i.test(r!)) f.push('declines (or says no per-leg rankings exist) although comparable per-leg ranks were supplied');
+    if (/(swim|bike|run)[^.\n]{0,30}(gained|improved) the least/i.test(r!) && !/among (the three|swim)/i.test(r!)) f.push('says a discipline gained the least without scoping it to the three disciplines (transitions gained least)');
+    if (/\b(T1|T2|transition)s?\b[^.\n]{0,40}\b(strongest|weakest|discipline)\b/i.test(r!)) f.push('treats transitions as a discipline');
+    return f;
+  },
+  'screenshot-analysis': ([r]) => {
+    const f: string[] = [...voiceFailures(r!, 'reply')];
+    const at = r!.search(/From your uploaded evidence/i);
+    if (at < 0) f.push('missing the "From your uploaded evidence" section');
+    const narrative = at < 0 ? r! : r!.slice(0, at);
+    const evidence = at < 0 ? '' : r!.slice(at);
+    for (const key of ['92.4', '2:42:10', '188', '212', '148', '171', '168', '1,120']) if (!evidence.includes(key)) f.push(`EVIDENCE SECTION missing ${key}`);
+    const inNarrative = ['92.4', '2:42:10', '188', '212', '148', '171', '168', '1,120'].filter((k) => narrative.includes(k));
+    if (inNarrative.length >= 7) f.push(`narrative recites the metric list (${inNarrative.length} of 8 figures) instead of staying selective`);
+    if (/\b24 ?W\b/.test(evidence)) f.push('EVIDENCE SECTION contains the derived 24 W difference');
+    if (/\b24 ?W\b/.test(narrative) && !/(212 ?W?)[^.\n]{0,15}minus[^.\n]{0,15}188|188[^.\n]{0,40}212[^.\n]{0,40}24/i.test(narrative)) f.push('narrative states 24 W as if it were a figure from the screenshot (not shown as arithmetic)');
+    if (/(hilly|hillier|longer than)/i.test(r!) ) f.push('UNSUPPORTED terrain or comparison claim');
+    if (/\b(\d{2,3}) ?W\b/.test(r!.replace(/212 ?W|188 ?W|24 ?W/g, ''))) f.push('states a power figure that is not in the screenshot');
     return f;
   },
   'screenshot-followup': ([t1, t2]) => {
@@ -164,6 +209,23 @@ const CASES: Record<string, (rich: SignalEvalEnv, sparse: SignalEvalEnv) => Prom
   'screenshot-analysis': async (rich) => {
     const base64 = readFileSync(new URL('./fixtures/ride-summary.png', import.meta.url)).toString('base64');
     return { name: 'screenshot-analysis', turns: [await ask(rich, undefined, [], 'Here is my long ride from last Saturday. What does it show?', { base64, mediaType: 'image/png' })] };
+  },
+  'strongest-with-leg-ranks': async (rich) => {
+    // Synthetic comparable discipline-level evidence, injected into the context the real function receives. The app does not
+    // produce leg ranks today; this is the only way to exercise the "valid evidence exists" branch of the rule.
+    const legRanks: Record<string, Record<string, { place: number; field: number; percentile: number }>> = {
+      Ridgeline: { Swim: { place: 412, field: 1720, percentile: 24 }, Bike: { place: 96, field: 1720, percentile: 6 }, Run: { place: 188, field: 1720, percentile: 11 } },
+      Coastal: { Swim: { place: 395, field: 1650, percentile: 24 }, Bike: { place: 143, field: 1650, percentile: 9 }, Run: { place: 221, field: 1650, percentile: 14 } },
+    };
+    const withLegRanks = (context: SignalContext): SignalContext => ({
+      ...context,
+      sameSportDetailed: context.sameSportDetailed.map((race) => {
+        const key = Object.keys(legRanks).find((name) => race.name.includes(name));
+        if (!key) return race;
+        return { ...race, splits: race.splits?.map((split) => ({ ...split, legRank: legRanks[key]![split.label] })) } as typeof race;
+      }),
+    });
+    return { name: 'strongest-with-leg-ranks', turns: [await ask(rich, undefined, [], "What's my strongest discipline?", undefined, withLegRanks)] };
   },
   'strongest-triathlon': async (rich) => ({ name: 'strongest-triathlon', turns: [await ask(rich, undefined, [], 'Within triathlon, which of swim, bike, or run is my strongest leg?')] }),
   'screenshot-followup': async (rich) => {

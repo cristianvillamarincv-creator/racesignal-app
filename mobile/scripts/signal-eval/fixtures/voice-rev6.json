@@ -1,0 +1,55 @@
+[
+  {
+    "name": "strongest-with-leg-ranks",
+    "turns": [
+      {
+        "message": "What's my strongest discipline?",
+        "reply": "The bike is your strongest-ranked discipline, based on the two 70.3s where leg ranks exist: Coastal 70.3 (Sep 2025) and Ridgeline 70.3 (Jun 2026).\n\nAt Coastal, your bike leg ranked Top 9%, ahead of the run (Top 14%) and swim (Top 24%). At Ridgeline, the bike ranked Top 6%, again ahead of the run (Top 11%) and swim (Top 24%). The order is consistent across both races: bike, then run, then swim, every time.\n\nSwim is the weakest-ranked of the three in both races, essentially unchanged at Top 24% in both. This verdict only covers those two 70.3s, since they're the only races with leg-level ranks to compare.",
+        "ms": 3792,
+        "words": 108,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": []
+  },
+  {
+    "name": "strongest-discipline",
+    "turns": [
+      {
+        "message": "What's my strongest discipline?",
+        "reply": "In these two 70.3s, where leg ranks aren't listed but the paired comparison from Coastal 70.3 to Ridgeline 70.3 is, the bike shows the largest gain of the three legs: 5:10 faster (2:41:20 to 2:36:10), ahead of the run's 4:30 (1:46:00 to 1:41:30) and the swim's 0:50 (36:40 to 35:50). That's time gained between those two races, not a verdict on which discipline is strongest, since I don't have swim/bike/run leg ranks against the field for any race on file. Without that, I can't say which discipline is your strongest overall.",
+        "ms": 3159,
+        "words": 91,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": [
+      "[style] does not plainly decline to establish a strongest discipline"
+    ]
+  },
+  {
+    "name": "screenshot-analysis",
+    "turns": [
+      {
+        "message": "Here is my long ride from last Saturday. What does it show?",
+        "reply": "Normalized power of 212 W came in above average power of 188 W, which tells you power output varied over the ride rather than staying steady, likely due to the 1,120 m of climbing over the 92.4 km. Average HR sat at 148 bpm against a max of 171 bpm across the 2:42:10.\n\nFrom your uploaded evidence:\n- Distance: 92.4 km\n- Time: 2:42:10\n- Avg Power: 188 W\n- Normalized Power: 212 W\n- Avg HR: 148 bpm\n- Max HR: 171 bpm\n- Training Stress Score: 168\n- Elevation Gain: 1,120 m\n\nThis is training data, not tied to any race on your file, so I can't weigh it against your Ridgeline or Coastal 70.3 bike legs.",
+        "ms": 3518,
+        "words": 119,
+        "emDashes": 0,
+        "stockPhrases": [],
+        "headings": false
+      }
+    ],
+    "run": 1,
+    "failures": [
+      "[style] narrative recites the metric list (7 of 8 figures) instead of staying selective",
+      "[style] lists or implies causes for the power variation"
+    ]
+  }
+]

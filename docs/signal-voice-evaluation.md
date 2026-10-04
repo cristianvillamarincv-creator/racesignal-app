@@ -149,3 +149,30 @@ Failures found (reading every reply, then rescored with the corrected checker):
 Not failures: strongest discipline without evidence (correct limitation, bike gain 5:10 then run 4:30 then swim 0:50, no implied winner), the 24 W shown as "(212 minus 188)", no load judgement, evidence section complete with no derived figure, "Which leg gained the most" correct, no dashes, no closing questions, dates correct.
 
 Checker note: the first automatic score flagged "names a strongest discipline" on a reply that restates the question ("which of swim, bike, and run is your strongest"); that was a false positive and is fixed. It missed the proportional claim, "notable/territory", the invented-cause list and the generic add-on; those are now flagged. Prompt-string tests and the checker are supporting checks; the replies were read against the fixture facts.
+
+---
+
+# Final revision (2026-10-04, development only): scoped discipline evidence, trimmed commentary
+
+## Why the strongest-discipline answer contradicted itself
+
+`mobile/scripts/signal-eval/dumpModelInput.ts` prints the exact system prompt the function sends for a context variant (no model call). For the synthetic fixture it shows the per-leg ranks did reach the model (the Ridgeline and Coastal split lines carry `leg rank: 96/1720 (Top 6%)` and so on); the function passes the context through untouched and only checks that four arrays exist. The contradiction came from the prompt: the no-evidence branch was described as "the usual case" and quoted the sentence "there are no per-leg rankings against the field", which the model reproduced even with ranks present.
+
+## Changes
+
+- The rule is now evaluated per race. A computed `DISCIPLINE-LEVEL EVIDENCE` line names the races whose splits carry swim, bike and run leg ranks; the verdict is for those races only ("The bike is your strongest-ranked discipline in these two 70.3s."), not for every race or current fitness, and missing ranks elsewhere are never a reason to withhold it. Without that line the short limitation plus improvement evidence remains. The primed example sentence is gone.
+- "Stop at the answer" now ends on the last fact the question needed (no summary characterisation, no comment on what kind of data it is, nothing on a topic the athlete didn't raise). Sums of legs and shares of a total are not supplied, so they are left out.
+- Screenshot: no possible causes unless asked, and the gap between two figures is stated only on request (as inline arithmetic).
+- The checker now tags each finding `[fact]`, `[claim]` or `[style]`.
+
+## Live check: three asks, run once (`mobile/scripts/signal-eval/fixtures/voice-rev6.json`)
+
+Tokens (exact): input 7,315 / 7,078 / 9,358 (image) = 23,751; output 253 / 210 / 260 = 723. Static prompt (empty context): 16,067 characters, up from 15,591 in the previous revision and 16,105 originally; with the fixture the prompt is 19,982 characters with leg ranks and 19,525 without.
+
+Findings, separated:
+- Valid ranks: correct, scoped to the two 70.3s, no generalisation. No findings.
+- No ranks: facts correct (bike 5:10, run 4:30, swim 0:50; no ranks on file). Style: the first sentence is garbled ("where leg ranks aren't listed but the paired comparison ... is") and the limitation arrives in the second sentence.
+- Screenshot: facts correct, evidence section complete, no derived figure, no 24 W, no load judgement. Claim: "likely due to the 1,120 m of climbing" speculates a cause. Style: the narrative restates seven of eight figures and still ends with "This is training data, not tied to any race on your file..."
+- No dashes, no closing questions, no internal labels.
+
+Remaining limitations (prompt tuning stops here for iPhone review): the speculative cause and closing remark on screenshots persist; the app does not send leg ranks, so the discipline-verdict branch cannot occur on a device until a results provider supplies them.

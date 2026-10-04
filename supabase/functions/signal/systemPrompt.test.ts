@@ -78,10 +78,16 @@ Deno.test('buildSystemPrompt — strongest discipline needs comparable disciplin
   const prompt = buildSystemPrompt(EMPTY_CONTEXT);
   assertStringIncludes(prompt, '=== STRONGEST OR WEAKEST DISCIPLINE ===');
   // Valid evidence unlocks a verdict: per-leg rank or percentile against the same race field, never raw metrics or duration.
-  assertStringIncludes(prompt, 'Name a strongest or weakest discipline only from comparable discipline-level evidence');
+  assertStringIncludes(prompt, 'A discipline can be called strongest or weakest only from comparable discipline-level evidence');
   assertStringIncludes(prompt, 'against the same race field');
   assertStringIncludes(prompt, 'raw metrics from different sports are not comparable');
-  assertStringIncludes(prompt, 'compare the three disciplines by their ranks against the same field');
+  assertStringIncludes(prompt, 'DISCIPLINE-LEVEL EVIDENCE section is listed below');
+  assertStringIncludes(prompt, 'The bike is your strongest-ranked discipline in these two 70.3s');
+  assertStringIncludes(prompt, 'not to every race and not to current fitness');
+  assertStringIncludes(prompt, 'never use their absence as a reason to withhold the verdict');
+  // The blanket wording that primed a limitation even when ranks were supplied is gone.
+  assertEquals(prompt.includes('which is the usual case'), false);
+  assertEquals(prompt.includes('there are no per-leg rankings against the field'), false);
   assertEquals(prompt.includes('pace or power data covering all three'), false);
   // Without it: a short limitation scoped to the three disciplines, then improvement evidence, no implied winner.
   assertStringIncludes(prompt, 'among swim, bike, and run');
@@ -92,6 +98,24 @@ Deno.test('buildSystemPrompt — strongest discipline needs comparable disciplin
   assertEquals(prompt.includes('NEVER NAME ONE'), false);
   assertEquals(prompt.includes('Within triathlon, swim and run are close'), false);
   assertEquals(prompt.includes('running has the stronger overall signal'), false);
+});
+
+Deno.test('discipline-level evidence — listed only for races with swim, bike, and run leg ranks, so missing ranks elsewhere cannot cancel supplied ones', () => {
+  const rank = (place: number, percentile: number) => ({ place, field: 1000, percentile });
+  const base = { sport: 'triathlon', distanceLabel: '70.3', location: '', finishSeconds: 17930, highlights: [], notes: [] };
+  const ranked = { ...base, id: 'a', name: 'Ridgeline 70.3', eventDate: '2026-06-14', splits: [
+    { label: 'Swim', elapsedSeconds: 2150, legRank: rank(412, 24) }, { label: 'T1', elapsedSeconds: 180 },
+    { label: 'Bike', elapsedSeconds: 9370, legRank: rank(96, 6) }, { label: 'Run', elapsedSeconds: 6090, legRank: rank(188, 11) } ] };
+  const partial = { ...base, id: 'b', name: 'Lakeview Olympic', eventDate: '2025-07-12', splits: [
+    { label: 'Swim', elapsedSeconds: 1520, legRank: rank(50, 5) }, { label: 'Bike', elapsedSeconds: 4000 }, { label: 'Run', elapsedSeconds: 2400 } ] };
+  const unranked = { ...base, id: 'c', name: 'Harbor Sprint', eventDate: '2024-06-09', splits: [{ label: 'Swim', elapsedSeconds: 600 }] };
+  const prompt = buildSystemPrompt({ ...EMPTY_CONTEXT, sameSportDetailed: [ranked, partial, unranked] });
+  const section = prompt.split('DISCIPLINE-LEVEL EVIDENCE (')[1]!.split('\n')[0]!;
+  assertStringIncludes(section, 'Ridgeline 70.3 (Jun 14, 2026)');
+  assertEquals(section.includes('Lakeview'), false);
+  assertEquals(section.includes('Harbor'), false);
+  // No race with the three leg ranks: no section at all (so the no-evidence branch applies).
+  assertEquals(buildSystemPrompt({ ...EMPTY_CONTEXT, sameSportDetailed: [partial, unranked] }).includes('DISCIPLINE-LEVEL EVIDENCE ('), false);
 });
 
 Deno.test('formatDetailedRace — a leg rank against the same field is rendered on the split when present, and only then', () => {
@@ -184,7 +208,7 @@ Deno.test('buildSystemPrompt — voice examples are about a different, made-up a
   }
   // Behaviors the baseline evaluation showed were needed.
   assertStringIncludes(prompt, 'no visible self-correction');
-  assertStringIncludes(prompt, 'no per-leg rankings');
+  assertStringIncludes(prompt, 'no race has leg ranks');
   assertStringIncludes(prompt, 'Use the actual dates in the context');
   assertStringIncludes(prompt, 'ranked by absolute time');
   assertStringIncludes(prompt, 'Never mention how the numbers were produced');
@@ -195,6 +219,8 @@ Deno.test('buildSystemPrompt — voice examples are about a different, made-up a
   // Cross-distance discussion is allowed when asked, with a stated scope; it is no longer a blanket ban.
   assertStringIncludes(prompt, 'Discuss another distance only when the athlete asks for it');
   assertStringIncludes(prompt, 'Stop at the answer');
+  assertStringIncludes(prompt, 'nothing on a topic the athlete did not raise');
+  assertStringIncludes(prompt, 'Sums of legs and shares of a total are not supplied');
   // First person, not a repeated third-person product name.
   assertStringIncludes(prompt, "I don't have your training volume");
   assertEquals(prompt.includes('no training data in RaceSignal'), false);
@@ -211,6 +237,8 @@ Deno.test('buildSystemPrompt — the screenshot reply keeps the labeled evidence
   assertStringIncludes(prompt, 'Do not judge how hard, easy, solid, or demanding a ride or score was');
   // A difference between two screenshot figures is not supplied, so it is never presented as if it were.
   assertStringIncludes(prompt, 'is not in the image and is not computed for you');
+  assertStringIncludes(prompt, 'do not list possible causes unless the athlete asks');
+  assertStringIncludes(prompt, 'state the gap only if the athlete asks for it');
   assertStringIncludes(prompt, 'Never put a derived difference in the evidence section');
   assertEquals(prompt.includes('uneven power'), false);
 });

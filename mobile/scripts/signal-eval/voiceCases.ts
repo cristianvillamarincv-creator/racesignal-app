@@ -7,6 +7,7 @@
 //   SUPABASE_SERVICE_ROLE_KEY=... npx tsx --env-file=.env.development scripts/signal-eval/voiceCases.ts out.json [case ...]
 import { readFileSync, writeFileSync } from 'node:fs';
 import type { SignalContext } from '../../src/lib/signalContext';
+import { withLegRanks } from './legRankFixture';
 import { fetchTestAthleteRaces, findRaceByName, mintTestSession, sendTurn, type SignalEvalEnv, type Turn } from './harness';
 
 const RICH_EMAIL = 'signal.eval@example.com';
@@ -90,6 +91,15 @@ function voiceFailures(text: string, label: string): string[] {
   return out;
 }
 
+/** Three buckets, so a banned phrase is not counted as a wrong fact: [fact] incorrect fact or contradiction, [claim] unsupported
+ *  athlete-specific conclusion, [style] verbosity or style. Heuristic on the check's own wording; the report states the final call. */
+export function tag(failure: string): string {
+  if (/^\[(fact|claim|style)\]/.test(failure)) return failure;
+  if (/FACT ERROR|DATE ERROR|ORDER ERROR|COUNT ERROR|missing|does not (cite|name|state)|NAMES A STRONGEST|declines|FIRST SENTENCE|treats transitions|bases strength|names the (run|swim|bike)|first 70\.3|failed to return/i.test(failure)) return `[fact] ${failure}`;
+  if (/UNSUPPORTED|fitness|judges the load|invent|proportional|contains the derived|as if it were a figure|unsupported superlative|volunteers a strongest|generalis|current fitness/i.test(failure)) return `[claim] ${failure}`;
+  return `[style] ${failure}`;
+}
+
 const CHECKS: Record<string, (replies: string[]) => string[]> = {
   'year-over-year': ([r]) => {
     const f: string[] = [...voiceFailures(r!, 'reply')];
@@ -167,6 +177,9 @@ const CHECKS: Record<string, (replies: string[]) => string[]> = {
     if (!/(Top 9%|143(\/| of )1650)/.test(r!)) f.push('does not cite the bike rank at Coastal (143/1650, Top 9%)');
     if (/(run|swim)[^.\n]{0,40}\b(is|are|was) (your )?(the )?strongest/i.test(withoutQuestionRestated(r!))) f.push('FACT ERROR: names the run or swim as strongest');
     if (/bike[^.\n]{0,40}(weakest)|weakest[^.\n]{0,30}bike/i.test(r!)) f.push('FACT ERROR: names the bike as weakest');
+    if (!/(these two|two 70\.3|Coastal)/i.test(r!.slice(0, 200))) f.push('does not scope the verdict to the two 70.3s with leg ranks');
+    if (/\b(current(ly)?|right now|these days|in every race|across all your races|overall strongest)\b/i.test(r!)) f.push('generalises beyond the two ranked races or to current fitness');
+    if (/no per-leg|not every race|doesn'?t (have|hold) (leg|per-leg)/i.test(r!)) f.push('FACT ERROR: contradicts the supplied leg ranks (says they are missing)');
     if (/(2:36:10|2:41:20|longest|took the most time)[^.\n]{0,60}(strongest|because)/i.test(r!)) f.push('bases strength on raw duration');
     if (/can'?t (name|establish|tell)|don'?t establish|no per-leg/i.test(r!)) f.push('declines (or says no per-leg rankings exist) although comparable per-leg ranks were supplied');
     if (/(swim|bike|run)[^.\n]{0,30}(gained|improved) the least/i.test(r!) && !/among (the three|swim)/i.test(r!)) f.push('says a discipline gained the least without scoping it to the three disciplines (transitions gained least)');
@@ -183,8 +196,10 @@ const CHECKS: Record<string, (replies: string[]) => string[]> = {
     const inNarrative = ['92.4', '2:42:10', '188', '212', '148', '171', '168', '1,120'].filter((k) => narrative.includes(k));
     if (inNarrative.length >= 7) f.push(`narrative recites the metric list (${inNarrative.length} of 8 figures) instead of staying selective`);
     if (/\b24 ?W\b/.test(evidence)) f.push('EVIDENCE SECTION contains the derived 24 W difference');
+    if (/\b24 ?W\b/.test(narrative)) f.push('states the 24 W gap although it was not asked for');
     if (/\b24 ?W\b/.test(narrative) && !/(212 ?W?)[^.\n]{0,15}minus[^.\n]{0,15}188|188[^.\n]{0,40}212[^.\n]{0,40}24/i.test(narrative)) f.push('narrative states 24 W as if it were a figure from the screenshot (not shown as arithmetic)');
     if (/(hilly|hillier|longer than)/i.test(r!) ) f.push('UNSUPPORTED terrain or comparison claim');
+    if (/(climb|surge|terrain|stop|wind|drafting|interval)/i.test(narrative.replace(/1,120 ?m/g, ''))) f.push('lists or implies causes for the power variation');
     if (/\b(\d{2,3}) ?W\b/.test(r!.replace(/212 ?W|188 ?W|24 ?W/g, ''))) f.push('states a power figure that is not in the screenshot');
     return f;
   },
@@ -211,20 +226,6 @@ const CASES: Record<string, (rich: SignalEvalEnv, sparse: SignalEvalEnv) => Prom
     return { name: 'screenshot-analysis', turns: [await ask(rich, undefined, [], 'Here is my long ride from last Saturday. What does it show?', { base64, mediaType: 'image/png' })] };
   },
   'strongest-with-leg-ranks': async (rich) => {
-    // Synthetic comparable discipline-level evidence, injected into the context the real function receives. The app does not
-    // produce leg ranks today; this is the only way to exercise the "valid evidence exists" branch of the rule.
-    const legRanks: Record<string, Record<string, { place: number; field: number; percentile: number }>> = {
-      Ridgeline: { Swim: { place: 412, field: 1720, percentile: 24 }, Bike: { place: 96, field: 1720, percentile: 6 }, Run: { place: 188, field: 1720, percentile: 11 } },
-      Coastal: { Swim: { place: 395, field: 1650, percentile: 24 }, Bike: { place: 143, field: 1650, percentile: 9 }, Run: { place: 221, field: 1650, percentile: 14 } },
-    };
-    const withLegRanks = (context: SignalContext): SignalContext => ({
-      ...context,
-      sameSportDetailed: context.sameSportDetailed.map((race) => {
-        const key = Object.keys(legRanks).find((name) => race.name.includes(name));
-        if (!key) return race;
-        return { ...race, splits: race.splits?.map((split) => ({ ...split, legRank: legRanks[key]![split.label] })) } as typeof race;
-      }),
-    });
     return { name: 'strongest-with-leg-ranks', turns: [await ask(rich, undefined, [], "What's my strongest discipline?", undefined, withLegRanks)] };
   },
   'strongest-triathlon': async (rich) => ({ name: 'strongest-triathlon', turns: [await ask(rich, undefined, [], 'Within triathlon, which of swim, bike, or run is my strongest leg?')] }),
@@ -258,7 +259,7 @@ async function main() {
     let failed = 0;
     for (const r of records) {
       const replies = r.turns.map((t) => t.reply ?? '');
-      r.failures = CHECKS[r.name]?.(replies) ?? [];
+      r.failures = (CHECKS[r.name]?.(replies) ?? []).map(tag);
       if (r.failures.length) failed += 1;
       console.log(`${r.failures.length ? 'FAIL' : 'pass'}  ${r.name} #${r.run}${r.failures.length ? '\n      - ' + r.failures.join('\n      - ') : ''}`);
     }
@@ -277,7 +278,7 @@ async function main() {
       console.log(`running ${name} (run ${run}/${repeat})…`);
       const record = await CASES[name]!(rich, sparse);
       const replies = record.turns.map((t) => t.reply ?? '');
-      const failures = replies.some((r) => !r) ? ['a turn failed to return a reply'] : (CHECKS[name]?.(replies) ?? []);
+      const failures = (replies.some((r) => !r) ? ['a turn failed to return a reply'] : (CHECKS[name]?.(replies) ?? [])).map(tag);
       records.push({ ...record, run, failures, turns: record.turns.map(({ text: _t, ...rest }: TurnRecord & { text?: string | null }) => rest as TurnRecord) });
     }
   }

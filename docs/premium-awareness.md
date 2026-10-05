@@ -23,10 +23,24 @@ Developer Preview never reads usage and shows no Premium card; the obsolete Prem
 
 A free balance the server has confirmed is 0 intercepts Send before any message is added or the model is called: the paywall opens, and a dismissed paywall leaves the draft and any attachment in the composer and adds nothing to the thread. After a purchase or restore, entitlement and usage are re-read and the pending question is sent exactly once, with its original request id, only if the server confirms an available allowance (the real monthly counter decides, not the purchase). A confirmed Premium monthly limit blocks Send without the paywall and shows the reset time. If the server rejects a send the app believed allowed, the unanswered question leaves the thread, the draft returns, and the same paywall hand-off applies. Reading threads, typing a draft and attaching an image stay available throughout.
 
-## Device checks still needed
+## Device checks
 
-1. Reopen Signal after changing the allowance server-side: the strip and tab show the server's count before anything is sent.
-2. Free balance at 0: Send opens the paywall; dismissing keeps the draft and attachment and adds nothing to the thread.
-3. Purchase or restore from the strip, the tab card, Settings and the exhausted Send: the allowance area, tab and Settings update on return; the pending question is sent once.
-4. Premium at its monthly limit (development account with a Test Store grant): reset time shown in the local timezone, no upgrade action, Send blocked without a paywall.
-5. Larger text sizes: the allowance area wraps without clipping.
+**Passed on device (development build, Test Store, `cristian.flipd@gmail.com`):**
+
+- Paywall dismissal with an exhausted free balance preserves the draft and the attachment, and adds nothing to the thread.
+- A Test Store purchase from the exhausted Send resumes exactly one visible question, the allowance shows 39 of 40 remaining, and Settings shows RaceSignal Premium ACTIVE.
+
+**Read-only verification of that purchase flow (development database and RevenueCat, 2026-10-05 UTC; no model call, nothing reset):**
+
+- One successful Premium ask: one new `signal_usage_log` row after the last free ask (01:16:15, `was_premium` true, with an image); the monthly counter (`signal_rate_limit`, window 2026-10-01) is 1, which is the 39 of 40 shown; the lifetime free counter is still 3 of 3, untouched.
+- One stored exchange: a single new conversation ("Explain this", created 01:16:15) holding exactly 2 messages (one user, one assistant); no other conversation or message was written in that period.
+- One request: a single new `signal_request_dedup` row, `completed`, tier premium, reserved count 1 (request id reused from the question the athlete first sent). No second reservation or reply for the same question.
+- RevenueCat (development project): the customer has an active entitlement that expires at 01:21:07 UTC, five minutes after that ask, consistent with a Test Store accelerated subscription, so that Premium period has since lapsed (the account is back to its used-up free balance, with the Premium counter's one ask recorded for the month).
+
+**Pending:**
+
+1. Restore Purchases from Settings, the strip, the tab card and the exhausted Send: allowance area, tab and Settings update on return; the pending question is sent once.
+2. Premium at its monthly limit (a Test Store grant with the counter at 40): reset time in the local timezone, no upgrade action, Send blocked without a paywall.
+3. Larger text sizes: the Signal tab card and the conversation allowance area wrap without clipping.
+4. Production StoreKit testing (real App Store products and sandbox accounts against the production RevenueCat project): not started.
+5. Reopening Signal after a server-side change shows the server's count before anything is sent (the pre-send refresh) is not yet recorded as a separate device pass.

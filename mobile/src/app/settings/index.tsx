@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
+import { NotificationDevTools } from '@/components/notifications/NotificationDevTools';
+import { NotificationSettingsSection } from '@/components/notifications/NotificationSettingsSection';
 import { HairlineRule } from '@/components/HairlineRule';
 import { SectionHeader } from '@/components/SectionHeader';
 import { useAppPhase } from '@/lib/appPhase';
@@ -15,12 +17,15 @@ import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { clearFindRacesRetryDraft } from '@/lib/findRacesRetryDraft';
 import { AppIcon } from '@/lib/icons';
 import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLinks';
+import { useNotifications } from '@/lib/notifications/NotificationsProvider';
+import { clearNotificationState } from '@/lib/notifications/prefsStorage';
 import { clearOnboardingDraft } from '@/lib/onboardingDraft';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
 import { SETTINGS_FREE_DETAIL, SETTINGS_FREE_TITLE, SETTINGS_PREMIUM_DETAIL, SETTINGS_UPGRADE_LABEL } from '@/lib/signalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { clearSignalConsent, hasAgreedToSignalDisclosure } from '@/lib/signalConsent';
+import { clearSignalDraft } from '@/lib/signalDraft';
 import { requestAppleRevocationCode, type ConnectedProvider, type SocialProvider } from '@/lib/socialAuth';
 import { getSocialAuthConfig } from '@/lib/socialAuthConfig';
 import { minTouchSize, spacing } from '@/lib/theme';
@@ -57,6 +62,7 @@ export default function SettingsScreen() {
   const { enterOnboardingReplayFromSettings } = useDevPreview();
   const showDevTools = isDevPreviewAvailable();
   const { isPremium, refresh: refreshPremiumStatus, restorePurchases } = usePremium();
+  const { cancelAllForSignOut } = useNotifications();
 
   useEffect(() => {
     const athleteId = session?.user.id;
@@ -120,6 +126,8 @@ export default function SettingsScreen() {
     if (isSigningOut) return;
     setIsSigningOut(true);
     try {
+      // Nothing scheduled for this account may fire after it signs out (the next account on this device must not receive it).
+      await cancelAllForSignOut().catch((err) => console.warn('[Settings] failed to cancel notifications on sign-out:', err));
       await signOut();
       resetToOnboarding();
     } catch (err) {
@@ -175,9 +183,16 @@ export default function SettingsScreen() {
     // own athleteId check already refuses to resume a foreign draft for a future account, but
     // there's no reason to leave a now-permanently-orphaned draft sitting in AsyncStorage
     // indefinitely either. Best-effort: a failure here doesn't change that the account is deleted.
-    await Promise.all([clearFindRacesRetryDraft(), clearOnboardingDraft(), clearSignalConsent()]).catch((err) =>
-      console.warn('[Settings] failed to clear local pending-import drafts after account deletion:', err),
-    );
+    const deletedAthleteId = session?.user.id;
+    await Promise.all([
+      clearFindRacesRetryDraft(),
+      clearOnboardingDraft(),
+      clearSignalConsent(),
+      // This account's notifications, notification preferences and rotation, and its unsent Signal draft, do not outlive it.
+      cancelAllForSignOut(),
+      deletedAthleteId ? clearNotificationState(deletedAthleteId) : Promise.resolve(),
+      deletedAthleteId ? clearSignalDraft(deletedAthleteId) : Promise.resolve(),
+    ]).catch((err) => console.warn('[Settings] failed to clear local data after account deletion:', err));
     // Clear the local session/state the same way sign-out does so the app returns to a genuinely
     // signed-out state regardless of what supabase-js's own client-side session cache still holds.
     try {
@@ -256,6 +271,10 @@ export default function SettingsScreen() {
             palette={palette}
           />
         </View>
+
+        <NotificationSettingsSection />
+
+        <NotificationDevTools />
 
         {showConnectedAccounts ? (
           <View style={styles.section}>

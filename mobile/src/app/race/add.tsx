@@ -22,6 +22,7 @@ import { HeaderBackButton } from '@/components/HeaderBackButton';
 import type { Race, SportCategory } from '@/fixtures/races';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { canSaveManualRace, categoryPlaceholderFor, hmsToSeconds, initialSportForManualRace } from '@/lib/manualRaceForm';
+import { useOptionalNotifications } from '@/lib/notifications/NotificationsProvider';
 import { useAthleteRaces, type ManualRaceInput } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -82,6 +83,7 @@ function formatDisplayDate(date: Date): string {
 export default function AddRaceScreen() {
   const router = useRouter();
   const { data: races, addManualRace, updateManualRace } = useAthleteRaces();
+  const notifications = useOptionalNotifications();
   const { mode: initialMode, raceId } = useLocalSearchParams<{ mode?: string; raceId?: string }>();
   const editingRace = raceId ? races.find((r) => r.id === raceId) : undefined;
   const palette = useBrandPalette();
@@ -145,6 +147,9 @@ export default function AddRaceScreen() {
         if (mode === 'completed') {
           router.replace({ pathname: '/results/[id]', params: { id: newRace.id } });
         } else {
+          // Offer race-prep reminders once the new race is saved (the root-level sheet shows it when it is safe and the athlete has not
+          // already enabled or dismissed it).
+          notifications?.requestRacePrepOffer(newRace.id);
           router.replace({ pathname: '/race/[id]', params: { id: newRace.id } });
         }
       }

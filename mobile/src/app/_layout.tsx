@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,11 +8,14 @@ import { StatusBar } from 'expo-status-bar';
 
 import { HeaderBackButton } from '@/components/HeaderBackButton';
 import { InitialPaywallGate } from '@/components/InitialPaywallGate';
+import { NotificationInvitationHost } from '@/components/notifications/NotificationInvitationHost';
+import { NotificationTapRouter } from '@/components/notifications/NotificationTapRouter';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { AppPhaseProvider, useAppPhase } from '@/lib/appPhase';
 import { AuthProvider } from '@/lib/auth';
 import { useBrandPalette } from '@/lib/brandTheme';
 import { DevPreviewProvider, useDevPreview } from '@/lib/devPreview';
+import { NotificationsProvider } from '@/lib/notifications/NotificationsProvider';
 import { PurchasesIdentityBridge } from '@/lib/premium';
 import { PreviewAuthProvider } from '@/lib/previewAuthContext';
 import { PreviewPremiumProvider } from '@/lib/previewPremiumContext';
@@ -131,6 +134,10 @@ function RootLayoutBody() {
 
 function RootNavigator() {
   const { isReady, phase, markOnboardingComplete } = useAppPhase();
+  // The phase this process STARTED in, captured once: only launches that begin in the app (not the one that finishes onboarding) count toward the
+  // one-time between-race notification invitation.
+  const startPhaseRef = useRef<'onboarding' | 'app' | null>(null);
+  if (isReady && startPhaseRef.current === null) startPhaseRef.current = phase;
   const { returnToSettingsOnExit, consumeReturnToSettingsFlag } = useDevPreview();
   const router = useRouter();
 
@@ -158,12 +165,22 @@ function RootNavigator() {
   }
 
   if (phase === 'onboarding') {
-    return <OnboardingFlow onComplete={markOnboardingComplete} />;
+    return (
+      <>
+        <OnboardingFlow onComplete={markOnboardingComplete} />
+        {/* A notification tapped during onboarding or while signed out is dropped, never held for later. */}
+        <NotificationTapRouter phase="onboarding" />
+      </>
+    );
   }
 
   return (
     <InitialPaywallGate>
-      <AppStack preview={false} />
+      <NotificationsProvider startedInApp={startPhaseRef.current === 'app'}>
+        <AppStack preview={false} />
+        <NotificationTapRouter phase="app" />
+        <NotificationInvitationHost />
+      </NotificationsProvider>
     </InitialPaywallGate>
   );
 }

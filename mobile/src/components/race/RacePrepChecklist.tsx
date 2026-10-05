@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { HairlineRule } from '@/components/HairlineRule';
 import type { Race } from '@/fixtures/races';
-import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
+import { type BrandPalette, tabularNumerals, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { CHECKLIST_SECTIONS, CHECKLIST_TEMPLATE } from '@/lib/checklistTemplate';
 import { AppIcon } from '@/lib/icons';
 import { useAthleteRaces } from '@/lib/racesContext';
@@ -11,7 +11,15 @@ import { minTouchSize, spacing } from '@/lib/theme';
 
 interface RacePrepChecklistProps {
   race: Race;
+  /** Open expanded (a notification tap). */
+  initialExpanded?: boolean;
+  /** An unchecked item to highlight (a notification tap); cleared when it is checked or after a few seconds. */
+  highlightItemId?: string | null;
+  /** Called once with the highlighted row's view so the screen can scroll it into view. */
+  onHighlightedRow?: (row: View) => void;
 }
+
+const HIGHLIGHT_MS = 6000;
 
 /**
  * Persisted per-race Race Prep checklist — restored after physical-device testing showed the
@@ -28,17 +36,28 @@ interface RacePrepChecklistProps {
  * as the rest of the screen, so this reads as one more editorial section rather than a bolted-on
  * to-do widget.
  */
-export function RacePrepChecklist({ race }: RacePrepChecklistProps) {
+export function RacePrepChecklist({ race, initialExpanded = false, highlightItemId = null, onHighlightedRow }: RacePrepChecklistProps) {
   const { setChecklistCompleted } = useAthleteRaces();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(initialExpanded || !!highlightItemId);
+  const [highlighted, setHighlighted] = useState<string | null>(highlightItemId);
+  const highlightRef = useRef<View>(null);
+  const reportedRef = useRef(false);
   const [completed, setCompleted] = useState<Set<string>>(new Set(race.checklistCompleted ?? []));
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
+
+  // A highlight fades on its own, and as soon as that item is toggled (see toggle).
+  useEffect(() => {
+    if (!highlighted) return;
+    const timer = setTimeout(() => setHighlighted(null), HIGHLIGHT_MS);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
 
   const total = CHECKLIST_TEMPLATE.length;
   const doneCount = completed.size;
 
   function toggle(itemId: string) {
+    if (itemId === highlighted) setHighlighted(null);
     const next = new Set(completed);
     if (next.has(itemId)) next.delete(itemId);
     else next.add(itemId);
@@ -77,11 +96,19 @@ export function RacePrepChecklist({ race }: RacePrepChecklistProps) {
                   return (
                     <View key={item.id}>
                       <Pressable
+                        ref={item.id === highlighted ? (node) => {
+                          (highlightRef as { current: View | null }).current = node as unknown as View | null;
+                          if (node && onHighlightedRow && !reportedRef.current) {
+                            reportedRef.current = true;
+                            onHighlightedRow(node as unknown as View);
+                          }
+                        } : undefined}
+                        testID={item.id === highlighted ? 'highlighted-checklist-item' : undefined}
                         onPress={() => toggle(item.id)}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: isDone }}
                         accessibilityLabel={item.label}
-                        style={styles.row}>
+                        style={[styles.row, item.id === highlighted && styles.rowHighlighted]}>
                         <View style={[styles.checkbox, isDone && styles.checkboxChecked]}>
                           {isDone ? <Text style={styles.checkmark}>✓</Text> : null}
                         </View>
@@ -109,6 +136,7 @@ interface Styles {
   subsection: ViewStyle;
   subsectionTitle: TextStyle;
   row: ViewStyle;
+  rowHighlighted: ViewStyle;
   checkbox: ViewStyle;
   checkboxChecked: ViewStyle;
   checkmark: TextStyle;
@@ -154,6 +182,12 @@ function createStyles(palette: BrandPalette): Styles {
       textTransform: 'uppercase',
       color: palette.inkSecondary,
       marginBottom: spacing.xs,
+    },
+    rowHighlighted: {
+      backgroundColor: withAlpha(palette.signalBlue, 0.14),
+      borderRadius: 8,
+      marginHorizontal: -spacing.xs,
+      paddingHorizontal: spacing.xs,
     },
     row: {
       flexDirection: 'row',

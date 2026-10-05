@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Linking, Modal, Pressable, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { type BrandPalette, useBrandPalette } from '@/lib/brandTheme';
 import { ANTHROPIC_PRIVACY_POLICY_URL, PRIVACY_POLICY_URL } from '@/lib/legalLinks';
+import { setOverlayBlocked } from '@/lib/overlayBlockers';
 import { spacing } from '@/lib/theme';
 
 /**
@@ -32,6 +33,12 @@ export function SignalConsentSheet({
   const palette = useBrandPalette();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(palette), [palette]);
+
+  // While this sheet is up, other overlays (the notification invitation) wait.
+  useEffect(() => {
+    setOverlayBlocked('signal-consent', visible);
+    return () => setOverlayBlocked('signal-consent', false);
+  }, [visible]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDecline} statusBarTranslucent>

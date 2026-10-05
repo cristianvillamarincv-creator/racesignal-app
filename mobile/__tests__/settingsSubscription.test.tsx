@@ -33,6 +33,24 @@ jest.mock('@/lib/socialAuthConfig', () => ({ getSocialAuthConfig: () => ({ apple
 jest.mock('@/lib/deleteAccount', () => ({ deleteAccount: jest.fn() }));
 jest.mock('@/lib/findRacesRetryDraft', () => ({ clearFindRacesRetryDraft: jest.fn() }));
 jest.mock('@/lib/onboardingDraft', () => ({ clearOnboardingDraft: jest.fn() }));
+jest.mock('@/lib/notifications/NotificationsProvider', () => ({
+  useNotifications: () => ({
+    prefs: {
+      racePrep: { enabled: false, weeklyDay: 0, weeklyHour: 16, weeklyMinute: 0, milestoneHour: 16, milestoneMinute: 0, offer: 'unseen' },
+      betweenRace: { enabled: false, day: 0, hour: 16, minute: 0, invite: 'unseen' },
+    },
+    permission: 'granted',
+    enable: jest.fn(),
+    disable: jest.fn(),
+    updateSchedule: jest.fn(),
+    openSystemSettings: jest.fn(),
+    cancelAllForSignOut: jest.fn().mockResolvedValue(undefined),
+    api: {},
+  }),
+}));
+jest.mock('@/lib/notifications/prefsStorage', () => ({ clearNotificationState: jest.fn() }));
+jest.mock('@/lib/signalDraft', () => ({ clearSignalDraft: jest.fn() }));
+jest.mock('@/components/notifications/NotificationDevTools', () => ({ NotificationDevTools: () => null }));
 
 beforeEach(() => {
   mockIsPremium = false;

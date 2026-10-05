@@ -40,6 +40,8 @@ import {
 } from '@/lib/signal';
 import { hasAgreedToSignalDisclosure, saveSignalConsent, SIGNAL_CONSENT_DISCLOSURE_VERSION } from '@/lib/signalConsent';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
+import { promptById } from '@/lib/notifications/prompts';
+import { appendStarter, loadSignalDraft, planStarter, saveSignalDraft } from '@/lib/signalDraft';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
 import { formatPremiumExhaustedMessage, isFreeExhausted, isPremiumExhausted, PREMIUM_MONTHLY_ASKS } from '@/lib/signalUsage';
 import { useSignalUsage } from '@/lib/useSignalUsage';
@@ -119,7 +121,8 @@ export default function SignalScreen() {
     raceId,
     conversationId: conversationIdParam,
     initialPrompt,
-  } = useLocalSearchParams<{ raceId?: string; conversationId?: string; initialPrompt?: string }>();
+    starter,
+  } = useLocalSearchParams<{ raceId?: string; conversationId?: string; initialPrompt?: string; starter?: string }>();
   const races = useAthleteRaces();
   const { session } = useAuth();
   const { mode: devPreviewMode } = useDevPreview();
@@ -140,6 +143,14 @@ export default function SignalScreen() {
       : [],
   );
   const [inputText, setInputText] = useState('');
+  // The composer text, kept per athlete so it survives leaving the screen and cold starts (see lib/signalDraft.ts).
+  const inputTextRef = useRef('');
+  inputTextRef.current = inputText;
+  const inputRef = useRef<TextInput>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  // A between-race notification's suggested starter that was NOT applied because the athlete already has a draft: offered as an explicit choice.
+  const [starterOffer, setStarterOffer] = useState<string | null>(null);
+  const starterHandledRef = useRef(false);
   const [stagedImage, setStagedImage] = useState<StagedImage | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState(THINKING_STATUSES[0]);
@@ -230,6 +241,54 @@ export default function SignalScreen() {
     void sendMessage(initialPrompt!);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore this athlete's saved draft (never over text they have already started typing).
+  const draftAthleteId = !isPreviewMode ? session?.user.id : undefined;
+  useEffect(() => {
+    if (!draftAthleteId) {
+      setDraftLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const saved = await loadSignalDraft(draftAthleteId);
+      if (cancelled) return;
+      if (saved.trim().length > 0 && inputTextRef.current.trim().length === 0) setInputText(saved);
+      setDraftLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [draftAthleteId]);
+
+  // Save the draft shortly after it changes, and once more when the screen goes away. An empty composer clears the saved draft.
+  useEffect(() => {
+    if (!draftAthleteId || !draftLoaded) return;
+    const timer = setTimeout(() => void saveSignalDraft(draftAthleteId, inputText), 400);
+    return () => clearTimeout(timer);
+  }, [draftAthleteId, draftLoaded, inputText]);
+  useEffect(() => {
+    if (!draftAthleteId) return;
+    return () => {
+      void saveSignalDraft(draftAthleteId, inputTextRef.current);
+    };
+  }, [draftAthleteId]);
+
+  // A between-race notification opens Signal with a suggested starter. It fills the composer (editable) only when there is NO draft; with an
+  // existing draft nothing changes and the starter is offered as an explicit choice. It is never sent, and never uses an ask.
+  useEffect(() => {
+    if (!starter || !draftLoaded || starterHandledRef.current || isPreviewMode) return;
+    const prompt = promptById(starter);
+    starterHandledRef.current = true;
+    if (!prompt) return;
+    const plan = planStarter(inputTextRef.current, prompt.draft);
+    if (plan.action === 'use') {
+      setInputText(plan.text);
+      setTimeout(() => inputRef.current?.focus(), 400);
+    } else {
+      setStarterOffer(plan.starter);
+    }
+  }, [starter, draftLoaded, isPreviewMode]);
 
   useEffect(() => {
     if (!isSending) return;
@@ -637,6 +696,29 @@ export default function SignalScreen() {
           </View>
         ) : null}
 
+        {starterOffer ? (
+          <View style={styles.starterOffer} testID="starter-offer">
+            <Text style={styles.starterText}>You already have a draft. Add the suggested starter after it?</Text>
+            <Text style={styles.starterQuote}>{`\u201C${starterOffer}\u201D`}</Text>
+            <View style={styles.starterButtons}>
+              <Pressable
+                onPress={() => {
+                  setInputText((current) => appendStarter(current, starterOffer));
+                  setStarterOffer(null);
+                  setTimeout(() => inputRef.current?.focus(), 100);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Use starter"
+                style={styles.starterButton}>
+                <Text style={styles.starterButtonLabel}>Use starter</Text>
+              </Pressable>
+              <Pressable onPress={() => setStarterOffer(null)} accessibilityRole="button" accessibilityLabel="Keep my draft" style={styles.starterButton}>
+                <Text style={styles.starterSecondaryLabel}>Keep my draft</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         {/* The allowance area: compact, two lines, server-confirmed counts only (see SignalAllowance). */}
         <SignalAllowance usage={usage} onExplorePremium={handleUpgradePress} />
 
@@ -649,6 +731,7 @@ export default function SignalScreen() {
             <AppIcon name="camera-outline" size={22} color={palette.signalBlue} />
           </Pressable>
           <TextInput
+            ref={inputRef}
             value={inputText}
             onChangeText={setInputText}
             placeholder="Ask Signal about your races…"
@@ -708,6 +791,13 @@ interface Styles {
   retryButtonLabel: TextStyle;
   attachHintRow: ViewStyle;
   attachHintText: TextStyle;
+  starterOffer: ViewStyle;
+  starterText: TextStyle;
+  starterQuote: TextStyle;
+  starterButtons: ViewStyle;
+  starterButton: ViewStyle;
+  starterButtonLabel: TextStyle;
+  starterSecondaryLabel: TextStyle;
   stagedImageRow: ViewStyle;
   stagedImageThumb: ImageStyle;
   stagedImageLabel: TextStyle;
@@ -862,6 +952,20 @@ function createStyles(palette: BrandPalette): Styles {
       lineHeight: 17,
       color: palette.inkSecondary,
     },
+    starterOffer: {
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.xs,
+      padding: spacing.md,
+      gap: spacing.xs,
+      borderRadius: 12,
+      backgroundColor: withAlpha(palette.signalBlue, 0.08),
+    },
+    starterText: { fontSize: 13, color: palette.inkSecondary },
+    starterQuote: { fontSize: 15, color: palette.ink },
+    starterButtons: { flexDirection: 'row', gap: spacing.lg },
+    starterButton: { minHeight: minTouchSize, justifyContent: 'center' },
+    starterButtonLabel: { fontSize: 14, fontWeight: '700', color: palette.signalBlue },
+    starterSecondaryLabel: { fontSize: 14, fontWeight: '600', color: palette.inkSecondary },
     stagedImageRow: {
       flexDirection: 'row',
       alignItems: 'center',

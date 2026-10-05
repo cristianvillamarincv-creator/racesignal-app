@@ -1,5 +1,5 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { RacePrepChecklist } from '@/components/race/RacePrepChecklist';
@@ -34,7 +34,22 @@ function joinMeta(parts: (string | undefined)[]): string {
  * SignalModule entry point into Signal.
  */
 export default function RacePrepScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `prep` comes from a race-prep notification: "1" opens the checklist expanded, anything else is the unchecked item to highlight.
+  const { id, prep } = useLocalSearchParams<{ id: string; prep?: string }>();
+  const scrollRef = useRef<ScrollView>(null);
+  const prepItem = prep && prep !== '1' ? prep : null;
+  /** Scrolls the highlighted checklist row into view. Best effort: if it cannot be measured, the checklist is simply left where it opens. */
+  const scrollToRow = useCallback((row: View) => {
+    const inner = (scrollRef.current as unknown as { getInnerViewRef?: () => View | null } | null)?.getInnerViewRef?.();
+    if (!inner) return;
+    setTimeout(() => {
+      try {
+        row.measureLayout(inner as never, (_x: number, y: number) => scrollRef.current?.scrollTo({ y: Math.max(0, y - 120), animated: true }), () => {});
+      } catch {
+        // Not measurable: leave the scroll position alone.
+      }
+    }, 250);
+  }, []);
   const router = useRouter();
   const { data: races, removeRace } = useAthleteRaces();
   const race = races.find((candidate) => candidate.id === id);
@@ -99,7 +114,7 @@ export default function RacePrepScreen() {
   return (
     <View style={styles.screen}>
       <Stack.Screen options={{ title: race.name }} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
         {/* 1-2 — Race identity + countdown hero, sharing one quiet background motif — mirrors
             results/[id].tsx's heroWrap (kicker → name → meta line → hero number). */}
         <View style={styles.heroWrap}>
@@ -128,7 +143,7 @@ export default function RacePrepScreen() {
         </View>
 
         {/* 4 — Preparation */}
-        {race.isManual ? <RacePrepChecklist race={race} /> : null}
+        {race.isManual ? <RacePrepChecklist race={race} initialExpanded={!!prep} highlightItemId={prepItem} onHighlightedRow={scrollToRow} /> : null}
 
         {/* 5 — Signal module: the natural next action, right after the hero/event-info/prep block */}
         {/* Needs completed history to reason from: with none, there is nothing for Signal to say about this race. */}

@@ -195,7 +195,7 @@ function formatPredictionBasis(basis: PredictionBasis): string {
       break;
     }
     case 'unsupported_distance': {
-      lines.push(`${heading} UNSUPPORTED distance: it cannot be compared with past races`);
+      lines.push(`${heading} UNSUPPORTED distance: no estimated time or range can be given for it (recorded results can still be quoted)`);
       break;
     }
     default: {
@@ -326,7 +326,7 @@ A discipline can be called strongest or weakest only from comparable discipline-
 The only source for a finish-time range is the RACE HISTORY CHECK section below. It is computed from the athlete's saved races, and you never work a range out yourself from the race lists.
 - Lead with the range (or the reference), name the past races it comes from with their dates and times, then add one short limitation in plain words: it only reflects how those past races went, it knows nothing about training, the course or conditions, and the race can land outside it. Say that limitation once in a conversation. In later answers give the numbers without repeating it, unless the athlete asks how reliable it is. Never say or imply the finish will land inside the range, and never promise a time.
 - Use the times, dates and the difference exactly as listed. Do not average, pick a middle, round, widen, narrow, add a margin, or work out any other difference. If the athlete asks for a number the section does not list, say you do not have it.
-- RANGE: give the fastest and slowest times and the races behind them. ONE recent result: give it as a single dated result and say there is no range from one result. Older results: name them as older, with the age wording listed, and say they are not an estimate for the upcoming race. NO comparable result: say no result at that distance is on file, give no time, and say a recent result at that distance is what would let you give one. UNSUPPORTED distance: say you cannot compare that distance with past races.
+- RANGE: give the fastest and slowest times and the races behind them. ONE recent result: give it as a dated reference (the race, its date and its time, as the one recent result at that distance) and do not present it as a range or comment on there being only one. Older results: name them as older, with the age wording listed, and say they are not an estimate for the upcoming race. NO comparable result: say no result at that distance is on file, give no time, and say a recent result at that distance is what would let you give one. UNSUPPORTED distance: give no estimated time or range for it. You can still quote the athlete's recorded results at any distance when asked.
 - Never use a different distance or sport to build or suggest a time, and never scale, convert or double a time between distances. You may describe results at another distance as plain facts when the athlete asks, and say they do not give a time for this race.
 - Results are recorded times. Do not guess why a result was faster or slower than the others, and do not call one unusual, an outlier or a fluke. Call them results or times, not finishes you have confirmed.
 - Do not describe how results were chosen or counted: never mention a window, eligibility, a minimum number of results, the section, or any internal label. Never use the words confidence, interval or probability, and never put a score on how likely a time is.

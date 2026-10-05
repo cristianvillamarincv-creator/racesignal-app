@@ -385,3 +385,14 @@ Deno.test('prompt — an unavailable race history is reported as could-not-check
     assertEquals(prompt.includes('NO comparable result on file'), false);
   }
 });
+
+Deno.test('prompt — one result is a reference (not dismissed), and an unsupported distance bars an estimate, not quoting recorded times', () => {
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases: [] });
+  assertStringIncludes(prompt, 'ONE recent result: give it as a dated reference');
+  assertStringIncludes(prompt, 'do not present it as a range or comment on there being only one');
+  assertStringIncludes(prompt, 'UNSUPPORTED distance: give no estimated time or range for it. You can still quote the athlete\'s recorded results at any distance when asked.');
+  for (const removed of ['say there is no range from one result', 'say you cannot compare that distance with past races']) assertEquals(prompt.includes(removed), false, removed);
+  const sprint: PredictionRaceInput = { id: 's', name: 'Sprint Race', sport: 'triathlon', distanceLabel: 'Sprint', eventDate: '2027-04-01', status: 'registered' };
+  const rendered = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases: buildPredictionBases([sprint], '2026-10-05') });
+  assertStringIncludes(rendered, 'UNSUPPORTED distance: no estimated time or range can be given for it (recorded results can still be quoted)');
+});

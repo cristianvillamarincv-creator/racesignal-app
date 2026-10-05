@@ -13,7 +13,7 @@ Implemented on `release-1.1` and deployed to the **development** project only. N
 Rules, applied there and nowhere else:
 
 - **Comparable result:** completed, with a recorded finish time (a whole number of seconds above zero), the same sport and the same standard distance as the target, and a date that is not in the future.
-- **Distance** comes only from the distance label, matched as a whole label (case, spacing and punctuation normalized) against a table scoped by sport: running (5K, 10K, half marathon, marathon, with common spellings such as 21.1K and 42.2 km) and triathlon (Olympic, 70.3, 140.6 / full distance). The event name is never read. A bare "Ironman" and every "Sprint" label are deliberately unmapped (a sprint distance varies by event and a result carries no distance that could establish comparability; "Ironman" names a brand). Other sports and custom labels have no standard distance and get no estimate.
+- **Distance** comes only from the distance label, matched as a whole label (case, spacing and punctuation normalized) against a table scoped by sport: running (5K, 10K, half marathon, marathon, with common spellings such as 21.1K and 42.2 km) and triathlon (Olympic, 70.3, 140.6 / full distance). The event name is never read. A bare "Ironman" and every "Sprint" label are deliberately unmapped (a sprint distance varies by event and a result carries no distance that could establish comparability; "Ironman" names a brand). Other sports and custom labels have no standard distance and get no estimated time or range. Signal can still quote the athlete's recorded results at those distances when asked; only an estimate for the upcoming race is withheld.
 - **Recent** means within 24 calendar months before today, inclusive. A year-only date is recent only when the whole year (from January 1) is inside the window; otherwise it is an older reference described by its year. Up to the five most recent recent results are used.
 - **Range:** two or more recent results give the fastest and slowest of the results used, the races behind them, and a precomputed difference ("22 seconds"). **One recent result** is a dated reference only. **Older results** (up to three) are references labelled as older, never blended into a range. **None** means no estimate, and no use of other distances.
 - **Considering and registered races** receive the same range. Proactive suggestions are limited to **registered** races (below).
@@ -34,7 +34,7 @@ The rest of the context is still client-built (unchanged), so the model can see 
 
 ## Prompt changes
 
-Removed: the instruction to give a "provisional range" and state confidence, the 2-4 pieces of evidence list, and the cited-benchmark wording. Added rules: lead with the range or reference, name the supporting races, give one short limitation (said once per conversation), use only the supplied numbers, never use confidence/interval/probability language or expose how results were chosen, never build a time from another distance, and the could-not-check behavior. Model, quotas and the output cap (700 tokens) are unchanged.
+Removed: the instruction to give a "provisional range" and state confidence, the 2-4 pieces of evidence list, and the cited-benchmark wording. Added rules: lead with the range or reference, name the supporting races, give one short limitation (said once per conversation), use only the supplied numbers, never use confidence/interval/probability language, never comment on there being only one result, and never expose how results were chosen, never build a time from another distance, and the could-not-check behavior. Model, quotas and the output cap (700 tokens) are unchanged.
 
 ## Suggestions
 
@@ -53,7 +53,7 @@ Assuming today is Oct 5, 2026 and synthetic races.
 
 - **Two results:** "Your two recent Olympic results ran from 2:41:55 (Riverside, Aug 17, 2026) to 2:48:20 (Harbor, Jul 6, 2025). That's how those two races went; it doesn't account for training, the course or the weather, so Lakefront can land outside it."
 - **Nearly identical:** "Your two recent half marathons were 1:44:09 (Spring Half, Apr 12, 2026) and 1:44:31 (Harbor Half, Nov 9, 2025), 22 seconds apart. Two races that close say little about the next course or conditions, so it can land outside that."
-- **One result:** "You have one recent 10K on file: the Spring 10K on Mar 8, 2026, in 47:12. One result doesn't make a range."
+- **One result:** "Your one recent 10K on file is the Spring 10K on Mar 8, 2026, in 47:12. That's the reference I have for that distance."
 - **Older history:** "Your last Olympic triathlon was Riverside on Aug 17, 2023, in 2:52:40, over 3 years ago. That's an older result, so I don't treat it as an estimate for Lakefront."
 - **No comparable history:** "I don't have a half marathon result on file, and I don't turn your 10K times into a half marathon time. A recent half marathon result would let me give you a range."
 - **Could not check:** "I couldn't check your race history just now. Try again in a moment."
@@ -64,13 +64,20 @@ The "22 seconds" figure is supplied by the calculation; Signal is told not to wo
 
 Deno (`deno test --allow-read=. supabase/functions/signal/`): calculation (windows and edges, year-only dates, cap of five, duplicates, unusable data, targets, tie-breaks, distance table, eligibility), loader (columns, filters, mapping, unavailable vs empty, seed beyond the cap, no client range), prompt (removed and added rules, rendering of every status). Jest: mirror parity and behavior, suggestion gating, both entry points with synthetic races. A mutation check (eligibility forced true) fails 14 tests.
 
-## Device test plan (development build, dev account; synthetic races)
+## Device test (development build, `cristian.flipd@gmail.com` in racesignal-dev)
 
-Needs the development Signal function (deployed) and synthetic races in the dev account. No production, no reset.
-1. Signal tab: with a registered upcoming race and two recent same-distance results, "Your next race" appears; remove one result (or change the race to a considering race or another distance) and it disappears. "Ask Signal anything" always works.
-2. Ask the suggested question: the answer leads with the range, names both races with dates and times, and gives one short limitation. Ask a follow-up: no repeated disclaimer.
-3. A considering race with two recent results: a custom question gets the same range.
-4. One recent result, and only an old result: a dated reference, labelled older, no range.
-5. A Sprint or custom-distance upcoming race, and a race with no comparable history: no time is given and nothing is invented.
-6. The "could not check your race history" message cannot be forced from a device; it is covered by automated tests only.
-7. Confirm the allowance decrements by one per answer, and the answer never mentions windows, eligibility, confidence or probability.
+Synthetic fixtures added to the dev account only (existing races, profile, conversations, usage and RevenueCat state untouched; 7 existing races, 10 now):
+
+| Race | Status | Date | Sport / label | Time |
+|---|---|---|---|---|
+| Prediction Test Riverside Olympic | completed | 2026-08-16 | triathlon / Olympic | 2:41:55 (9715 s) |
+| Prediction Test Harbor Olympic | completed | 2025-07-13 | triathlon / Olympic | 2:48:20 (10100 s) |
+| Prediction Test Olympic | registered | 2027-06-13 | triathlon / Olympic | none |
+
+The account had no other Olympic results, so the range is exactly these two. Its other upcoming races (Ironman december, Ironman California) have no distance label, so they get no estimate. They are nearer than the test race, so the Signal tab's "Your next race" module does not show the test race: start from the race screen.
+
+The app has no control for setting a race to "considering"; the status for step 3 is changed in the development database.
+
+1. Open the upcoming test race, open its Signal module, ask "What does my history suggest for this race?". Expect: 2:41:55 to 2:48:20, naming Riverside (Aug 16, 2026, 2:41:55) and Harbor (Jul 13, 2025, 2:48:20), one short limitation.
+2. Same thread: "Which result is the faster end based on?". Expect: Riverside, 2:41:55, without repeating the whole limitation.
+3. After the test race is set to considering (force-quit and reopen so the app reloads races): no suggestion module on the race screen and no suggested question in Signal for it; a custom question about its finish-time reference gets the same range.

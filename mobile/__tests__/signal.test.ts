@@ -1,4 +1,4 @@
-import { sendSignalMessage } from '@/lib/signal';
+import { fetchSignalUsage, sendSignalMessage } from '@/lib/signal';
 import type { SignalContext } from '@/lib/signalContext';
 
 // jest.mock calls are hoisted above these imports by babel-jest, so `lib/signal.ts` picks up the
@@ -157,5 +157,49 @@ describe('sendSignalMessage — client-side timeout (B.1 Task 1)', () => {
 
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ available: false, reason: 'timeout', detail: expect.any(String) });
+  });
+});
+
+
+describe('fetchSignalUsage (read-only allowance lookup)', () => {
+  it('sends exactly the usage action, with no context, message, history, image or request id, and a short timeout', async () => {
+    mockInvoke.mockResolvedValue({ data: { available: true, data: { remaining: 3, cap: 3, isPremium: false } }, error: null });
+    expect(await fetchSignalUsage()).toEqual({ remaining: 3, cap: 3, isPremium: false });
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(mockInvoke).toHaveBeenCalledWith('signal', { body: { action: 'usage' }, timeout: 15_000 });
+  });
+
+  it('returns the premium allowance as reported', async () => {
+    mockInvoke.mockResolvedValue({ data: { available: true, data: { remaining: 7, cap: 40, isPremium: true } }, error: null });
+    expect(await fetchSignalUsage()).toEqual({ remaining: 7, cap: 40, isPremium: true });
+  });
+
+  it('returns null, never a guessed count, for every failure shape', async () => {
+    const failures: unknown[] = [
+      { data: null, error: httpError(500, 'boom') },
+      { data: null, error: clientTimeoutError() },
+      { data: { available: false, reason: 'service_unavailable' }, error: null },
+      { data: { available: false, reason: 'unauthorized' }, error: null },
+      { data: null, error: null },
+      { data: { available: true, data: { remaining: -1, cap: 3, isPremium: false } }, error: null },
+      { data: { available: true, data: { remaining: 1.5, cap: 3, isPremium: false } }, error: null },
+      { data: { available: true, data: { remaining: 1, cap: 0, isPremium: false } }, error: null },
+      { data: { available: true, data: { remaining: 1, cap: 3 } }, error: null },
+      { data: { available: true }, error: null },
+    ];
+    for (const failure of failures) {
+      mockInvoke.mockReset();
+      mockInvoke.mockResolvedValue(failure);
+      expect(await fetchSignalUsage()).toBeNull();
+    }
+  });
+
+  it('returns null if the call throws, and never retries (even for a transient network timeout)', async () => {
+    mockInvoke.mockRejectedValue(new Error('network down'));
+    expect(await fetchSignalUsage()).toBeNull();
+    mockInvoke.mockReset();
+    mockInvoke.mockResolvedValue({ data: null, error: transientTimeoutError() });
+    expect(await fetchSignalUsage()).toBeNull();
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
 });

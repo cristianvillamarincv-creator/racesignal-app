@@ -157,3 +157,11 @@ export interface SignalReplyPayload {
   cap: number;
   isPremium: boolean;
 }
+
+/** Response of the read-only `usage` action: the same numbers a reply carries (`remaining`, `cap`, `isPremium`), read without
+ *  reserving an ask or calling the model. */
+export interface SignalUsagePayload {
+  remaining: number;
+  cap: number;
+  isPremium: boolean;
+}

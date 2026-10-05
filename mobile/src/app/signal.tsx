@@ -1,8 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -31,6 +32,7 @@ import { usePremium } from '@/lib/premium';
 import { PAYWALL_RESULT, presentPremiumPaywall } from '@/lib/purchases';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
 import {
+  fetchSignalUsage,
   generateSignalRequestId,
   sendSignalMessage,
   type SignalChatTurn,
@@ -79,9 +81,7 @@ const PREVIEW_FOLLOWUP_REPLY = "Live analysis isn't available in Developer Previ
  * multi-paragraph plain text — the system prompt forbids markdown, so there's never real
  * heading/list syntax to parse). Presentation-only: the stored message text itself is always one
  * plain string (see ChatMessage / sendSignalMessage) — this never touches how it's produced or
- * persisted, only how it's laid out on screen. The first paragraph gets a slightly larger,
- * medium-bold "lede" treatment (see messageLede); the rest render as standard, generously
- * line-spaced body text (see messageTextAssistant) — see the render below.
+ * persisted, only how it's laid out on screen. Every paragraph renders in the same answer style.
  */
 function splitParagraphs(text: string): string[] {
   return text
@@ -160,10 +160,13 @@ export default function SignalScreen() {
   const [pendingSignalSend, setPendingSignalSend] = useState<{ text: string; image: StagedImage | null; requestId?: string } | null>(
     null,
   );
-  // Set from the signal Edge Function's own response after each successful reply (never computed
-  // or trusted client-side — see lib/signalUsage.ts). Null until the first reply of this screen
-  // instance, so nothing renders before there's a real server-confirmed count to show.
+  // Always a server-confirmed count, never computed or guessed client-side (see lib/signalUsage.ts): set from a reply's own
+  // response, or from the read-only usage lookup (refreshUsage below). Null (nothing renders) until one succeeds, and again
+  // whenever a refresh fails, since a count we could not confirm must not be shown.
   const [usageState, setUsageState] = useState<{ remaining: number; cap: number; isPremium: boolean } | null>(null);
+  // Orders usage updates: every refresh and every reply takes a new number, and a response applies only if it is still the
+  // newest, so a slow lookup can never overwrite a fresher count (for example the one a reply just returned).
+  const usageRequestRef = useRef(0);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const { isPremium, refresh: refreshPremiumStatus } = usePremium();
   const scrollRef = useRef<ScrollView>(null);
@@ -215,6 +218,34 @@ export default function SignalScreen() {
       cancelled = true;
     };
   }, [conversationIdParam, isPreviewMode]);
+
+  /** Reads the current allowance from the server (the read-only usage action: no ask is reserved, no model is called). A
+   *  failed lookup never blocks anything here: it shows no count (unless `keepOnFailure`, used right after a reply whose own
+   *  count was just applied) and the conversation carries on. Developer Preview and a signed-out athlete skip it. */
+  const refreshUsage = useCallback(
+    async (keepOnFailure = false) => {
+      if (isPreviewMode || !session?.user.id) return;
+      usageRequestRef.current += 1;
+      const request = usageRequestRef.current;
+      const usage = await fetchSignalUsage();
+      if (request !== usageRequestRef.current) return;
+      if (usage) setUsageState(usage);
+      else if (!keepOnFailure) setUsageState(null);
+    },
+    [isPreviewMode, session?.user.id],
+  );
+
+  // Refresh when Signal opens and each time it regains focus (returning from the paywall, another screen, or the app being
+  // brought back to the foreground while this screen is showing).
+  useFocusEffect(
+    useCallback(() => {
+      void refreshUsage();
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') void refreshUsage();
+      });
+      return () => subscription.remove();
+    }, [refreshUsage]),
+  );
 
   // Submits a suggestion tapped on the Signal landing screen exactly once, through the exact same
   // sendMessage path a manually-typed question uses (same conversation persistence, same Developer
@@ -320,6 +351,7 @@ export default function SignalScreen() {
       return;
     }
 
+    let appliedReplyUsage = false;
     try {
       const context = buildSignalContext(races.data, effectiveSeedRaceId);
       const history: SignalChatTurn[] = messages.map((message) => ({ role: message.role, text: message.text }));
@@ -374,7 +406,9 @@ export default function SignalScreen() {
         return;
       }
       setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: 'assistant', text: result.data.reply }]);
+      usageRequestRef.current += 1; // supersedes any lookup still in flight; the reply's own count is the newest
       setUsageState({ remaining: result.data.remaining, cap: result.data.cap, isPremium: result.data.isPremium });
+      appliedReplyUsage = true;
 
       // Persist this turn — lazily creates the conversation on the first successful exchange, so
       // an abandoned chat with no real reply never shows up in "Recent Signals". A failure here is
@@ -398,6 +432,8 @@ export default function SignalScreen() {
     } finally {
       isSendingRef.current = false;
       setIsSending(false);
+      // The send has settled (answered, failed, rate-limited, or ended by the paywall): confirm the allowance with the server.
+      void refreshUsage(appliedReplyUsage);
     }
   }
 

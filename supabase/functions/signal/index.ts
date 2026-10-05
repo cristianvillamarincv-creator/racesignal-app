@@ -13,8 +13,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { buildSystemPrompt } from './systemPrompt.ts';
-import type { SignalChatTurn, SignalContext, SignalReplyPayload, SignalRequestBody, SignalResponse, SignalUnavailableReason } from './types.ts';
-import { claimSignalRequest, completeSignalRequest, currentMonthWindow, failSignalRequest, releaseSignalAsk, reserveSignalAsk } from './usage.ts';
+import type { SignalChatTurn, SignalContext, SignalReplyPayload, SignalRequestBody, SignalResponse, SignalUnavailableReason, SignalUsagePayload } from './types.ts';
+import { claimSignalRequest, completeSignalRequest, currentMonthWindow, failSignalRequest, getSignalUsage, releaseSignalAsk, reserveSignalAsk } from './usage.ts';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -347,6 +347,19 @@ Deno.serve(async (req) => {
       body = JSON.parse(rawBody);
     } catch {
       return unavailable('bad_request');
+    }
+
+    // Read-only allowance lookup (`{ action: 'usage' }`): authenticated above, then the same entitlement lookup and the same
+    // counters an ask uses, only read. Returns before any request dedup, reservation, or model call, so it can never
+    // consume or modify an ask. A failed entitlement or counter read is reported as unavailable, never as a guessed count.
+    if (body.action === 'usage') {
+      const entitlement = await resolveEntitlementStatus(user.id);
+      const usage = await getSignalUsage(client, user.id, entitlement, { free: FREE_LIFETIME_CAP, premium: PREMIUM_MONTHLY_CAP });
+      if (!usage.ok) return unavailable(usage.reason);
+      return json({
+        available: true,
+        data: { remaining: usage.remaining, cap: usage.cap, isPremium: usage.isPremium },
+      } satisfies SignalResponse<SignalUsagePayload>);
     }
 
     const message = typeof body.message === 'string' ? body.message.trim() : '';

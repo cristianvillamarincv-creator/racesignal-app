@@ -14,6 +14,7 @@ import {
   completeSignalRequest,
   currentMonthWindow,
   failSignalRequest,
+  getSignalUsage,
   releaseSignalAsk,
   reserveSignalAsk,
   type RpcClient,
@@ -556,4 +557,65 @@ Deno.test('a released free ask (model call failed) goes back into the lifetime b
   // Still 3 lifetime asks available — the release put it back, regardless of window_date.
   const first = await reserveSignalAsk(client, 'athlete-1', '2026-11-01', 'free', FREE_CAP);
   assertEquals(first, { ok: true, count: 1 });
+});
+
+
+// ---------------------------------------------------------------------------------------------------------
+// getSignalUsage (the read-only `usage` action). The fake client below ONLY supports from().select().eq().maybeSingle(); any
+// other call (rpc, insert, update, upsert, delete) throws, so a passing test also proves the read path performs no write and
+// no reservation: it cannot reserve, release, claim, or modify a counter.
+// ---------------------------------------------------------------------------------------------------------
+
+const CAPS = { free: 3, premium: 40 };
+
+function readOnlyClient(rows: Record<string, Record<string, unknown> | null>, error?: string) {
+  const calls: string[] = [];
+  const client = {
+    from(table: string) {
+      calls.push(`from:${table}`);
+      const chain = {
+        select: (cols: string) => (calls.push(`select:${cols}`), chain),
+        eq: (col: string, value: unknown) => (calls.push(`eq:${col}=${value}`), chain),
+        maybeSingle: () => (calls.push('maybeSingle'), Promise.resolve(error ? { data: null, error: { message: error } } : { data: rows[table] ?? null, error: null })),
+      };
+      return chain;
+    },
+  };
+  return { client, calls };
+}
+
+Deno.test('usage read: free is the lifetime counter, remaining is cap minus used floored at 0, and only selects run', async () => {
+  for (const [used, remaining] of [[0, 3], [2, 1], [3, 0], [5, 0]] as const) {
+    const { client, calls } = readOnlyClient({ signal_free_usage: { lifetime_count: used } });
+    assertEquals(await getSignalUsage(client, 'a1', 'free', CAPS, '2026-10-01'), { ok: true, remaining, cap: 3, isPremium: false });
+    assertEquals(calls, ['from:signal_free_usage', 'select:lifetime_count', 'eq:athlete_id=a1', 'maybeSingle']);
+  }
+});
+
+Deno.test('usage read: no counter row yet is a genuine zero used (full allowance), free and premium', async () => {
+  assertEquals(await getSignalUsage(readOnlyClient({}).client, 'a1', 'free', CAPS), { ok: true, remaining: 3, cap: 3, isPremium: false });
+  assertEquals(await getSignalUsage(readOnlyClient({}).client, 'a1', 'premium', CAPS), { ok: true, remaining: 40, cap: 40, isPremium: true });
+});
+
+Deno.test('usage read: premium reads the current month window of the monthly counter and never touches the free counter', async () => {
+  const { client, calls } = readOnlyClient({ signal_rate_limit: { premium_request_count: 33 }, signal_free_usage: { lifetime_count: 3 } });
+  assertEquals(await getSignalUsage(client, 'a1', 'premium', CAPS, '2026-10-01'), { ok: true, remaining: 7, cap: 40, isPremium: true });
+  assertEquals(calls, ['from:signal_rate_limit', 'select:premium_request_count', 'eq:athlete_id=a1', 'eq:window_date=2026-10-01', 'maybeSingle']);
+});
+
+Deno.test('usage read: an entitlement lookup failure is unavailable, with no counter read and no guessed free allowance', async () => {
+  const { client, calls } = readOnlyClient({ signal_free_usage: { lifetime_count: 0 } });
+  assertEquals(await getSignalUsage(client, 'a1', 'error', CAPS), { ok: false, reason: 'service_unavailable' });
+  assertEquals(calls, []);
+});
+
+Deno.test('usage read: a counter read error or an unreadable value is unavailable, never reported as zero used', async () => {
+  assertEquals(await getSignalUsage(readOnlyClient({}, 'connection refused').client, 'a1', 'free', CAPS), { ok: false, reason: 'service_unavailable' });
+  assertEquals(await getSignalUsage(readOnlyClient({ signal_free_usage: { lifetime_count: 'x' } }).client, 'a1', 'free', CAPS), { ok: false, reason: 'service_unavailable' });
+});
+
+Deno.test('usage read: repeated reads never change what a read returns (no counter is consumed by reading)', async () => {
+  const { client } = readOnlyClient({ signal_free_usage: { lifetime_count: 1 } });
+  const first = await getSignalUsage(client, 'a1', 'free', CAPS);
+  for (let i = 0; i < 5; i++) assertEquals(await getSignalUsage(client, 'a1', 'free', CAPS), first);
 });

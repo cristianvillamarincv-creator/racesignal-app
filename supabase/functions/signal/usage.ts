@@ -206,3 +206,66 @@ export async function failSignalRequest(client: RpcClient, athleteId: string, re
   }
   return !!data;
 }
+
+
+// ---------------------------------------------------------------------------------------------------------
+// Read-only usage (the `usage` action). Uses the SAME tier, caps, window and counters the ask reservation uses
+// (free: signal_free_usage.lifetime_count, a lifetime counter; premium: signal_rate_limit.premium_request_count for the
+// current UTC month) but only ever SELECTs them. It never calls reserve/release/claim, never writes, and the model is
+// never involved, so reading the allowance can never consume or change it.
+// ---------------------------------------------------------------------------------------------------------
+
+/** Minimal shape of the one Supabase client method the read path uses: `from(table)` followed by a select chain. */
+export interface TableClient {
+  // deno-lint-ignore no-explicit-any
+  from(table: string): any;
+}
+
+export type EntitlementStatus = 'premium' | 'free' | 'error';
+
+export type UsageSnapshot =
+  | { ok: true; remaining: number; cap: number; isPremium: boolean }
+  | { ok: false; reason: 'service_unavailable' };
+
+/** The number of asks already used in the bucket for `tier`, or `ok: false` if it could not be read (never guessed as 0). */
+async function readUsedCount(
+  client: TableClient,
+  athleteId: string,
+  tier: 'free' | 'premium',
+  windowDate: string,
+): Promise<{ ok: true; count: number } | { ok: false }> {
+  const base =
+    tier === 'free'
+      ? client.from('signal_free_usage').select('lifetime_count').eq('athlete_id', athleteId)
+      : client.from('signal_rate_limit').select('premium_request_count').eq('athlete_id', athleteId).eq('window_date', windowDate);
+  const { data, error } = await base.maybeSingle();
+  if (error) {
+    console.warn('[signal] usage read failed (not an empty allowance) \u2014', error.message);
+    return { ok: false };
+  }
+  const raw = tier === 'free' ? data?.lifetime_count : data?.premium_request_count;
+  // No row yet is a genuine zero: nothing has been used. Anything else that is not a number is unreadable, not zero.
+  if (data === null || data === undefined) return { ok: true, count: 0 };
+  return typeof raw === 'number' && Number.isFinite(raw) ? { ok: true, count: raw } : { ok: false };
+}
+
+/**
+ * Remaining asks for an already-authenticated athlete, given the entitlement the caller resolved (the same RevenueCat lookup
+ * the reservation path uses). An entitlement lookup or counter read that failed is a failure, never a guessed count.
+ * `remaining` is computed exactly as a reply computes it: cap minus used, floored at 0.
+ */
+export async function getSignalUsage(
+  client: TableClient,
+  athleteId: string,
+  entitlement: EntitlementStatus,
+  caps: { free: number; premium: number },
+  windowDate: string = currentMonthWindow(),
+): Promise<UsageSnapshot> {
+  if (entitlement === 'error') return { ok: false, reason: 'service_unavailable' };
+  const isPremium = entitlement === 'premium';
+  const tier = isPremium ? 'premium' : 'free';
+  const cap = isPremium ? caps.premium : caps.free;
+  const used = await readUsedCount(client, athleteId, tier, windowDate);
+  if (!used.ok) return { ok: false, reason: 'service_unavailable' };
+  return { ok: true, remaining: Math.max(cap - used.count, 0), cap, isPremium };
+}

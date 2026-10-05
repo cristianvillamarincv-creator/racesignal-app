@@ -30,8 +30,15 @@ jest.mock('@/lib/db/signal', () => ({
 jest.mock('@/lib/signalContext', () => ({ buildSignalContext: () => ({}), buildConversationTitle: () => 'Signal chat', getSuggestedPrompts: () => [] }));
 
 const mockSendSignalMessage = jest.fn();
-jest.mock('@/lib/signal', () => ({ generateSignalRequestId: () => 'req-1', sendSignalMessage: (...args: unknown[]) => mockSendSignalMessage(...args) }));
-jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({}), Stack: { Screen: () => null } }));
+jest.mock('@/lib/signal', () => ({ generateSignalRequestId: () => 'req-1', sendSignalMessage: (...args: unknown[]) => mockSendSignalMessage(...args), fetchSignalUsage: () => Promise.resolve(null) }));
+jest.mock('expo-router', () => ({
+  useLocalSearchParams: () => ({}),
+  Stack: { Screen: () => null },
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('react').useEffect(callback, [callback]);
+  },
+}));
 
 const REPLIES = [
   '44:30, set at the Link Test 10K on April 20, 2025.',

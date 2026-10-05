@@ -62,6 +62,13 @@ export function generateSignalRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** What the signal function reports for the allowance: the same numbers a reply carries. */
+export interface SignalUsagePayload {
+  remaining: number;
+  cap: number;
+  isPremium: boolean;
+}
+
 export type SignalResult<T> =
   | { available: true; data: T }
   | {
@@ -247,4 +254,28 @@ async function invoke<T>(body: Record<string, unknown>): Promise<SignalResult<T>
 
   logInvokeFailure(second.error, second.elapsedMs, 2, 'transport');
   return { available: false, reason: 'network_error', detail: await extractDetail(second.error) };
+}
+
+// The allowance lookup is a quick read, not a model call, so it gets a short bound of its own (the 90s above is sized for a model
+// answer) and is never retried: the screen simply asks again the next time it opens or regains focus.
+const SIGNAL_USAGE_TIMEOUT_MS = 15_000;
+
+/**
+ * Reads the athlete's current Signal allowance from the server without reserving or consuming an ask and without any model
+ * call (the function's read-only `usage` action; it applies the same entitlement and quota rules as a reply). Returns null for
+ * every failure (offline, timeout, signed out, entitlement lookup failed, malformed response): the caller must show no count
+ * rather than a guessed one, and must not let this block the conversation. Never throws.
+ */
+export async function fetchSignalUsage(): Promise<SignalUsagePayload | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('signal', { body: { action: 'usage' }, timeout: SIGNAL_USAGE_TIMEOUT_MS });
+    if (error) return null;
+    const result = data as SignalResult<SignalUsagePayload> | null;
+    if (!result || !result.available) return null;
+    const { remaining, cap, isPremium } = result.data ?? ({} as Partial<SignalUsagePayload>);
+    if (!Number.isInteger(remaining) || !Number.isInteger(cap) || (remaining as number) < 0 || (cap as number) <= 0 || typeof isPremium !== 'boolean') return null;
+    return { remaining: remaining as number, cap: cap as number, isPremium };
+  } catch {
+    return null;
+  }
 }

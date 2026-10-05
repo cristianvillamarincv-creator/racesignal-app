@@ -54,12 +54,17 @@ const mockSendSignalMessage = jest.fn();
 jest.mock('@/lib/signal', () => ({
   generateSignalRequestId: () => 'req-1',
   sendSignalMessage: (...args: unknown[]) => mockSendSignalMessage(...args),
+  fetchSignalUsage: () => Promise.resolve(null),
 }));
 
 let mockInitialPrompt: string | undefined;
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ raceId: undefined, conversationId: undefined, initialPrompt: mockInitialPrompt }),
   Stack: { Screen: () => null },
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('react').useEffect(callback, [callback]);
+  },
 }));
 
 const SUCCESS_REPLY = { available: true, data: { reply: 'Here is your analysis.', remaining: 2, cap: 3, isPremium: false } };

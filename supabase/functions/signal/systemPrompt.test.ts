@@ -91,14 +91,14 @@ Deno.test('buildSystemPrompt — strongest discipline needs comparable disciplin
   assertEquals(prompt.includes('pace or power data covering all three'), false);
   // Without it: a short limitation scoped to the three disciplines, then improvement evidence, no implied winner.
   assertStringIncludes(prompt, 'the results don\'t establish which of swim, bike, and run is strongest');
-  assertStringIncludes(prompt, 'Answer in one short paragraph');
-  assertStringIncludes(prompt, 'the specific evidence that is missing');
-  assertStringIncludes(prompt, 'no advice on what would settle it');
+  assertStringIncludes(prompt, 'Follow the missing-evidence rule above');
+  assertStringIncludes(prompt, 'then the specific evidence that is missing');
+  assertStringIncludes(prompt, 'No advice and no word that implies a winner');
   // The editorial target for an account with no leg ranks is in the tone examples (a different, made-up athlete).
   assertStringIncludes(prompt, 'Your Olympic triathlon has no individual discipline rankings against the field');
   assertEquals(prompt.includes('I can\'t actually call one'), false);
   assertEquals(prompt.includes('If you want a real answer'), false);
-  assertStringIncludes(prompt, 'labelled as time gained between those races, not strength');
+  assertStringIncludes(prompt, 'labelled as time gained, not strength');
   assertStringIncludes(prompt, 'most decorated');
   assertStringIncludes(prompt, 'report transitions on their own line');
   // The old absolute prohibition and the "never name one" heading are gone.
@@ -216,8 +216,12 @@ Deno.test('buildSystemPrompt — voice examples are about a different, made-up a
   // Behaviors the baseline evaluation showed were needed.
   assertStringIncludes(prompt, 'no visible self-correction');
   assertStringIncludes(prompt, 'Otherwise no race has leg ranks');
-  assertStringIncludes(prompt, 'one short paragraph: the limitation and the specific missing evidence');
-  assertStringIncludes(prompt, 'Do not list unrelated races or repeat the limitation');
+  // Missing evidence: two short sentences (limitation, then the specific missing evidence), said fresh each time.
+  assertStringIncludes(prompt, 'give two short sentences: the limitation, then the specific missing evidence');
+  assertStringIncludes(prompt, 'never referring to an earlier answer, and list no unrelated races');
+  assertEquals(prompt.includes('Same answer as before'), false);
+  assertEquals(prompt.includes("I can't call one"), false);
+  assertStringIncludes(prompt, 'Speak to the athlete as "you", never "this athlete" or "the athlete"');
   assertStringIncludes(prompt, 'Use the actual dates in the context');
   assertStringIncludes(prompt, 'ranked by absolute time');
   assertStringIncludes(prompt, 'Never mention how the numbers were produced');
@@ -241,12 +245,19 @@ Deno.test('buildSystemPrompt — the screenshot reply keeps the labeled evidence
   assertStringIncludes(prompt, 'compact section labeled "From your uploaded evidence"');
   // The section stays the complete factual record; the narrative above it is selective.
   assertStringIncludes(prompt, 'complete factual record for later turns');
-  assertStringIncludes(prompt, 'Keep the narrative above it selective');
+  assertStringIncludes(prompt, 'The narrative above it is selective');
+  assertStringIncludes(prompt, 'only the two or three figures that answer the question');
+  assertStringIncludes(prompt, 'with a cut-off title marked as truncated');
+  assertStringIncludes(prompt, 'a truncated title stays explicitly uncertain');
+  assertStringIncludes(prompt, 'A workout title is stated intent, not proof that the intervals were completed');
+  assertStringIncludes(prompt, 'Do not assume an average covers the whole displayed duration');
+  assertStringIncludes(prompt, 'what the metric measures and one relevant limitation');
+  assertEquals(prompt.includes('for this athlete'), false);
   assertStringIncludes(prompt, 'normalized power above average power means power varied during the ride');
   assertStringIncludes(prompt, 'Do not judge how hard, easy, solid, or demanding a ride or score was');
   // A difference between two screenshot figures is not supplied, so it is never presented as if it were.
   assertStringIncludes(prompt, 'is not in the image and is not computed for you');
-  assertStringIncludes(prompt, 'do not list possible causes unless the athlete asks');
+  assertStringIncludes(prompt, 'offer no causes unless asked');
   assertStringIncludes(prompt, 'state the gap only if the athlete asks for it');
   assertStringIncludes(prompt, 'Never put a derived difference in the evidence section');
   assertEquals(prompt.includes('uneven power'), false);

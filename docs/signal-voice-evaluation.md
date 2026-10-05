@@ -214,3 +214,35 @@ No new paid model evaluation was run for these changes and no allowance was rese
 ## Read-only allowance lookup (2026-10-04)
 
 The Signal screen showed an allowance only after a reply, so reopening it showed nothing and an already-open screen kept a stale count. The `signal` function now has a read-only `{ action: "usage" }`: it authenticates the caller, resolves entitlement with the same RevenueCat lookup a reply uses, and reads the same counters (free: `signal_free_usage.lifetime_count`, a lifetime counter; premium: `signal_rate_limit.premium_request_count` for the current UTC month), returning `remaining`, `cap` and `isPremium`. It returns before request dedup, reservation and the model call, uses only SELECTs, and reports an entitlement or counter failure as `service_unavailable` rather than a guessed count. The screen refreshes it when Signal opens, when it regains focus (focus event or app returning to the foreground), and after a send settles; a failed lookup shows no count (except right after a reply whose own count was just applied) and never blocks the conversation; a slow lookup cannot overwrite a fresher count. Development only. Checked live on development with the synthetic athletes: premium 4 of 40, free 3 of 3, repeated reads identical, no auth rejected, and the counters, usage log and dedup table unchanged before and after.
+
+---
+
+# Device results and final voice correction (2026-10-04, development only; Signal tuning stops here)
+
+## Device results (iPhone, development build, `cristian.flipd@gmail.com`)
+
+Confirmed working: the new conversation layout (question bubbles, SIGNAL label on every answer, spacing) and the allowance refresh (the strip showed the server's 2 of 3 and later 0 of 3 as asks were used); the 10K lookup ("44:30, set at the Link Test 10K on April 20, 2025"); the follow-up reference ("Which race was that and what year?"); and screenshot-context recall (the evidence section let a later question about average power be answered without resending the image).
+
+Findings from the same session:
+1. **Missing-evidence answer** ("What's my strongest discipline?" asked again): "Same answer as before: I can't call one." followed by an inventory of the Sprint Triathlon, 10K and half marathon. Correct but too long, refers to an earlier answer, and lists unrelated races.
+2. **Screenshot of a Garmin road ride** (150.80 km, 5:12:34, 28.9 km/h, 501 m, 131 W, title cut off at "…(3 x 50 minutes @ IM p"):
+   - addressed the athlete as "this athlete";
+   - read the truncated title as "structured IRONMAN-pace work", treating the title as if it described what was ridden;
+   - restated most figures in the narrative before the evidence section;
+   - the follow-up ("What does average power tell you?") said average power was "produced across the full 5:12:34 ride", assuming the recording covers the whole displayed duration (pause and auto-stop settings are unknown). The rest of that answer, including "I don't have a baseline or threshold" and the normalized-power limitation, was sound.
+
+## Correction
+
+- Missing evidence: two short sentences when there is no useful comparison, the limitation and then the specific missing evidence, said fresh each time, with no reference to an earlier answer and no unrelated races. The discipline rule points to it.
+- Address the athlete as "you".
+- Screenshots: the narrative interprets only the two or three figures that answer the question; the "From your uploaded evidence" section stays the complete factual record (a cut-off title marked as truncated). Metrics are explained briefly with one relevant limitation. A workout title is stated intent, not proof the intervals were completed, and a truncated title stays explicitly uncertain. An average is not assumed to cover the whole displayed duration.
+- Consolidated: the static prompt is 16,075 characters (2,686 words), against 16,144 (2,698) before this correction.
+
+Model, 700-token cap, quotas and factual safeguards unchanged. No paid evaluation, allowance reset, native rebuild or production change; the correction is covered by prompt-string tests only and is untested against the real model.
+
+## Remaining limitations (Signal tuning is closed)
+
+- The prompt-string tests do not prove the model follows the new wording; the earlier real-model runs showed it follows some rules inconsistently (an unsupported cause and a repetitive closing on screenshots were still seen after earlier corrections).
+- The per-leg verdict branch cannot occur on a device until a results provider supplies leg ranks.
+- A reopened thread loses the "Screenshot attached" tag on stored questions.
+- Screenshot reading is only as good as the image: truncated titles and unknown recording settings stay uncertain.

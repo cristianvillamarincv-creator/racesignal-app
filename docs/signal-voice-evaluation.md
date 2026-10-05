@@ -221,7 +221,7 @@ The Signal screen showed an allowance only after a reply, so reopening it showed
 
 ## Device results (iPhone, development build, `cristian.flipd@gmail.com`)
 
-Confirmed working: the new conversation layout (question bubbles, SIGNAL label on every answer, spacing) and the allowance refresh (the strip showed the server's 2 of 3 and later 0 of 3 as asks were used); the 10K lookup ("44:30, set at the Link Test 10K on April 20, 2025"); the follow-up reference ("Which race was that and what year?"); and screenshot-context recall (the evidence section let a later question about average power be answered without resending the image).
+Confirmed working: the new conversation layout (question bubbles, SIGNAL label on every answer, spacing) and the post-answer allowance counts (the strip showed 2 of 3 and later 0 of 3 after replies); the 10K lookup ("44:30, set at the Link Test 10K on April 20, 2025"); the follow-up reference ("Which race was that and what year?"); and screenshot-context recall (the evidence section let a later question about average power be answered without resending the image).
 
 Findings from the same session:
 1. **Missing-evidence answer** ("What's my strongest discipline?" asked again): "Same answer as before: I can't call one." followed by an inventory of the Sprint Triathlon, 10K and half marathon. Correct but too long, refers to an earlier answer, and lists unrelated races.
@@ -246,3 +246,8 @@ Model, 700-token cap, quotas and factual safeguards unchanged. No paid evaluatio
 - The per-leg verdict branch cannot occur on a device until a results provider supplies leg ranks.
 - A reopened thread loses the "Screenshot attached" tag on stored questions.
 - Screenshot reading is only as good as the image: truncated titles and unknown recording settings stay uncertain.
+
+
+## QA record correction (2026-10-04)
+
+Device screenshots confirmed the allowance counts shown after answers (2 of 3, then 0 of 3). They did not confirm the refresh added in `28ab346`: that the count is fetched from the server when Signal opens, when it regains focus, or when the app returns to the foreground, before any send. That behaviour is covered by automated tests and a live check of the function on development, but still needs an explicit device check (for example: use asks, reset or change the allowance server-side, reopen Signal, and confirm the strip shows the server's count before sending anything).

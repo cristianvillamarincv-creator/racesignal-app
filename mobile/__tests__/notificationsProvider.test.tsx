@@ -459,3 +459,83 @@ describe('development test notifications are left alone by reconciliation', () =
     expect(state.cancelled.some((id) => id.startsWith('rs-test:'))).toBe(false);
   });
 });
+
+describe('race prep focuses on one race at a time', () => {
+  const dataRaceId = (state: ReturnType<typeof createFakeApi>['state']) => new Set([...state.pending.values()].map((r) => (r.data as { r?: string }).r));
+
+  it('schedules reminders only for the nearest eligible race, and cancels previously scheduled reminders for the others (including old combined ones)', async () => {
+    const near = race({ id: 'near', name: 'Near Race', eventDate: '2026-11-20' });
+    const far = race({ id: 'far', name: 'Far Race', eventDate: '2027-01-30' });
+    mockRaces.data = [far, near];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    const fire = { year: 2026, month: 12, day: 1, hour: 16, minute: 0 };
+    // Reminders an earlier version would have scheduled: one for the far race and a combined milestone notification.
+    await api.schedule({ identifier: 'rs:athlete-1:weekly:far-2026-12-06:abc', title: 'Race prep', body: 'old', data: { v: 1, a: 'athlete-1', t: 'prep', r: 'far' }, fireAt: fire });
+    await api.schedule({ identifier: 'rs:athlete-1:milestones-combined:2026-12-10:def', title: 'Race prep', body: 'old', data: { v: 1, a: 'athlete-1', t: 'prep-list' }, fireAt: fire });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    await mount(api);
+    await waitFor(() => expect(ctx.scheduleStatus?.racePrep?.scheduled).toBeGreaterThan(0));
+    expect(dataRaceId(state)).toEqual(new Set(['near']));
+    expect(state.cancelled).toEqual(expect.arrayContaining(['rs:athlete-1:weekly:far-2026-12-06:abc', 'rs:athlete-1:milestones-combined:2026-12-10:def']));
+  });
+
+  it('a race-date edit that changes which race is nearest moves the reminders and cancels the obsolete ones', async () => {
+    const a = race({ id: 'a', name: 'Race A', eventDate: '2026-11-20' });
+    const b = race({ id: 'b', name: 'Race B', eventDate: '2027-01-30' });
+    mockRaces.data = [a, b];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    const view = await mount(api);
+    await waitFor(() => expect(state.pending.size).toBeGreaterThan(0));
+    expect(dataRaceId(state)).toEqual(new Set(['a']));
+    const aIds = [...state.pending.keys()];
+
+    mockRaces = { ...mockRaces, data: [a, race({ ...b, id: 'b', name: 'Race B', eventDate: '2026-11-01' })] }; // b is now nearer
+    await view.rerenderTree();
+    await settle();
+    expect(dataRaceId(state)).toEqual(new Set(['b']));
+    for (const id of aIds) expect(state.pending.has(id)).toBe(false);
+  });
+
+  it('moves on to the next race when the nearest is completed or removed, and sends nothing while the nearest’s checklist is complete', async () => {
+    const { CHECKLIST_TEMPLATE } = jest.requireActual('@/lib/checklistTemplate');
+    const all = CHECKLIST_TEMPLATE.map((item: { id: string }) => item.id);
+    const near = race({ id: 'near', name: 'Near Race', eventDate: '2026-11-20', checklistCompleted: all });
+    const far = race({ id: 'far', name: 'Far Race', eventDate: '2027-01-30' });
+    mockRaces.data = [near, far];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    const view = await mount(api);
+    await waitFor(() => expect(ctx.scheduleStatus?.racePrep).not.toBeUndefined());
+    expect(state.pending.size).toBe(0); // the nearest race is fully prepared: nothing, and the later race is not used instead
+    expect(ctx.scheduleStatus!.racePrep!.note).toBe('Nothing to remind you about for Near Race: every relevant Race Prep item is checked.');
+
+    mockRaces = { ...mockRaces, data: [{ ...near, status: 'completed' } as Race, far] }; // the nearest race is now finished
+    await view.rerenderTree();
+    await waitFor(() => expect(state.pending.size).toBeGreaterThan(0));
+    expect(dataRaceId(state)).toEqual(new Set(['far']));
+
+    mockRaces = { ...mockRaces, data: [{ ...near, status: 'completed' } as Race] }; // and the later one is removed
+    await view.rerenderTree();
+    await waitFor(() => expect(state.pending.size).toBe(0));
+  });
+
+  it('is stable for races sharing the earliest date across repeated reconciles', async () => {
+    mockRaces.data = [race({ id: 'race-y', eventDate: '2026-12-12' }), race({ id: 'race-x', eventDate: '2026-12-12' })];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    const view = await mount(api);
+    await waitFor(() => expect(state.pending.size).toBeGreaterThan(0));
+    const first = [...state.pending.keys()].sort();
+    for (let i = 0; i < 3; i++) {
+      mockRaces = { ...mockRaces, data: [...mockRaces.data].reverse() };
+      await view.rerenderTree();
+      await act(async () => {
+        await ctx.reconcileNow();
+      });
+    }
+    expect([...state.pending.keys()].sort()).toEqual(first);
+    expect(dataRaceId(state)).toEqual(new Set(['race-x']));
+    expect(state.scheduled.length).toBe(first.length); // never rescheduled
+  });
+});

@@ -1,8 +1,10 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import Constants from 'expo-constants';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -44,6 +46,7 @@ import { promptById } from '@/lib/notifications/prompts';
 import { appendStarter, loadSignalDraft, planStarter, saveSignalDraft } from '@/lib/signalDraft';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
 import { formatPremiumExhaustedMessage, isFreeExhausted, isPremiumExhausted, PREMIUM_MONTHLY_ASKS } from '@/lib/signalUsage';
+import { useInputFocusRequest } from '@/lib/useInputFocusRequest';
 import { useSignalUsage } from '@/lib/useSignalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { isNearBottom, messageTopGap, QUESTION_BUBBLE_MAX_WIDTH } from '@/lib/signalLayout';
@@ -151,6 +154,15 @@ export default function SignalScreen() {
   // A between-race notification's suggested starter that was NOT applied because the athlete already has a draft: offered as an explicit choice.
   const [starterOffer, setStarterOffer] = useState<string | null>(null);
   const starterHandledRef = useRef(false);
+  // Whether this screen is the focused one (focus after a navigation must wait for it), and a reliable focus request for the composer.
+  const [screenFocused, setScreenFocused] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, []),
+  );
+  const { requestFocus, status: focusStatus } = useInputFocusRequest(inputRef, screenFocused);
   const [stagedImage, setStagedImage] = useState<StagedImage | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState(THINKING_STATUSES[0]);
@@ -284,11 +296,11 @@ export default function SignalScreen() {
     const plan = planStarter(inputTextRef.current, prompt.draft);
     if (plan.action === 'use') {
       setInputText(plan.text);
-      setTimeout(() => inputRef.current?.focus(), 400);
+      requestFocus();
     } else {
       setStarterOffer(plan.starter);
     }
-  }, [starter, draftLoaded, isPreviewMode]);
+  }, [starter, draftLoaded, isPreviewMode, requestFocus]);
 
   useEffect(() => {
     if (!isSending) return;
@@ -705,7 +717,7 @@ export default function SignalScreen() {
                 onPress={() => {
                   setInputText((current) => appendStarter(current, starterOffer));
                   setStarterOffer(null);
-                  setTimeout(() => inputRef.current?.focus(), 100);
+                  requestFocus();
                 }}
                 accessibilityRole="button"
                 accessibilityLabel="Add starter"
@@ -717,6 +729,12 @@ export default function SignalScreen() {
               </Pressable>
             </View>
           </View>
+        ) : null}
+
+        {Constants.expoConfig?.extra?.appVariant === 'development' && focusStatus.attempts > 0 ? (
+          <Text style={styles.focusDiagnostic} testID="focus-diagnostic">
+            {`Keyboard focus (development): ${focusStatus.focused === true ? 'focused' : focusStatus.focused === false ? 'NOT focused' : 'trying'} after ${focusStatus.attempts} attempt${focusStatus.attempts === 1 ? '' : 's'}, app ${AppState.currentState}`}
+          </Text>
         ) : null}
 
         {/* The allowance area: compact, two lines, server-confirmed counts only (see SignalAllowance). */}
@@ -791,6 +809,7 @@ interface Styles {
   retryButtonLabel: TextStyle;
   attachHintRow: ViewStyle;
   attachHintText: TextStyle;
+  focusDiagnostic: TextStyle;
   starterOffer: ViewStyle;
   starterText: TextStyle;
   starterQuote: TextStyle;
@@ -952,6 +971,7 @@ function createStyles(palette: BrandPalette): Styles {
       lineHeight: 17,
       color: palette.inkSecondary,
     },
+    focusDiagnostic: { marginHorizontal: spacing.lg, fontSize: 11, color: palette.inkSecondary },
     starterOffer: {
       marginHorizontal: spacing.lg,
       marginBottom: spacing.xs,

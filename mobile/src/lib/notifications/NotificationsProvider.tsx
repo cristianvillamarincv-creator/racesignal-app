@@ -220,7 +220,7 @@ export function NotificationsProvider({
           plan.eligibleCount === 0
             ? 'Nothing to schedule yet. Save an upcoming race and reminders start automatically.'
             : plan.candidateCount === 0
-              ? 'Nothing to remind you about: every relevant Race Prep item is checked.'
+              ? `Nothing to remind you about${plan.focusRace ? ` for ${plan.focusRace.name}` : ''}: every relevant Race Prep item is checked.`
               : 'No reminders fall in the next 12 weeks yet.';
         const betweenNote = plan.hasUpcomingRace ? 'Paused while you have an upcoming race. It resumes automatically afterward.' : 'No prompts could be scheduled.';
         const missing = plan.notifications.length - verified.length;

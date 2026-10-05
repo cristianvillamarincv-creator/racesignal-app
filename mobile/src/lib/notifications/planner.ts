@@ -29,12 +29,14 @@ import { reconcileRotation, type RotationState } from '@/lib/notifications/rotat
  * Decides which local notifications should exist right now. Pure: it takes the clock, the preferences, the races (with their checklist
  * state) and the prompt rotation, and returns the full desired schedule plus the updated rotation. The scheduler then makes the OS match.
  *
- * Race prep (only while enabled):
- *  - eligible races are incomplete (not "completed") and dated today or later; a race whose relevant checklist items are all checked gets nothing;
- *  - a seven-day and a two-day milestone per race at the milestone time; milestones falling on the same day (for different races) combine
- *    into one notification that opens the Races list;
- *  - ONE weekly reminder total (Sunday 4 p.m. by default), about the nearest race with unchecked relevant items; a weekly reminder within 48 hours
- *    of any milestone is suppressed, and none is sent on or after race day;
+ * Race prep (only while enabled), ONE race at a time:
+ *  - the FOCUS race is the nearest eligible race: incomplete (not "completed") and dated today or later; races sharing the earliest date are ordered by id,
+ *    so the choice is stable and reconciliation never alternates between them;
+ *  - only the focus race gets reminders: a Sunday 4 p.m. weekly reminder (default, editable) about one relevant unchecked item, plus a seven-day and a
+ *    two-day milestone at the milestone time. A weekly reminder within 48 hours of either milestone is suppressed (both milestones are always kept), and none is
+ *    sent on or after race day. Other races get nothing and their milestones are never combined or scheduled;
+ *  - if the focus race's relevant checklist is complete it gets nothing, and the plan does NOT move to a later race: focus moves only when the focus race is
+ *    completed, removed, past, or no longer the nearest (a date edit), and the next reconcile cancels the obsolete reminders;
  *  - everything within 12 weeks of now.
  * Between-race prompts (only while enabled and NO eligible upcoming race exists): one per week for up to eight weeks, assigned from the rotation.
  */
@@ -47,7 +49,7 @@ export const MIN_LEAD_MS = 60_000;
 export const MAX_PENDING = 60;
 export const SUPPRESSION_WINDOW_MS = 48 * HOUR_MS;
 
-export type PlannedKind = 'weekly' | 'milestone' | 'milestones-combined' | 'between';
+export type PlannedKind = 'weekly' | 'milestone' | 'between';
 
 export interface PlannedNotification {
   /** Stable for the same content, so a changed reminder gets a new identifier and is rescheduled. */
@@ -75,8 +77,10 @@ export interface PlanResult {
   hasUpcomingRace: boolean;
   /** Eligible upcoming races (incomplete, dated today or later). */
   eligibleCount: number;
-  /** Of those, the ones with unchecked relevant checklist items (the only ones that get reminders). */
+  /** 1 if the focus race still has unchecked relevant checklist items (the only case that gets reminders), else 0. */
   candidateCount: number;
+  /** The race the reminders are about (the nearest eligible race), or null. */
+  focusRace: { id: string; name: string } | null;
 }
 
 export const IDENTIFIER_PREFIX = 'rs:';
@@ -114,7 +118,8 @@ export function eligibleUpcomingRaces(races: Race[], now: Date): { race: Race; d
     .filter((race) => race.status !== 'completed')
     .map((race) => ({ race, date: parseRaceDate(race.eventDate) }))
     .filter((entry): entry is { race: Race; date: Date } => entry.date !== null && entry.date.getTime() >= today.getTime())
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
+    // Nearest first; races sharing a date are ordered by id so the nearest race is the same one on every reconcile.
+    .sort((a, b) => a.date.getTime() - b.date.getTime() || (a.race.id < b.race.id ? -1 : a.race.id > b.race.id ? 1 : 0));
 }
 
 function hasRecentCompletedRace(races: Race[], now: Date): boolean {
@@ -126,9 +131,9 @@ function hasRecentCompletedRace(races: Race[], now: Date): boolean {
   });
 }
 
-function entryFor(race: Race): EligibleRace {
+function entryFor(race: Race, date: Date = parseRaceDate(race.eventDate) ?? new Date(NaN)): EligibleRace {
   const relevance = relevantItemsFor(race.sport);
-  return { race, date: parseRaceDate(race.eventDate) ?? new Date(NaN), uncertain: relevance.uncertain, open: uncheckedRelevantItems(race.sport, race.checklistCompleted) };
+  return { race, date, uncertain: relevance.uncertain, open: uncheckedRelevantItems(race.sport, race.checklistCompleted) };
 }
 
 /** The body (and the item to highlight, if any) of a weekly reminder for `race` that is `days` days out. Used by the planner and the development tools. */
@@ -167,12 +172,9 @@ export function planNotifications(input: PlanInput): PlanResult {
   const hasUpcomingRace = upcoming.length > 0;
   const planned: PlannedNotification[] = [];
 
-  const candidates: EligibleRace[] = upcoming
-    .map(({ race, date }) => {
-      const relevance = relevantItemsFor(race.sport);
-      return { race, date, uncertain: relevance.uncertain, open: uncheckedRelevantItems(race.sport, race.checklistCompleted) };
-    })
-    .filter((entry) => entry.open.length > 0); // a completed checklist gets no reminders
+  // The focus race is the nearest eligible race. If its checklist is complete it gets no reminders, and we do NOT fall through to a later race.
+  const focus: EligibleRace | null = upcoming[0] ? entryFor(upcoming[0].race, upcoming[0].date) : null;
+  const candidates: EligibleRace[] = focus && focus.open.length > 0 ? [focus] : [];
 
   // ---- Race prep ----
   if (prefs.racePrep.enabled) {
@@ -189,42 +191,28 @@ export function planNotifications(input: PlanInput): PlanResult {
     }
     const scheduledMilestones = milestones.filter((m) => m.at.getTime() >= earliest && m.at.getTime() <= horizon);
 
-    const byDay = new Map<string, Milestone[]>();
-    for (const m of scheduledMilestones) byDay.set(dayKey(m.at), [...(byDay.get(dayKey(m.at)) ?? []), m]);
-    for (const [day, group] of byDay) {
-      const distinctRaces = new Set(group.map((m) => m.entry.race.id));
-      const fireAt = fromDate(group[0]!.at);
-      if (distinctRaces.size > 1) {
-        // Same-day milestones for several races: ONE notification that opens the upcoming-race list.
-        const names = [...distinctRaces].map((id) => group.find((m) => m.entry.race.id === id)!.entry.race.name);
-        const title = 'Race prep';
-        const body = `${distinctRaces.size} races are coming up and have unfinished prep items: ${names.join(', ')}.`;
-        planned.push(identify(athleteId, 'milestones-combined', day, fireAt, title, body, { v: PAYLOAD_VERSION, a: athleteId, t: 'prep-list' }));
-      } else {
-        for (const m of group) {
-          const copy = milestoneCopy(m.entry, m.which);
-          planned.push(
-            identify(athleteId, 'milestone', `${m.entry.race.id}-${m.which}`, fireAt, 'Race prep', copy.body, {
-              v: PAYLOAD_VERSION,
-              a: athleteId,
-              t: 'prep',
-              r: m.entry.race.id,
-              ...(copy.itemId ? { i: copy.itemId } : {}),
-            }),
-          );
-        }
-      }
+    for (const m of scheduledMilestones) {
+      const copy = milestoneCopy(m.entry, m.which);
+      planned.push(
+        identify(athleteId, 'milestone', `${m.entry.race.id}-${m.which}`, fromDate(m.at), 'Race prep', copy.body, {
+          v: PAYLOAD_VERSION,
+          a: athleteId,
+          t: 'prep',
+          r: m.entry.race.id,
+          ...(copy.itemId ? { i: copy.itemId } : {}),
+        }),
+      );
     }
 
-    // One weekly reminder per slot, about the nearest race with open items; suppressed near any milestone and on/after race day.
+    // One weekly reminder per slot, about the focus race; suppressed near its milestones and on/after race day.
     for (let offset = 0; offset <= RACE_HORIZON_DAYS; offset++) {
       const day = addCalendarDays(startOfLocalDay(now), offset);
       if (day.getDay() !== prefs.racePrep.weeklyDay) continue;
       const slot = atTime(day, prefs.racePrep.weeklyHour, prefs.racePrep.weeklyMinute);
       if (slot.getTime() < earliest || slot.getTime() > horizon) continue;
       if (milestones.some((m) => Math.abs(m.at.getTime() - slot.getTime()) <= SUPPRESSION_WINDOW_MS)) continue;
-      const subject = candidates.find((entry) => calendarDaysBetween(day, entry.date) > 0);
-      if (!subject) continue;
+      const subject = candidates[0];
+      if (!subject || calendarDaysBetween(day, subject.date) <= 0) continue;
       const days = calendarDaysBetween(day, subject.date);
       const item = subject.uncertain ? null : pickWeeklyItem(subject.open, days);
       const body = item
@@ -273,5 +261,12 @@ export function planNotifications(input: PlanInput): PlanResult {
   }
 
   planned.sort((a, b) => toDate(a.fireAt).getTime() - toDate(b.fireAt).getTime());
-  return { notifications: planned.slice(0, MAX_PENDING), rotation, hasUpcomingRace, eligibleCount: upcoming.length, candidateCount: candidates.length };
+  return {
+    notifications: planned.slice(0, MAX_PENDING),
+    rotation,
+    hasUpcomingRace,
+    eligibleCount: upcoming.length,
+    candidateCount: candidates.length,
+    focusRace: focus ? { id: focus.race.id, name: focus.race.name } : null,
+  };
 }

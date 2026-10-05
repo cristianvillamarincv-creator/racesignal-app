@@ -195,45 +195,99 @@ describe('race prep: copy', () => {
   });
 });
 
-describe('race prep: several races', () => {
-  it('sends ONE weekly reminder total, about the nearest race with open items', () => {
-    const near = race({ eventDate: '2026-11-20' });
-    const far = race({ eventDate: '2027-01-30' });
-    const weekly = ofKind(plan([far, near]), 'weekly');
-    const stamps = weekly.map(stamp);
-    expect(new Set(stamps).size).toBe(stamps.length); // never two reminders in one slot
-    expect(weekly[0]!.body).toContain(near.name);
-    // After the nearest race has passed, the next race takes over.
-    const later = weekly.filter((n) => at(n).getTime() > new Date(2026, 10, 20).getTime());
-    for (const n of later) expect(n.body).toContain(far.name);
+describe('race prep: one race at a time', () => {
+  const racesOf = (res: ReturnType<typeof plan>) => new Set(res.notifications.map((n) => (n.data as any).r));
+
+  it('schedules weekly, seven-day and two-day reminders ONLY for the nearest eligible race', () => {
+    const near = race({ id: 'near', eventDate: '2026-11-20' });
+    const far = race({ id: 'far', eventDate: '2027-01-30' });
+    const result = plan([far, near]);
+    expect(result.focusRace).toEqual({ id: 'near', name: near.name });
+    expect([...racesOf(result)]).toEqual(['near']);
+    expect(ofKind(result, 'milestone').map(stamp)).toEqual(['2026-11-13 16:00', '2026-11-18 16:00']);
+    expect(ofKind(result, 'weekly').length).toBeGreaterThan(0);
+    for (const n of result.notifications) expect(n.body).toContain(near.name);
+    // The later race gets nothing at all: not even weekly reminders after the nearest race has passed.
+    for (const n of result.notifications) expect(at(n).getTime()).toBeLessThan(new Date(2026, 10, 20).getTime());
   });
 
-  it('skips a nearer race whose checklist is complete', () => {
-    const doneNear = race({ eventDate: '2026-11-20', checklistCompleted: ALL_ITEMS });
-    const far = race({ eventDate: '2027-01-30' });
-    const weekly = ofKind(plan([doneNear, far]), 'weekly');
-    for (const n of weekly) expect(n.body).toContain(far.name);
-  });
-
-  it('combines milestones that fall on the same day into one notification that opens the Races list', () => {
-    const a = race({ eventDate: '2026-12-17' }); // M7 Dec 10, M2 Dec 15
-    const b = race({ eventDate: '2026-12-12' }); // M7 Dec 5, M2 Dec 10
+  it('does not combine milestones: two races never produce a combined or list notification, even on the same day', () => {
+    const a = race({ id: 'a', eventDate: '2026-12-17' }); // would have shared a milestone day with b
+    const b = race({ id: 'b', eventDate: '2026-12-12' });
     const result = plan([a, b]);
-    const combined = ofKind(result, 'milestones-combined');
-    expect(combined).toHaveLength(1);
-    expect(stamp(combined[0]!)).toBe('2026-12-10 16:00');
-    expect(combined[0]!.data).toMatchObject({ t: 'prep-list' });
-    expect(combined[0]!.body).toContain(a.name);
-    expect(combined[0]!.body).toContain(b.name);
-    // No second notification at that moment, and every other milestone is still present.
+    expect([...racesOf(result)]).toEqual(['b']);
+    expect(result.notifications.every((n) => n.kind === 'weekly' || n.kind === 'milestone')).toBe(true);
+    expect(result.notifications.every((n) => (n.data as any).t === 'prep')).toBe(true);
     expect(result.notifications.filter((n) => stamp(n) === '2026-12-10 16:00')).toHaveLength(1);
-    expect(ofKind(result, 'milestone').map(stamp).sort()).toEqual(['2026-12-05 16:00', '2026-12-15 16:00']);
   });
 
-  it('two races on the same date combine both of their milestones', () => {
-    const result = plan([race({ eventDate: '2026-12-12' }), race({ eventDate: '2026-12-12' })]);
-    expect(ofKind(result, 'milestones-combined').map(stamp)).toEqual(['2026-12-05 16:00', '2026-12-10 16:00']);
-    expect(ofKind(result, 'milestone')).toHaveLength(0);
+  it('a complete checklist on the nearest race sends nothing, and does NOT switch to a later race', () => {
+    const doneNear = race({ id: 'near', eventDate: '2026-11-20', checklistCompleted: ALL_ITEMS });
+    const far = race({ id: 'far', eventDate: '2027-01-30' });
+    const result = plan([doneNear, far]);
+    expect(result.notifications).toEqual([]);
+    expect(result.focusRace?.id).toBe('near');
+    expect(result.candidateCount).toBe(0);
+    expect(result.eligibleCount).toBe(2);
+  });
+
+  it('moves to the next race when the nearest is completed, removed, or its date has passed', () => {
+    const near = race({ id: 'near', eventDate: '2026-11-20' });
+    const far = race({ id: 'far', eventDate: '2027-01-30' });
+    expect(plan([near, far]).focusRace?.id).toBe('near');
+    // Completed
+    expect(plan([{ ...near, status: 'completed' }, far]).focusRace?.id).toBe('far');
+    // Removed (no longer loaded)
+    expect(plan([far]).focusRace?.id).toBe('far');
+    // Date passed
+    const afterNear = plan([near, far], prefsWith(), new Date(2026, 10, 21, 9, 0));
+    expect(afterNear.focusRace?.id).toBe('far');
+    expect([...racesOf(afterNear)]).toEqual(['far']);
+    // Once the nearest race is finished, the next one starts getting reminders.
+    expect(ofKind(plan([{ ...near, status: 'completed' }, far]), 'weekly').length).toBeGreaterThan(0);
+  });
+
+  it('a date edit re-evaluates which race is nearest: reminders move, and the old race\u2019s reminders are no longer planned', () => {
+    const a = race({ id: 'a', eventDate: '2026-11-20' });
+    const b = race({ id: 'b', eventDate: '2027-01-30' });
+    const before = plan([a, b]);
+    expect(racesOf(before)).toEqual(new Set(['a']));
+    const moved = plan([a, { ...b, eventDate: '2026-11-01' }]); // b is now the nearest
+    expect(moved.focusRace?.id).toBe('b');
+    expect(racesOf(moved)).toEqual(new Set(['b']));
+    // Nothing planned before still refers to a: its identifiers are absent from the new plan (reconcile cancels them).
+    const aIds = new Set(before.notifications.map((n) => n.identifier));
+    for (const n of moved.notifications) expect(aIds.has(n.identifier)).toBe(false);
+    // And moving a's own date changes its reminders' identifiers (so the stale ones are cancelled).
+    const edited = plan([{ ...a, eventDate: '2026-11-27' }, b]);
+    expect(edited.notifications.map((n) => n.identifier).some((id) => aIds.has(id))).toBe(false);
+  });
+
+  it('races sharing the earliest date get a stable choice: the same race every time, whatever the order they are listed in', () => {
+    const x = race({ id: 'race-x', eventDate: '2026-12-12' });
+    const y = race({ id: 'race-y', eventDate: '2026-12-12' });
+    const first = plan([x, y]);
+    const second = plan([y, x]);
+    expect(first.focusRace).toEqual(second.focusRace);
+    expect(first.focusRace?.id).toBe('race-x');
+    expect(first.notifications.map((n) => n.identifier)).toEqual(second.notifications.map((n) => n.identifier));
+    expect(racesOf(first)).toEqual(new Set(['race-x']));
+  });
+
+  it('a race dated today is the focus (nothing to send), and a nearer past-dated race does not count', () => {
+    const today = race({ id: 'today', eventDate: '2026-10-07' });
+    const later = race({ id: 'later', eventDate: '2026-12-12' });
+    const result = plan([later, today]);
+    expect(result.focusRace?.id).toBe('today');
+    expect(result.notifications).toEqual([]); // on race day there is nothing left to remind about, and we do not skip ahead
+    expect(plan([later, race({ eventDate: '2026-10-06' })]).focusRace?.id).toBe('later');
+  });
+
+  it('between-race prompts stay paused while any eligible race exists, including one with a complete checklist', () => {
+    const doneNear = race({ id: 'near', eventDate: '2026-11-20', checklistCompleted: ALL_ITEMS });
+    const result = plan([doneNear], prefsWith({ betweenRace: { enabled: true } }));
+    expect(ofKind(result, 'between')).toHaveLength(0);
+    expect(result.hasUpcomingRace).toBe(true);
   });
 });
 

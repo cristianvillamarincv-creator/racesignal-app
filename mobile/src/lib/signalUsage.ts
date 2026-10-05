@@ -57,36 +57,22 @@ export function formatPremiumExhaustedMessage(usage: SignalUsagePayload): string
 }
 
 export interface AllowanceCardContent {
-  /** The promotional heading, free athletes only. Null for Premium (no promotion). */
-  heading: string | null;
+  heading: string;
   status: string;
-  support: string | null;
-  /** "Explore Premium" is offered to confirmed free athletes only. */
-  showAction: boolean;
+  support: string;
 }
 
 /**
- * What the Signal tab's single allowance card says. Null for unknown usage: the card is hidden until the server confirms the plan
- * and count, never guessed. Free (remaining or exhausted) gets the heading, status, supporting line and the Explore Premium action;
- * Premium gets its monthly count only (or, at its limit, the used-up message and that more become available next month), with no
- * heading, no reset date and no action.
+ * What the Signal tab's single allowance card says. It exists for confirmed free athletes only: null for Premium (their count lives in
+ * the conversation, beside the composer) and null for unknown usage, so the card is hidden until the server confirms a free plan and
+ * count, never guessed. Free gets the heading, status and supporting line (remaining or used up); the screen adds "Explore Premium".
  */
 export function buildAllowanceCardContent(usage: SignalUsagePayload | null): AllowanceCardContent | null {
-  if (!usage) return null;
-  if (usage.isPremium) {
-    const exhausted = isPremiumExhausted(usage);
-    return {
-      heading: null,
-      status: exhausted ? formatExhaustedHeadline(usage) : formatAllowanceHeadline(usage),
-      support: exhausted ? PREMIUM_EXHAUSTED_SUPPORT : null,
-      showAction: false,
-    };
-  }
+  if (!usage || usage.isPremium) return null;
   const exhausted = isFreeExhausted(usage);
   return {
     heading: PREMIUM_PROMO_HEADING,
     status: exhausted ? formatExhaustedHeadline(usage) : formatAllowanceHeadline(usage),
     support: exhausted ? CARD_EXHAUSTED_SUPPORT : CARD_FREE_SUPPORT,
-    showAction: true,
   };
 }

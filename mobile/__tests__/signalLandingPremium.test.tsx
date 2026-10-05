@@ -5,8 +5,8 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import AskScreen from '@/app/(tabs)/ask';
 
 /**
- * The Signal tab's single allowance card (below the ask row, above Recent Signals): the server-confirmed count and Premium for free
- * athletes, the monthly count and reset time for Premium, nothing while usage is unknown; Developer Preview never reads usage.
+ * The Signal tab's single allowance card (below the ask row, above Recent Signals): the server-confirmed count and Premium for confirmed
+ * free athletes only; nothing for Premium (including at the monthly limit) or while usage is unknown; Developer Preview never reads usage.
  */
 
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
@@ -141,7 +141,7 @@ describe('Signal tab: one allowance card for a confirmed free athlete', () => {
     await act(async () => {
       fireEvent.press(ui.getByLabelText('Explore Premium'));
     });
-    await waitFor(() => expect(ui.getByText('40 of 40 asks remaining this month')).toBeTruthy());
+    await waitFor(() => expect(ui.queryByTestId('signal-allowance-card')).toBeNull());
     expect(mockPaywall).toHaveBeenCalledTimes(1);
     expect(mockRefreshPremium).toHaveBeenCalled();
     expect(ui.queryByText('Keep exploring your race history')).toBeNull();
@@ -150,25 +150,43 @@ describe('Signal tab: one allowance card for a confirmed free athlete', () => {
   });
 });
 
-describe('Signal tab: Premium athlete uses the same card without promotion', () => {
-  it('shows only the monthly count: no heading, no action, and no reset date or hidden reset text', async () => {
+describe('Signal tab: no card for a confirmed Premium athlete', () => {
+  it('shows no allowance card, count, heading or action, and Recent Signals follows the ask row with no gap block', async () => {
     const ui = await open(premium(28));
-    expect(ui.getAllByTestId('signal-allowance-card')).toHaveLength(1);
-    expect(ui.getByText('28 of 40 asks remaining this month')).toBeTruthy();
-    expect(ui.queryByText(/Resets/)).toBeNull();
-    expect(ui.queryByLabelText(/Resets/)).toBeNull();
-    expect(JSON.stringify(ui.toJSON())).not.toMatch(/Resets/);
+    expect(ui.queryByTestId('signal-allowance-card')).toBeNull();
+    expect(ui.queryByText(/asks remaining/)).toBeNull();
     expect(ui.queryByText('Keep exploring your race history')).toBeNull();
     expect(ui.queryByLabelText('Explore Premium')).toBeNull();
+    expect(JSON.stringify(ui.toJSON())).not.toMatch(/Resets/);
+    // Nothing is rendered between the ask row and Recent Signals (no empty block with the card's negative margins).
+    const json = JSON.stringify(ui.toJSON());
+    expect(json).not.toContain('"marginTop":-16');
+    expect(json.indexOf('Ask Signal anything')).toBeLessThan(json.indexOf('Recent Signals'));
     await act(async () => ui.unmount());
   });
 
-  it('at its monthly limit: the used-up message and that more become available next month, with no action', async () => {
+  it('shows none at the monthly limit either', async () => {
     const ui = await open(premium(0));
-    expect(ui.getByText('You\u2019ve used your 40 asks this month.')).toBeTruthy();
-    expect(ui.getByText('More become available next month.')).toBeTruthy();
+    expect(ui.queryByTestId('signal-allowance-card')).toBeNull();
+    expect(ui.queryByText(/used your 40 asks/)).toBeNull();
+    expect(ui.queryByText(/More become available next month/)).toBeNull();
     expect(ui.queryByLabelText('Explore Premium')).toBeNull();
-    expect(ui.queryByText(/free asks/)).toBeNull();
+    expect(ui.getByText('Recent Signals')).toBeTruthy();
+    await act(async () => ui.unmount());
+  });
+
+  it('a purchase that makes the athlete Premium removes the card (and its gap) when the paywall returns', async () => {
+    mockPaywall.mockImplementation(async () => {
+      mockUsage = premium(40);
+      return 'purchased';
+    });
+    const ui = await open(free(0));
+    expect(ui.getByTestId('signal-allowance-card')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(ui.getByLabelText('Explore Premium'));
+    });
+    await waitFor(() => expect(ui.queryByTestId('signal-allowance-card')).toBeNull());
+    expect(JSON.stringify(ui.toJSON())).not.toContain('"marginTop":-16');
     await act(async () => ui.unmount());
   });
 });

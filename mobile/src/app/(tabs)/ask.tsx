@@ -45,8 +45,8 @@ export default function AskScreen() {
   const { mode: devPreviewMode } = useDevPreview();
   const isPreviewMode = isDevPreviewAvailable() && devPreviewMode === 'browse';
   const { refresh: refreshPremiumStatus } = usePremium();
-  // The allowance as the server reports it (null when unknown, and never fetched in Developer Preview). Free athletes see the
-  // remaining count and the Premium card; Premium athletes see their monthly count and reset time instead; unknown shows neither.
+  // The allowance as the server reports it (null when unknown, and never fetched in Developer Preview). Only a confirmed free
+  // athlete gets the allowance card; Premium and unknown show nothing here.
   const { usage, refresh: refreshUsage } = useSignalUsage({ enabled: !isPreviewMode && !!session?.user.id });
 
   // Refetch on focus (not just mount) — this tab stays mounted across tab switches, so a
@@ -160,10 +160,10 @@ export default function AskScreen() {
           <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
         </Pressable>
 
-        {/* One allowance card, confirmed usage only (nothing while it is unknown): the remaining count and Premium for free athletes,
-            the monthly count and reset time for Premium. 16pt below the ask row and 24pt above Recent Signals; the screen's own
-            section gap is larger, so the card pulls in by the difference. */}
-        {usage ? (
+        {/* One allowance card, for confirmed free athletes only: nothing for Premium (their count is in the conversation) and nothing
+            while usage is unknown, in which case no block is rendered and Recent Signals simply moves up. 16pt below the ask row and
+            24pt above Recent Signals; the screen's own section gap is larger, so the card pulls in by the difference. */}
+        {usage && !usage.isPremium ? (
           <View style={styles.allowanceBlock}>
             <SignalAllowanceCard usage={usage} onExplorePremium={handleExplorePremium} />
           </View>

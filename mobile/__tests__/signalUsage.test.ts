@@ -79,13 +79,12 @@ describe('singular and plural wording agrees with the actual numbers', () => {
   });
 });
 
-describe('buildAllowanceCardContent (the Signal tab card)', () => {
+describe('buildAllowanceCardContent (the Signal tab card, confirmed free only)', () => {
   it('confirmed free with asks remaining: heading, count, no-renewal plus what Premium includes, and the action', () => {
     expect(buildAllowanceCardContent(free(2))).toEqual({
       heading: 'Keep exploring your race history',
       status: '2 of 3 free asks remaining',
       support: 'Your free asks don\u2019t renew. Premium includes 40 asks each month.',
-      showAction: true,
     });
   });
 
@@ -94,22 +93,12 @@ describe('buildAllowanceCardContent (the Signal tab card)', () => {
       heading: 'Keep exploring your race history',
       status: 'You\u2019ve used your 3 free asks.',
       support: 'Get 40 Signal asks each month with Premium.',
-      showAction: true,
     });
   });
 
-  it('Premium: the monthly count only, with no heading, no reset date and no action', () => {
-    expect(buildAllowanceCardContent(premium(28))).toEqual({ heading: null, status: '28 of 40 asks remaining this month', support: null, showAction: false });
-    expect(JSON.stringify(buildAllowanceCardContent(premium(28)))).not.toMatch(/resets/i);
-  });
-
-  it('Premium at its limit: the used-up message and that more become available next month, with no action', () => {
-    expect(buildAllowanceCardContent(premium(0))).toEqual({
-      heading: null,
-      status: 'You\u2019ve used your 40 asks this month.',
-      support: 'More become available next month.',
-      showAction: false,
-    });
+  it('Premium has no card at all, including at the monthly limit (their count lives in the conversation)', () => {
+    expect(buildAllowanceCardContent(premium(28))).toBeNull();
+    expect(buildAllowanceCardContent(premium(0))).toBeNull();
   });
 
   it('unknown usage has no card at all', () => {

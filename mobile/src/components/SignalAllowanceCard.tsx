@@ -8,10 +8,9 @@ import { buildAllowanceCardContent, EXPLORE_PREMIUM_LABEL } from '@/lib/signalUs
 import { minTouchSize } from '@/lib/theme';
 
 /**
- * The Signal tab's one allowance card (it replaces a separate allowance line and a separate promotional card). It shows only what the
- * server has confirmed, so it renders nothing while usage is unknown. Free athletes get the heading, their remaining count (or the used-up
- * message), what Premium includes, and "Explore Premium"; Premium athletes get their monthly count only (or, at the limit, that more become
- * available next month), with no heading, no reset date and no action. Content-driven height: text wraps and the card grows at larger text sizes.
+ * The Signal tab's one allowance card, for confirmed free athletes only (Premium athletes see their count in the conversation, beside
+ * the composer; unknown usage shows nothing, so the plan and count are never guessed). It shows the heading, the remaining count (or the
+ * used-up message), what Premium includes, and "Explore Premium". Content-driven height: text wraps and the card grows at larger text sizes.
  *
  * Locked metrics: 16pt padding and corners, 18pt semibold heading, 14pt/20pt secondary body, 8pt heading to body, 12pt body to action,
  * 44pt minimum action target. The 16pt gap above and 24pt gap below the card are set by the screen that places it.
@@ -24,23 +23,17 @@ export function SignalAllowanceCard({ usage, onExplorePremium }: { usage: Signal
 
   return (
     <View style={styles.card} testID="signal-allowance-card">
-      {content.heading ? (
-        <Text style={styles.heading} accessibilityRole="header">
-          {content.heading}
-        </Text>
-      ) : null}
-      <View style={content.heading ? styles.bodyAfterHeading : undefined}>
-        <Text style={content.heading ? styles.body : styles.bodyPrimary}>{content.status}</Text>
-        {content.support ? (
-          <Text style={styles.body}>{content.support}</Text>
-        ) : null}
+      <Text style={styles.heading} accessibilityRole="header">
+        {content.heading}
+      </Text>
+      <View style={styles.bodyAfterHeading}>
+        <Text style={styles.body}>{content.status}</Text>
+        <Text style={styles.body}>{content.support}</Text>
       </View>
-      {content.showAction ? (
-        <Pressable onPress={onExplorePremium} accessibilityRole="button" accessibilityLabel={EXPLORE_PREMIUM_LABEL} style={styles.cta}>
-          <Text style={styles.ctaLabel}>{EXPLORE_PREMIUM_LABEL}</Text>
-          <AppIcon name="chevron-right" size={16} color={palette.signalBlue} />
-        </Pressable>
-      ) : null}
+      <Pressable onPress={onExplorePremium} accessibilityRole="button" accessibilityLabel={EXPLORE_PREMIUM_LABEL} style={styles.cta}>
+        <Text style={styles.ctaLabel}>{EXPLORE_PREMIUM_LABEL}</Text>
+        <AppIcon name="chevron-right" size={16} color={palette.signalBlue} />
+      </Pressable>
     </View>
   );
 }
@@ -50,7 +43,6 @@ interface Styles {
   heading: TextStyle;
   bodyAfterHeading: ViewStyle;
   body: TextStyle;
-  bodyPrimary: TextStyle;
   cta: ViewStyle;
   ctaLabel: TextStyle;
 }
@@ -77,13 +69,6 @@ function createStyles(palette: BrandPalette): Styles {
       fontWeight: '400',
       lineHeight: 20,
       color: palette.inkSecondary,
-    },
-    // Premium has no heading, so the count itself leads in the primary ink.
-    bodyPrimary: {
-      fontSize: 14,
-      fontWeight: '400',
-      lineHeight: 20,
-      color: palette.ink,
     },
     cta: {
       flexDirection: 'row',

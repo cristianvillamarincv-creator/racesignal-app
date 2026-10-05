@@ -84,7 +84,7 @@ describe('a starter from a notification', () => {
     expect(mockSend).not.toHaveBeenCalled();
 
     await act(async () => {
-      fireEvent.press(ui.getByLabelText('Use starter'));
+      fireEvent.press(ui.getByLabelText('Add starter'));
     });
     expect(input(ui).props.value).toBe(`My own half-written question\n\n${STARTER}`);
     expect(ui.queryByTestId('starter-offer')).toBeNull();

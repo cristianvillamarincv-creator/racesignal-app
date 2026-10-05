@@ -110,9 +110,40 @@ describe('prerequisites are explained, not silent', () => {
       expect(request.data).toMatchObject({ v: 1, a: 'athlete-1', t: 'prep', r: 'r1' });
       expect(request.identifier.startsWith('rs-test:athlete-1:')).toBe(true);
     }
-    expect(state.scheduled[0]!.body).toMatch(/^21 days until Ironman Test\./);
+    expect(state.scheduled[0]!.body).toMatch(/^74 days until Ironman Test\./); // Oct 7 to Dec 20: the countdown for the delivery date, never a fixed number
     expect(state.scheduled[1]!.body).toMatch(/^One week until Ironman Test\./);
     expect(state.scheduled[2]!.body).toMatch(/^Two days until Ironman Test\./);
+  });
+
+  it('the weekly test counts down to the race from the day it is DELIVERED, including when delivery crosses midnight', async () => {
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    const lateNight = new Date(2026, 9, 7, 23, 59, 30); // delivery is the next minute boundary at least 60s ahead: 00:01 on Oct 8
+    const outcome = await runDeliveryTest('weekly', { ...ctx(api, [race()]), now: lateNight });
+    expect(outcome.ok).toBe(true);
+    expect(state.scheduled[0]!.fireAt).toMatchObject({ day: 8, hour: 0, minute: 1 });
+    expect(state.scheduled[0]!.body).toMatch(/^73 days until Ironman Test\./);
+    expect(outcome.message).toContain('The countdown is 73 days');
+  });
+
+  it('matches what the race screen shows for the delivery day: a race 14 days away says 14', async () => {
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    const outcome = await runDeliveryTest('weekly', ctx(api, [race({ eventDate: '2026-10-21' })]));
+    expect(outcome.ok).toBe(true);
+    expect(state.scheduled[0]!.body).toMatch(/^14 days until Ironman Test\./);
+  });
+
+  it('refuses a weekly test on race day, as real weekly reminders are never sent then', async () => {
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    const outcome = await runDeliveryTest('weekly', ctx(api, [race({ eventDate: '2026-10-07' })]));
+    expect(outcome.ok).toBe(false);
+    expect(outcome.message).toMatch(/is today on the day this test would be delivered/);
+    expect(state.scheduled).toEqual([]);
+  });
+
+  it('a milestone test says it previews the wording for the day the real one fires, and how far away the race is', async () => {
+    const { api } = createFakeApi({ permission: 'granted' });
+    const outcome = await runDeliveryTest('seven', ctx(api, [race({ eventDate: '2026-10-21' })]));
+    expect(outcome.message).toMatch(/previews the wording of the real seven-day reminder, which is delivered 7 days before the race \(10\/14\/2026\); Ironman Test is 14 days away today/);
   });
 
   it('the Signal (between-race) test needs no race and carries a prompt payload', async () => {

@@ -53,12 +53,26 @@ Settings → "Notification test tools (development only)". It shows live diagnos
 
 Tapping the basic or calendar test shows "Test notification tapped" (development variant only), proving tap handling. Race and prompt tests open the checklist or Signal as real ones do.
 
-## Device test record (2026-10-05)
+## Device test record
 
-- **Race-prep test: FAILED, nothing was scheduled.** The account used for the test (`cristian.flipd@gmail.com`) has no active upcoming race: its two registered races ("Ironman cali" 2026-10-18 and "Ironman dec" 2026-12-20) are marked removed, so the app correctly had none to use. The old tool said "Save an upcoming race first" and gave no counts.
-- **Between-race prompt test: FAILED, not delivered, cause not yet established.** The old tool swallowed scheduling errors (a rejected call showed nothing), never read iOS's pending list back, and showed no authorization details, so it could not say whether the notification was refused, dropped, silenced or simply not delivered. The tools above were built to answer that.
-- Settings showed both switches on with no confirmation of anything scheduled. Settings now reads iOS's pending list back and shows the count and the next reminder (or why there are none).
-- Both delivery tests remain **pending**: neither has passed.
+**2026-10-05, first attempt: failed.**
+- Race-prep test: nothing was scheduled. The account (`cristian.flipd@gmail.com`) had no active upcoming race (its two registered races were marked removed), and the old tool gave no counts.
+- Between-race prompt test: not delivered, cause never established. The old tool swallowed scheduling errors, never read iOS's pending list back and showed no authorization details. The rebuilt tools answer those questions.
+
+**After the rebuilt test tools: passed on the iPhone (development build, no rebuild).**
+- Basic (60-second) and calendar-trigger local delivery, and taps on them.
+- Signal starter insertion into an empty composer.
+- An existing draft is preserved and the choice is shown ("Add starter" / "Keep my draft"; the action was renamed from "Use starter").
+- Race-prep navigation: the tap opens the race, the checklist expands and the correct item is highlighted.
+
+**Still unconfirmed on a device:**
+- **Automatic keyboard focus** when a starter fills an empty composer. The code focuses the composer 400 ms after the starter is applied (a timer, to let the navigation animation finish); whether the iOS keyboard actually opens is not confirmed. If it does not, the composer still holds the starter and can be tapped.
+- Delivery of the real weekly, seven-day and two-day reminders in the background at their scheduled slots, and the between-race prompt by schedule (the test tools use the same content and triggers, but a real slot has not yet fired).
+- Timezone behavior after a real timezone change, same-day milestone combining, sign-out and deletion leaving nothing pending, account switching, the invitation never overlapping onboarding, the paywall or consent, and larger text sizes.
+
+## Countdown wording: the "21 days" finding (2026-10-05)
+
+The development weekly test said "21 days until [race]" while the race screen showed 14. Cause: the **test tool** passed a hard-coded 21 to the weekly wording builder, a leftover placeholder, not a calculation. It was not a real-reminder bug: the planner already computes each weekly reminder's countdown from **its own delivery date** (`calendarDaysBetween(slot day, race date)`), so a reminder delivered on a Sunday counts the days from that Sunday, not from the day it was scheduled. Fixed in the tool: the weekly test now counts the days from the delivery date of the test notification (the next whole minute at least a minute ahead, so it is correct even across midnight), refuses to schedule on race day (as real reminders do), and reports the number it used. The seven-day and two-day tests preview the real milestone wording, which is by definition 7 or 2 days before the race; their result now says when the real reminder is delivered and how many days away the race is today. New tests pin the countdown for every weekly slot (for example, a race 74 days away today is 70 days away for a reminder delivered four days from now) and show the wording is fixed for its delivery date.
 
 ## Re-test on the iPhone (development build, no rebuild expected)
 

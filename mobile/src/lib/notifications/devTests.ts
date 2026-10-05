@@ -1,6 +1,6 @@
 import type { Race } from '@/fixtures/races';
 import type { NotificationsApi, PendingNotification, PermissionDetails, ScheduleRequest } from '@/lib/notifications/api';
-import { fromDate } from '@/lib/notifications/localTime';
+import { calendarDaysBetween, fromDate, parseRaceDate, startOfLocalDay } from '@/lib/notifications/localTime';
 import { PAYLOAD_VERSION, type TapPayload } from '@/lib/notifications/payload';
 import { buildMilestoneContent, buildWeeklyContent, eligibleUpcomingRaces, IDENTIFIER_PREFIX, TEST_IDENTIFIER_PREFIX } from '@/lib/notifications/planner';
 import { BETWEEN_RACE_PROMPTS } from '@/lib/notifications/prompts';
@@ -115,7 +115,7 @@ function ceilToMinute(date: Date): Date {
   return d;
 }
 
-function buildRequest(kind: TestKind, ctx: TestContext): { request: ScheduleRequest } | { fail: TestOutcome } {
+function buildRequest(kind: TestKind, ctx: TestContext): { request: ScheduleRequest; note?: string } | { fail: TestOutcome } {
   const athleteId = ctx.athleteId!;
   const stamp = ctx.now.getTime();
   const id = `${TEST_IDENTIFIER_PREFIX}${athleteId}:${kind}:${stamp}`;
@@ -157,9 +157,26 @@ function buildRequest(kind: TestKind, ctx: TestContext): { request: ScheduleRequ
       },
     };
   }
-  const content = kind === 'weekly' ? buildWeeklyContent(race, 21) : buildMilestoneContent(race, kind === 'seven' ? 7 : 2);
+  const raceDate = parseRaceDate(race.eventDate)!;
+  let content: { body: string; itemId?: string };
+  let note: string | undefined;
+  if (kind === 'weekly') {
+    // The countdown is for the day this notification will be DELIVERED, exactly as a real weekly reminder computes it for its own slot.
+    const days = calendarDaysBetween(startOfLocalDay(minuteAhead), raceDate);
+    if (days < 1) {
+      return { fail: { ok: false, message: `Nothing was scheduled: ${race.name} is ${days === 0 ? 'today' : 'in the past'} on the day this test would be delivered, and real weekly reminders are never sent on or after race day.` } };
+    }
+    content = buildWeeklyContent(race, days);
+    note = `The countdown is ${days} day${days === 1 ? '' : 's'}: the days from this notification's delivery date to ${race.name}.`;
+  } else {
+    const which = kind === 'seven' ? 7 : 2;
+    content = buildMilestoneContent(race, which);
+    const firesOn = fromDate(new Date(raceDate.getFullYear(), raceDate.getMonth(), raceDate.getDate() - which, 12));
+    const daysAway = calendarDaysBetween(startOfLocalDay(ctx.now), raceDate);
+    note = `This previews the wording of the real ${which === 7 ? 'seven-day' : 'two-day'} reminder, which is delivered ${which} days before the race (${firesOn.month}/${firesOn.day}/${firesOn.year}); ${race.name} is ${daysAway} day${daysAway === 1 ? '' : 's'} away today.`;
+  }
   const data: TapPayload = { v: PAYLOAD_VERSION, a: athleteId, t: 'prep', r: race.id, ...(content.itemId ? { i: content.itemId } : {}) };
-  return { request: { ...base, title: 'Race prep', body: content.body, data: data as unknown as Record<string, unknown>, fireAt: fromDate(minuteAhead) } };
+  return { request: { ...base, title: 'Race prep', body: content.body, data: data as unknown as Record<string, unknown>, fireAt: fromDate(minuteAhead) }, note };
 }
 
 function findPending(pending: PendingNotification[], identifier: string) {
@@ -201,7 +218,7 @@ export async function runDeliveryTest(kind: TestKind, ctx: TestContext): Promise
   // 2. Prerequisites and the request itself.
   const built = buildRequest(kind, ctx);
   if ('fail' in built) return built.fail;
-  const { request } = built;
+  const { request, note } = built;
 
   // 3. Ask iOS when it will fire: this also proves the trigger shape is valid before relying on it.
   let nextFire: number | null;
@@ -244,7 +261,7 @@ export async function runDeliveryTest(kind: TestKind, ctx: TestContext): Promise
     identifier: request.identifier,
     deliversAt,
     verified: true,
-    message: `Scheduled ${request.identifier}. iOS will deliver it at ${time(deliversAt)} (in about ${seconds} seconds) and lists it as pending. Lock the phone or leave the app and wait.`,
+    message: `Scheduled ${request.identifier}. iOS will deliver it at ${time(deliversAt)} (in about ${seconds} seconds) and lists it as pending. Lock the phone or leave the app and wait.${note ? ` ${note}` : ''}`,
   };
 }
 

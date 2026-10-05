@@ -144,6 +144,31 @@ describe('race prep: which races count and relevance', () => {
   });
 });
 
+describe('race prep: the countdown is for each reminder\u2019s delivery date', () => {
+  it('every weekly reminder counts down from its own slot, never from today', () => {
+    const r = race({ eventDate: '2026-12-20' }); // Sunday
+    const weekly = ofKind(plan([r]), 'weekly');
+    const dayCount = (n: PlannedNotification) => Number(/^(\d+) days until/.exec(n.body)![1]);
+    const byStamp = Object.fromEntries(weekly.map((n) => [stamp(n), dayCount(n)]));
+    expect(byStamp['2026-10-11 16:00']).toBe(70); // 7 Oct is 74 days out, but this reminder is delivered on 11 Oct
+    expect(byStamp['2026-10-18 16:00']).toBe(63);
+    expect(byStamp['2026-11-01 16:00']).toBe(49);
+    for (const n of weekly) {
+      const delivered = new Date(n.fireAt.year, n.fireAt.month - 1, n.fireAt.day);
+      expect(dayCount(n)).toBe(Math.round((new Date(2026, 11, 20).getTime() - delivered.getTime()) / 86_400_000));
+    }
+  });
+
+  it('a reminder planned today for a later day is not recomputed for today: the wording is fixed for its delivery date', () => {
+    const r = race({ eventDate: '2026-10-25' });
+    const early = plan([r], prefsWith(), new Date(2026, 9, 7, 10, 0));
+    const later = plan([r], prefsWith(), new Date(2026, 9, 9, 10, 0));
+    const find = (res: ReturnType<typeof plan>) => ofKind(res, 'weekly').find((n) => stamp(n) === '2026-10-11 16:00');
+    expect(find(early)!.body).toBe(find(later)!.body);
+    expect(find(early)!.body).toMatch(/^14 days until/);
+  });
+});
+
 describe('race prep: copy', () => {
   it('seven-day: asks about gear when gear is unchecked, naming the first unchecked gear item to highlight', () => {
     const r = race({ eventDate: '2026-12-12' });

@@ -708,9 +708,9 @@ export default function SignalScreen() {
                   setTimeout(() => inputRef.current?.focus(), 100);
                 }}
                 accessibilityRole="button"
-                accessibilityLabel="Use starter"
+                accessibilityLabel="Add starter"
                 style={styles.starterButton}>
-                <Text style={styles.starterButtonLabel}>Use starter</Text>
+                <Text style={styles.starterButtonLabel}>Add starter</Text>
               </Pressable>
               <Pressable onPress={() => setStarterOffer(null)} accessibilityRole="button" accessibilityLabel="Keep my draft" style={styles.starterButton}>
                 <Text style={styles.starterSecondaryLabel}>Keep my draft</Text>

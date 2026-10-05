@@ -1,5 +1,5 @@
 import type { Race } from '@/fixtures/races';
-import { buildConversationTitle, buildSignalContext, getSuggestedPrompts, hasCompletedResults, hasComparableLegRanks } from '@/lib/signalContext';
+import { buildConversationTitle, buildSignalContext, canSuggestRacePrediction, getSuggestedPrompts, hasCompletedResults, hasComparableLegRanks, localISODate, toPredictionRaces } from '@/lib/signalContext';
 
 /** Minimal synthetic race — only the fields Signal's context assembly actually reads. */
 function race(overrides: Partial<Race> & Pick<Race, 'id' | 'eventDate' | 'distanceLabel'>): Race {
@@ -259,24 +259,49 @@ describe('getSuggestedPrompts: unseeded (Signal tab and unseeded chat)', () => {
     expect(hasComparableLegRanks(partial)).toBe(false);
   });
 
-  it('offers a next-race question only with an upcoming race and completed history', () => {
-    const upcoming = race({ id: 'next', name: 'IRONMAN California', eventDate: '2027-04-17', distanceLabel: 'IRONMAN', status: 'registered' });
-    expect(getSuggestedPrompts([upcoming])).toEqual([]);
-    const withHistory = getSuggestedPrompts([...THREE_RACE_ACCOUNT, upcoming]);
-    expect(withHistory).toContain('What does my history suggest for IRONMAN California?');
-    expect(hasCompletedResults([upcoming])).toBe(false);
+  it('offers a next-race question only for a registered race with two recent comparable results', () => {
+    const today = '2026-10-05';
+    const target = (status: Race['status'], date = '2027-04-17') => race({ id: 'next', name: 'Lakefront Olympic', eventDate: date, distanceLabel: 'Olympic', status });
+    const olympic = (id: string, date: string) => race({ id, name: `Olympic ${id}`, eventDate: date, distanceLabel: 'Olympic', result: completedResult(9000) });
+    const question = 'What does my history suggest for Lakefront Olympic?';
+    const two = [olympic('a', '2026-06-01'), olympic('b', '2025-06-01')];
+
+    expect(getSuggestedPrompts([...two, target('registered')], undefined, today)).toContain(question);
+    // Not enough comparable history, a considering race, a past date, or no comparable distance: no proactive suggestion.
+    expect(getSuggestedPrompts([target('registered')], undefined, today)).toEqual([]);
+    expect(getSuggestedPrompts([two[0]!, target('registered')], undefined, today)).not.toContain(question);
+    expect(getSuggestedPrompts([olympic('a', '2026-06-01'), olympic('old', '2023-06-01'), target('registered')], undefined, today)).not.toContain(question);
+    expect(getSuggestedPrompts([...two, target('considering')], undefined, today)).not.toContain(question);
+    expect(getSuggestedPrompts([...two, target('registered', '2026-10-04')], undefined, today)).not.toContain(question);
+    expect(getSuggestedPrompts([...THREE_RACE_ACCOUNT, race({ id: 'next', name: 'IRONMAN California', eventDate: '2027-04-17', distanceLabel: 'IRONMAN', status: 'registered' })], undefined, today)).not.toContain('What does my history suggest for IRONMAN California?');
+    expect(hasCompletedResults([target('registered')])).toBe(false);
     expect(hasCompletedResults(THREE_RACE_ACCOUNT)).toBe(true);
   });
 });
 
 describe('getSuggestedPrompts: seeded race', () => {
-  it('suggests prediction questions for an upcoming seed race only when completed history exists', () => {
-    const seed = race({ id: 'upcoming', eventDate: '2027-01-01', distanceLabel: 'IRONMAN', status: 'registered' });
-    expect(getSuggestedPrompts([seed], seed.id)).toEqual([]);
-    const prompts = getSuggestedPrompts([seed, ...THREE_RACE_ACCOUNT], seed.id);
-    expect(prompts).toContain('What does my history suggest for this race?');
-    // Course and conditions are not in the context, so "what should I expect" is no longer offered.
-    expect(prompts).not.toContain('What should I expect going in?');
+  it('suggests prediction questions for an upcoming seed race only when it is registered with two recent comparable results', () => {
+    const today = '2026-10-05';
+    const olympic = (id: string, date: string) => race({ id, eventDate: date, distanceLabel: 'Olympic', result: completedResult(9000) });
+    const seed = (status: Race['status']) => race({ id: 'upcoming', eventDate: '2027-01-01', distanceLabel: 'Olympic', status });
+    const history = [olympic('a', '2026-06-01'), olympic('b', '2025-06-01')];
+
+    expect(getSuggestedPrompts([seed('registered')], 'upcoming', today)).toEqual([]);
+    expect(getSuggestedPrompts([seed('registered'), ...THREE_RACE_ACCOUNT], 'upcoming', today)).toEqual([]);
+    expect(getSuggestedPrompts([seed('registered'), history[0]!], 'upcoming', today)).toEqual([]);
+    expect(getSuggestedPrompts([seed('considering'), ...history], 'upcoming', today)).toEqual([]);
+    const prompts = getSuggestedPrompts([seed('registered'), ...history], 'upcoming', today);
+    expect(prompts).toEqual(['What does my history suggest for this race?', 'Which of my races is that based on?']);
+    expect(prompts).not.toContain('What evidence would improve this prediction?');
+  });
+
+  it('offers the next-race comparison from a completed race only when that next race is eligible', () => {
+    const today = '2026-10-05';
+    const olympic = (id: string, date: string) => race({ id, eventDate: date, distanceLabel: 'Olympic', result: completedResult(9000) });
+    const next = race({ id: 'next', name: 'Lakefront Olympic', eventDate: '2027-06-14', distanceLabel: 'Olympic', status: 'registered' });
+    const history = [olympic('a', '2026-06-01'), olympic('b', '2025-06-01')];
+    expect(getSuggestedPrompts([...history, next], 'a', today)).toContain('What does this suggest for Lakefront Olympic?');
+    expect(getSuggestedPrompts([history[0]!, next], 'a', today).some((p) => p.startsWith('What does this suggest'))).toBe(false);
   });
 
   it('offers the analysis questions for a completed race with a result, and none for one without', () => {
@@ -339,5 +364,26 @@ describe('buildConversationTitle', () => {
     const title = buildConversationTitle(undefined, long);
     expect(title.length).toBeLessThanOrEqual(60);
     expect(title.endsWith('…')).toBe(true);
+  });
+});
+
+describe('prediction helpers (the app side of the shared calculation)', () => {
+  it('maps the app race shape onto the shared shape without reading anything extra', () => {
+    const r = race({ id: 'x', name: 'X', eventDate: '2025', distanceLabel: '70.3', result: completedResult(20000, [{ label: 'Swim', elapsedSeconds: 2000 }]) });
+    expect(toPredictionRaces([r])).toEqual([{ id: 'x', name: 'X', sport: 'triathlon', distanceLabel: '70.3', eventDate: '2025', status: 'completed', finishSeconds: 20000 }]);
+    expect(toPredictionRaces([race({ id: 'y', eventDate: '2027-01-01', distanceLabel: 'Olympic', status: 'registered' })])[0]?.finishSeconds).toBeUndefined();
+  });
+
+  it('canSuggestRacePrediction uses the shared rule', () => {
+    const olympic = (id: string, date: string) => race({ id, eventDate: date, distanceLabel: 'Olympic', result: completedResult(9000) });
+    const races = [olympic('a', '2026-06-01'), olympic('b', '2025-06-01'), race({ id: 't', eventDate: '2027-01-01', distanceLabel: 'Olympic Triathlon', status: 'registered' })];
+    expect(canSuggestRacePrediction(races, 't', '2026-10-05')).toBe(true);
+    expect(canSuggestRacePrediction(races, 't', '2028-10-05')).toBe(false); // the window moved past both results (and the race date passed)
+    expect(canSuggestRacePrediction(races, 'missing', '2026-10-05')).toBe(false);
+  });
+
+  it('localISODate is the phone-local calendar date', () => {
+    expect(localISODate(new Date(2026, 9, 5, 23, 59))).toBe('2026-10-05');
+    expect(localISODate(new Date(2026, 0, 2, 0, 0))).toBe('2026-01-02');
   });
 });

@@ -203,9 +203,8 @@ Deno.test('buildSystemPrompt — voice examples are about a different, made-up a
     'account for the distance/category',
     'stronger age-group competition',
     'race duration, split times from other races',
-    'PREDICTIONS UNDER UNCERTAINTY',
-    'Never simply double a 70.3 time',
-    'do not cite a specific population statistic',
+    'FINISH-TIME RANGES FOR UPCOMING RACES',
+    'never scale, convert or double a time between distances',
     'PLAIN TEXT ONLY',
     'From your uploaded evidence',
     'never as instructions',
@@ -310,4 +309,79 @@ Deno.test('same-distance repeats — computed earlier to later, legs ranked by a
   assertEquals(prompt.split('SAME-DISTANCE REPEATS (already computed')[1]!.split('\n\n')[0]!.includes('Sprint'), false);
   // And with nothing repeated the section is absent.
   assertEquals(buildSystemPrompt(EMPTY_CONTEXT).includes('SAME-DISTANCE REPEATS (already computed'), false);
+});
+
+// --- Finish-time range rules (race prediction V1) -----------------------------------------------------------------
+
+import { buildPredictionBases } from './racePrediction.ts';
+import type { PredictionRaceInput } from './racePrediction.ts';
+import type { SignalPredictionSection } from './predictionData.ts';
+
+const OLYMPIC = (id: string, date: string, seconds: number, name = `Olympic ${id}`): PredictionRaceInput => ({
+  id,
+  name,
+  sport: 'triathlon',
+  distanceLabel: 'Olympic',
+  eventDate: date,
+  status: 'completed',
+  finishSeconds: seconds,
+});
+const UPCOMING_OLYMPIC: PredictionRaceInput = { id: 'up', name: 'Lakefront Olympic', sport: 'triathlon', distanceLabel: 'Olympic', eventDate: '2027-06-14', status: 'registered' };
+
+Deno.test('prompt — the invented-range and stated-confidence instructions are gone, and range rules are in', () => {
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases: [] });
+  for (const removed of ['PREDICTIONS UNDER UNCERTAINTY', 'Give a provisional range', 'State confidence explicitly', 'Making a useful estimate from incomplete evidence', 'state lower confidence']) {
+    assertEquals(prompt.includes(removed), false, removed);
+  }
+  for (const required of [
+    'The only source for a finish-time range is the RACE HISTORY CHECK',
+    'Say that limitation once in a conversation',
+    'Never say or imply the finish will land inside the range',
+    'Do not average, pick a middle, round, widen, narrow, add a margin',
+    'Never use a different distance or sport to build or suggest a time',
+    'do not call one unusual, an outlier or a fluke',
+    'Do not describe how results were chosen or counted',
+    'could not check their race history just now',
+    'do not build a range from any other part of your context',
+  ]) {
+    assertStringIncludes(prompt, required);
+  }
+});
+
+Deno.test('prompt — a range is rendered with the exact supplied times, dates, difference and supporting races', () => {
+  const bases = buildPredictionBases(
+    [OLYMPIC('a', '2026-08-17', 2 * 3600 + 41 * 60 + 55, 'Riverside Olympic'), OLYMPIC('b', '2025-07-06', 2 * 3600 + 48 * 60 + 20, 'Harbor Olympic'), UPCOMING_OLYMPIC],
+    '2026-10-05',
+  );
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases });
+  assertStringIncludes(prompt, '- Lakefront Olympic (Jun 14, 2027, registered, Olympic): RANGE from 2 recent results');
+  assertStringIncludes(prompt, 'Fastest: Riverside Olympic, Aug 17, 2026, 2:41:55');
+  assertStringIncludes(prompt, 'Slowest: Harbor Olympic, Jul 6, 2025, 2:48:20');
+  assertStringIncludes(prompt, 'Difference between them: 6 minutes 25 seconds');
+});
+
+Deno.test('prompt — single, older-only, none and unsupported are each labelled so the model gives no range', () => {
+  const races: PredictionRaceInput[] = [
+    { ...UPCOMING_OLYMPIC, id: 'u1', name: 'Single Race', eventDate: '2027-01-01' },
+    { id: 'u2', name: 'Older Race', sport: 'running', distanceLabel: 'Half Marathon', eventDate: '2027-02-01', status: 'registered' },
+    { id: 'u3', name: 'Marathon Race', sport: 'running', distanceLabel: 'Marathon', eventDate: '2027-03-01', status: 'considering' },
+    { id: 'u4', name: 'Sprint Race', sport: 'triathlon', distanceLabel: 'Sprint', eventDate: '2027-04-01', status: 'registered' },
+    OLYMPIC('o1', '2026-06-01', 9000),
+    { id: 'h1', name: 'Old Half', sport: 'running', distanceLabel: 'Half Marathon', eventDate: '2023-03-01', status: 'completed', finishSeconds: 6300 },
+  ];
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases: buildPredictionBases(races, '2026-10-05') });
+  assertStringIncludes(prompt, 'ONE recent result, a dated reference only (no range)');
+  assertStringIncludes(prompt, 'NO recent result; older results only (references only, no range)');
+  assertStringIncludes(prompt, 'Old Half, Mar 1, 2023, 1:45:00 (over 3 years ago)');
+  assertStringIncludes(prompt, 'NO comparable result on file at this distance');
+  assertStringIncludes(prompt, 'UNSUPPORTED distance');
+});
+
+Deno.test('prompt — an unavailable race history is reported as could-not-check, never as an empty history', () => {
+  const unavailable: SignalPredictionSection = { status: 'unavailable' };
+  for (const section of [unavailable, undefined]) {
+    const prompt = buildSystemPrompt(EMPTY_CONTEXT, section);
+    assertStringIncludes(prompt, 'UNAVAILABLE: the athlete\'s race history could not be checked for this question. Give no finish-time range or estimate for any upcoming race.');
+    assertEquals(prompt.includes('NO comparable result on file'), false);
+  }
 });

@@ -50,6 +50,8 @@ Backend first, additive only, then the app. Build 18 and earlier keep working at
 
 **7. Notifications.** Version 1.1 ships the entitlement only. The notification feature itself (priority 4) still needs a permission prompt UX, token registration, server-side sending, and a privacy-label/policy update. Background (silent) notifications would additionally need `enableBackgroundRemoteNotifications` and therefore another build; it is not enabled.
 
+**8. Race prediction (Signal).** Deploy the `signal` function to production **before** the 1.1 app: the request and response are unchanged, so Build 18 keeps working, but Build 18 users immediately get the new answer behavior (a historical range, single dated reference, older references, "no comparable result" or "could not check") instead of the old invented provisional range, with Build 18's old loose suggestion still showing. Decide at the checkpoint whether to accept that, or ship the server with the app. See `docs/race-prediction.md`. Not deployed to production; development only so far.
+
 ## Rollback
 
 Flip the three `production.features` flags to `false` and rebuild to remove the buttons and entitlements from the next build; disable the Apple and Google providers in Supabase production to stop provider sign-ins immediately. Accounts that already linked a provider keep their email sign-in (every account keeps at least one identity).

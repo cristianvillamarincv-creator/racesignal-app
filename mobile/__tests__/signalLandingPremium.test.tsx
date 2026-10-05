@@ -21,7 +21,7 @@ jest.mock('@/lib/purchases', () => ({ presentPremiumPaywall: () => mockPaywall()
 jest.mock('@/lib/db/signal', () => ({
   fetchRecentSignalConversations: jest.fn().mockResolvedValue([{ id: 'c1', title: 'Earlier chat', updated_at: new Date().toISOString() }]),
 }));
-jest.mock('@/lib/signalContext', () => ({ getSuggestedPrompts: () => [], hasCompletedResults: () => false }));
+jest.mock('@/lib/signalContext', () => ({ getSuggestedPrompts: () => [], canSuggestRacePrediction: () => false }));
 const mockFetchSignalUsage = jest.fn();
 jest.mock('@/lib/signal', () => ({ fetchSignalUsage: () => mockFetchSignalUsage() }));
 const mockPush = jest.fn();

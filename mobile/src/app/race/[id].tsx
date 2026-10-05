@@ -9,7 +9,7 @@ import { SignalModule } from '@/components/SignalModule';
 import { type BrandPalette, tabularNumerals, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { daysUntil, formatCountdown, formatRaceDate } from '@/lib/format';
 import { useAthleteRaces } from '@/lib/racesContext';
-import { hasCompletedResults } from '@/lib/signalContext';
+import { canSuggestRacePrediction } from '@/lib/signalContext';
 import { minTouchSize, spacing } from '@/lib/theme';
 
 /** Joins meta parts (location, date) with " · ", skipping any that are missing/blank — mirrors
@@ -146,8 +146,9 @@ export default function RacePrepScreen() {
         {race.isManual ? <RacePrepChecklist race={race} initialExpanded={!!prep} highlightItemId={prepItem} onHighlightedRow={scrollToRow} /> : null}
 
         {/* 5 — Signal module: the natural next action, right after the hero/event-info/prep block */}
-        {/* Needs completed history to reason from: with none, there is nothing for Signal to say about this race. */}
-        {hasCompletedResults(races) ? (
+        {/* A proactive suggestion: only for a registered race with at least two recent comparable results. Signal's own
+            custom question box is always available for anything thinner. */}
+        {canSuggestRacePrediction(races, race.id) ? (
           <SignalModule
             title="What does your history suggest for this race?"
             supportingText="See how similar races have gone and what it means for race day."

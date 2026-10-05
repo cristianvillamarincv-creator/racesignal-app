@@ -9,9 +9,13 @@
 // server-side responsibility, beyond calling the model, is confirming a supplied seed race
 // actually belongs to the caller before using it — the one real cross-athlete privacy gap client-
 // side trust would otherwise leave open. See the Step 5 plan's "trust model" section.
+//
+// Finish-time ranges are the exception to client-built context: they are derived server-side from the athlete's stored
+// races (predictionData.ts + racePrediction.ts) and any range-shaped field a client sends is never read.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
+import { loadPredictionSection } from './predictionData.ts';
 import { buildSystemPrompt } from './systemPrompt.ts';
 import type { SignalChatTurn, SignalContext, SignalReplyPayload, SignalRequestBody, SignalResponse, SignalUnavailableReason, SignalUsagePayload } from './types.ts';
 import { claimSignalRequest, completeSignalRequest, currentMonthWindow, failSignalRequest, getSignalUsage, releaseSignalAsk, reserveSignalAsk } from './usage.ts';
@@ -494,7 +498,11 @@ Deno.serve(async (req) => {
       reservedCount = reserved.count;
     }
 
-    const systemPrompt = buildSystemPrompt(context);
+    // The prediction section is derived HERE from the athlete's own stored races (never from anything in the request),
+    // and a failed read is reported to the model as "could not check", not as "no comparable history". The seed race
+    // id was ownership-checked above; it only ensures that race is covered even beyond the nearest-races cap.
+    const prediction = await loadPredictionSection(client, user.id, context.seedRace?.id);
+    const systemPrompt = buildSystemPrompt(context, prediction);
     const result = await callModel(systemPrompt, history, message, image);
     if ('error' in result) {
       // The model call itself failed after an ask was reserved (fresh or reused) — give the slot

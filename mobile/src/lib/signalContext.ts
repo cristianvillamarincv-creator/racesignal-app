@@ -1,6 +1,7 @@
 import type { Race, RaceRank } from '@/fixtures/races';
 import { getTopPercentile } from '@/lib/format';
 import { canonicalDistanceLabel, getDistancePRStatuses, getHighlightsForRace } from '@/lib/highlights';
+import { isPredictionSuggestionEligible, type PredictionRaceInput } from '@/lib/racePrediction';
 import { getCompletedRaces, getUpcomingRaces } from '@/lib/races';
 
 /**
@@ -249,6 +250,33 @@ export function hasCompletedResults(races: Race[]): boolean {
   return getCompletedRaces(races).some((race) => race.result?.finishSeconds !== undefined);
 }
 
+
+/** Today as `YYYY-MM-DD` in the phone's local time. Only used to decide which suggestions to show; the server derives every
+ *  range itself from the stored races with its own (UTC) date. */
+export function localISODate(now: Date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** The shared prediction calculation's view of the athlete's races (see lib/racePrediction.ts). */
+export function toPredictionRaces(races: Race[]): PredictionRaceInput[] {
+  return races.map((race) => ({
+    id: race.id,
+    name: race.name,
+    sport: race.sport,
+    distanceLabel: race.distanceLabel,
+    eventDate: race.eventDate,
+    status: race.status,
+    finishSeconds: race.result?.finishSeconds,
+  }));
+}
+
+/** Whether a next-race question should be PROACTIVELY suggested for this race: a registered race dated today or later with at
+ *  least two recent comparable results (the same calculation the server uses). A custom question is never gated by this. */
+export function canSuggestRacePrediction(races: Race[], raceId: string, today: string = localISODate()): boolean {
+  return isPredictionSuggestionEligible(toPredictionRaces(races), raceId, today);
+}
+
 const MAX_PERSONAL_BEST_PROMPTS = 2;
 
 /**
@@ -260,9 +288,9 @@ const MAX_PERSONAL_BEST_PROMPTS = 2;
  *  - improvement or comparison: two or more completed results at the same sport and distance
  *  - where did I lose time: two or more splits on the race
  *  - personal best / race summary: a completed race with a finish time
- *  - next-race questions: an upcoming race plus completed history to reason from
+ *  - next-race questions: a registered upcoming race with at least two recent comparable results (canSuggestRacePrediction)
  */
-export function getSuggestedPrompts(races: Race[], seedRaceId?: string): string[] {
+export function getSuggestedPrompts(races: Race[], seedRaceId?: string, today: string = localISODate()): string[] {
   const seedRace = seedRaceId ? races.find((race) => race.id === seedRaceId) : undefined;
   const context = buildSignalContext(races, seedRaceId);
   const completed = getCompletedRaces(races).filter((race) => race.result?.finishSeconds !== undefined);
@@ -282,14 +310,15 @@ export function getSuggestedPrompts(races: Race[], seedRaceId?: string): string[
     for (const distance of distances.slice(0, MAX_PERSONAL_BEST_PROMPTS)) prompts.push(`What's my ${distance} personal best?`);
     const mostRecent = recentFirst[0];
     if (mostRecent) prompts.push(`How did my ${mostRecent.name} go?`);
-    if (nextRace && completed.length > 0) prompts.push(`What does my history suggest for ${nextRace.name}?`);
+    if (nextRace && canSuggestRacePrediction(races, nextRace.id, today)) prompts.push(`What does my history suggest for ${nextRace.name}?`);
     return prompts;
   }
 
   if (seedRace.status !== 'completed') {
-    // A prediction needs completed history to reason from; without it there is nothing to suggest.
-    if (completed.length === 0) return [];
-    return ['What does my history suggest for this race?', 'What evidence would improve this prediction?'];
+    // Proactively suggested only for a registered race with at least two recent comparable results. Anything thinner (or a
+    // race that is only being considered) is still answerable through a custom question.
+    if (!canSuggestRacePrediction(races, seedRace.id, today)) return [];
+    return ['What does my history suggest for this race?', 'Which of my races is that based on?'];
   }
 
   const prompts: string[] = [];
@@ -309,7 +338,7 @@ export function getSuggestedPrompts(races: Race[], seedRaceId?: string): string[
   );
   if (hasComparableResult) prompts.push(`How does this compare with my other ${seedRace.distanceLabel} races?`);
 
-  if (nextRace) prompts.push(`What does this suggest for ${nextRace.name}?`);
+  if (nextRace && canSuggestRacePrediction(races, nextRace.id, today)) prompts.push(`What does this suggest for ${nextRace.name}?`);
 
   return prompts;
 }

@@ -18,7 +18,7 @@ import { formatRelativeDate } from '@/lib/format';
 import { AppIcon } from '@/lib/icons';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
-import { getSuggestedPrompts, hasCompletedResults } from '@/lib/signalContext';
+import { canSuggestRacePrediction, getSuggestedPrompts } from '@/lib/signalContext';
 import { getNextRace } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
@@ -81,9 +81,9 @@ export default function AskScreen() {
   }
 
   const nextRace = getNextRace(races.data);
-  // The next-race question is the module above, so it is never repeated as a row; the module itself needs completed
-  // history to reason from, so it is hidden for an athlete who has only upcoming races.
-  const canAskAboutNextRace = !!nextRace && hasCompletedResults(races.data);
+  // The next-race question is the module above, so it is never repeated as a row. The module is a proactive suggestion, so it
+  // appears only for a registered next race with at least two recent comparable results; a custom question is always available.
+  const canAskAboutNextRace = !!nextRace && canSuggestRacePrediction(races.data, nextRace.id);
   const nextRaceQuestion = nextRace ? `What does my history suggest for ${nextRace.name}?` : null;
   const suggestions = getSuggestedPrompts(races.data)
     .filter((suggestion) => !(canAskAboutNextRace && suggestion === nextRaceQuestion))

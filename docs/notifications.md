@@ -27,7 +27,7 @@ Two optional notification types, both **off by default**, scheduled **locally on
 ## Scheduling and reconcile
 - `lib/notifications/planner.ts` (pure) decides the full desired schedule from the clock, preferences, races (with checklist state) and rotation; `reconcile.ts` makes the OS match (cancel unwanted, add missing; identifiers carry a content hash, so changed content is rescheduled). At most 12 weeks of race reminders and 8 weeks of prompts, capped at 60 pending (iOS allows 64).
 - Reconciles on launch, return to foreground, and whenever the athlete, races (including checklist toggles, edits, removals), preferences or permission change. It never plans from races that are still loading or failed to load, never schedules without permission, and rebuilds everything if the device timezone changed since the schedule was built.
-- Calendar triggers carry **wall-clock components with no timezone**, so iOS should evaluate them in the device's current timezone when they fire. **This is the intended behavior and is not yet proven on a device.**
+- Calendar triggers carry wall-clock components plus an explicit IANA timezone. Reading the installed expo-notifications 0.32 iOS code (`Records.swift`): the trigger is `UNCalendarNotificationTrigger(dateMatching:repeats:)` built from a DateComponents whose calendar is ISO8601 and whose timezone is applied only if one is passed, so its meaning is **fixed at scheduling time** (it does not follow a later timezone change by itself). The app therefore rebuilds the schedule whenever the device timezone differs from the one it was built for (on launch and foreground). An earlier version of this note assumed the trigger would follow the phone's timezone; that was wrong. Behavior after a real timezone change is still unverified on a device.
 
 ## Account isolation and cleanup
 - Every notification carries the athlete id; a tap is validated against the signed-in athlete and the data as it is now. A notification for another account does nothing.
@@ -43,7 +43,34 @@ Two optional notification types, both **off by default**, scheduled **locally on
 - A race has only a date (no time or timezone of its own); reminders follow the phone's local time.
 
 ## Development test tools (development variant only)
-Settings → "Notification test tools (development only)" schedules a REAL local notification 1 to 2 minutes ahead (same content builders, payload and calendar trigger as a real one; ids start `rs-test:` so reconciliation ignores them): race-prep weekly, seven-day milestone, two-day milestone (for your nearest upcoming race), a between-race prompt, plus "Show pending notifications" (lists what iOS has scheduled) and "Cancel test notifications". Lock or background the app to see the banner.
+
+Settings → "Notification test tools (development only)". It shows live diagnostics (the real iOS authorization and its alert, lock-screen and banner settings, how many notifications iOS has pending, how many races the app has loaded for this account and how many are upcoming, the device clock and timezone) and six tests. Each test: checks the real iOS permission and names any blocker (with an Open iOS Settings shortcut); explains a missing prerequisite instead of doing nothing; asks iOS when the trigger will next fire (which proves the trigger shape is valid); schedules with a time limit; **reads iOS's pending list back** to confirm the identifier exists; and shows either an actionable error or the identifier and expected delivery time. Every step is time-bounded and the busy state always clears. Test notifications are identified `rs-test:` and normal reconciliation never cancels them.
+
+1. **Test notification in 60 seconds**: a time-interval trigger, no race, entitlement or model call. Run this first: it proves basic local delivery.
+2. **Calendar-trigger test**: the same calendar trigger real reminders use, with a standalone payload. If 1 delivers and 2 does not, the calendar trigger is the problem.
+3. to 5. Race-prep weekly, seven-day and two-day: need a real upcoming race (dated today or later); otherwise they say exactly why not, with the account's counts.
+6. **Between-race prompt**: the Signal payload (no race needed).
+
+Tapping the basic or calendar test shows "Test notification tapped" (development variant only), proving tap handling. Race and prompt tests open the checklist or Signal as real ones do.
+
+## Device test record (2026-10-05)
+
+- **Race-prep test: FAILED, nothing was scheduled.** The account used for the test (`cristian.flipd@gmail.com`) has no active upcoming race: its two registered races ("Ironman cali" 2026-10-18 and "Ironman dec" 2026-12-20) are marked removed, so the app correctly had none to use. The old tool said "Save an upcoming race first" and gave no counts.
+- **Between-race prompt test: FAILED, not delivered, cause not yet established.** The old tool swallowed scheduling errors (a rejected call showed nothing), never read iOS's pending list back, and showed no authorization details, so it could not say whether the notification was refused, dropped, silenced or simply not delivered. The tools above were built to answer that.
+- Settings showed both switches on with no confirmation of anything scheduled. Settings now reads iOS's pending list back and shows the count and the next reminder (or why there are none).
+- Both delivery tests remain **pending**: neither has passed.
+
+## Re-test on the iPhone (development build, no rebuild expected)
+
+1. Reload the app from Metro. Open Settings → scroll to "Notification test tools". Note the diagnostics lines: permission should read `granted` with alerts `on`.
+2. Tap **Test notification in 60 seconds**. Expect a green line with an identifier starting `rs-test:` and a delivery time. Lock the phone (or leave the app) and wait about a minute. Expect a banner "RaceSignal test". Tap it: the app opens and shows "Test notification tapped".
+3. If nothing arrives, check Notification Center (swipe down) and Focus: a Focus can deliver silently. Tap **Show pending notifications** and confirm the identifier is listed.
+4. Tap **Calendar-trigger test**. Same checks. Compare with step 2.
+5. Tap **Between-race prompt**: wait, tap the banner: Signal opens with the starter in an editable composer, nothing sent.
+6. Save an upcoming race (a date in the future), then run **Race-prep weekly** and the milestone tests; tapping opens the race with the checklist expanded and an item highlighted.
+7. In Settings → Notifications, with a type switched on, check the status line under the switch (reminders scheduled and the next one).
+
+If step 1 reports permission or alert problems, it names the iOS Settings path. If it reports "iOS did not accept the notification", paste the message: it contains the native error. If the native module is reported unavailable, a rebuild would be needed; nothing so far indicates that.
 
 ## Verified automatically (Jest)
 Planner (defaults, suppression, milestone preservation, 12-week horizon, OS cap, today-or-later eligibility, completed checklists, sport relevance, uncertain sport, copy, multi-race, combined milestones, between-race pause, 12-month retrospective rule, stability), rotation (no replacement, cycle boundary, persisted assignments, advance, re-seating, pause and resume, eligibility changes), payload validation and routing, reconcile diffing against a fake scheduler, the provider (opt-in and permission, denied, revoked permission, checklist and race changes, loading data, timezone rebuild, account isolation, session loss, launch counting, one-time invitation, rotation persistence), tap routing (once, cleared, wrong account, onboarding, held until safe), the invitation sheet (gating, latching, copy, choices, denied), the Settings section, checklist expand and highlight, Signal drafts and starters (never overwritten, never sent, per athlete, cold start, cleared on send, exhausted paywall unchanged), and sign-out and deletion cleanup.
@@ -53,7 +80,7 @@ Planner (defaults, suppression, milestone preservation, 12-week horizon, OS cap,
 2. Test tools: a banner appears; tapping it (app foreground, background, and killed) opens the right screen exactly once.
 3. Highlight: the tapped checklist item is expanded, highlighted and scrolled into view.
 4. Starter: empty composer fills and the keyboard focuses; with a saved draft the draft is kept and the offer appears; nothing is sent; the free balance is unchanged.
-5. **Timezone**: schedule, change the phone's timezone, confirm "4 p.m." follows (and that "Show pending notifications" still lists the schedule).
+5. **Timezone**: schedule, change the phone's timezone, reopen the app, and confirm the reminders were rebuilt at 4 p.m. in the new timezone ("Show pending notifications" lists the new times).
 6. Checklist toggles, race edit, delete and completion reschedule; a second upcoming race changes the weekly subject; same-day milestones combine.
 7. Sign-out and account deletion leave nothing pending; signing in as a different account shows nothing from the first.
 8. The invitation appears on the second fresh launch with no upcoming race and never over onboarding, the initial paywall or the consent sheet.

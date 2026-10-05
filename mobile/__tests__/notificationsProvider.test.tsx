@@ -349,3 +349,113 @@ describe('prompt rotation persistence', () => {
     expect([...state.pending.values()].map((r) => r.identifier)).toEqual(first);
   });
 });
+
+describe('verified schedule status (what Settings shows after enabling)', () => {
+  it('enabling applies the defaults with no scheduling step, and the status is read back from iOS: how many reminders and the next one', async () => {
+    mockRaces.data = [race()];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await mount(api);
+    await waitFor(() => expect(ctx.ready).toBe(true));
+    await act(async () => {
+      await ctx.enable('racePrep');
+    });
+    await waitFor(() => expect(ctx.scheduleStatus?.racePrep?.scheduled).toBeGreaterThan(0));
+    expect(ctx.scheduleStatus!.error).toBeNull();
+    expect(ctx.scheduleStatus!.racePrep!.scheduled).toBe(state.pending.size);
+    expect(ctx.scheduleStatus!.racePrep!.next).toEqual({ year: 2026, month: 10, day: 11, hour: 16, minute: 0 }); // Sunday 4 p.m. by default
+    expect(ctx.scheduleStatus!.betweenRace).toBeNull();
+  });
+
+  it('with no upcoming race, says why nothing is scheduled (race prep) and schedules the prompts instead (between-race)', async () => {
+    mockRaces.data = [completedRace()];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true }, betweenRace: { enabled: true } }));
+    await mount(api);
+    await waitFor(() => expect(ctx.scheduleStatus?.betweenRace?.scheduled).toBe(8));
+    expect(ctx.scheduleStatus!.racePrep).toMatchObject({ scheduled: 0, note: 'Nothing to schedule yet. Save an upcoming race and reminders start automatically.' });
+    expect(state.pending.size).toBe(8);
+  });
+
+  it('says between-race prompts are paused while an upcoming race exists', async () => {
+    mockRaces.data = [race()];
+    const { api } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ betweenRace: { enabled: true } }));
+    await mount(api);
+    await waitFor(() => expect(ctx.scheduleStatus?.betweenRace).not.toBeUndefined());
+    expect(ctx.scheduleStatus!.betweenRace).toMatchObject({ scheduled: 0, note: expect.stringMatching(/^Paused while you have an upcoming race/) });
+  });
+
+  it('says a completed checklist leaves nothing to remind about', async () => {
+    const { CHECKLIST_TEMPLATE } = jest.requireActual('@/lib/checklistTemplate');
+    mockRaces.data = [race({ checklistCompleted: CHECKLIST_TEMPLATE.map((item: { id: string }) => item.id) })];
+    const { api } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    await mount(api);
+    await waitFor(() => expect(ctx.scheduleStatus?.racePrep).not.toBeUndefined());
+    expect(ctx.scheduleStatus!.racePrep!.note).toMatch(/every relevant Race Prep item is checked/);
+  });
+
+  it('reports a problem instead of staying silent: iOS refusing a reminder, iOS not listing what was scheduled, or scheduling throwing', async () => {
+    mockRaces.data = [race()];
+    const refused = createFakeApi({ permission: 'granted' });
+    refused.state.scheduleError = new Error('Failed to build notification request');
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    const first = await mount(refused.api);
+    await waitFor(() => expect(ctx.scheduleStatus?.error).toMatch(/iOS refused \d+ reminders/));
+    await first.unmount();
+
+    const dropped = createFakeApi({ permission: 'granted' });
+    dropped.state.dropScheduled = true;
+    const second = await mount(dropped.api);
+    await waitFor(() => expect(ctx.scheduleStatus?.error).toMatch(/Scheduled \d+ but iOS lists only 0/));
+    await second.unmount();
+  });
+
+  it('shows no status while permission is off or nothing is enabled', async () => {
+    mockRaces.data = [race()];
+    const { api } = createFakeApi({ permission: 'denied' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    await mount(api);
+    await waitFor(() => expect(ctx.ready).toBe(true));
+    await settle();
+    expect(ctx.scheduleStatus).toBeNull();
+  });
+
+  it('schedules real reminders with an explicit timezone', async () => {
+    mockRaces.data = [race()];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await AsyncStorage.setItem(PREFS_KEY_PREFIX + 'athlete-1', JSON.stringify({ racePrep: { enabled: true } }));
+    await mount(api);
+    await waitFor(() => expect(state.scheduled.length).toBeGreaterThan(0));
+    expect(typeof state.scheduled[0]!.timeZone).toBe('string');
+  });
+});
+
+describe('development test notifications are left alone by reconciliation', () => {
+  it('keeps a pending test notification through enabling, editing, disabling and session loss of the real reminders', async () => {
+    mockRaces.data = [race()];
+    const { api, state } = createFakeApi({ permission: 'granted' });
+    await api.schedule({ identifier: 'rs-test:athlete-1:basic:1', title: 't', body: 'b', data: {}, fireAt: { year: 2026, month: 10, day: 8, hour: 12, minute: 0 }, intervalSeconds: 60 });
+    const view = await mount(api);
+    await waitFor(() => expect(ctx.ready).toBe(true));
+    await act(async () => {
+      await ctx.enable('racePrep');
+    });
+    await waitFor(() => expect(ctx.scheduleStatus?.racePrep?.scheduled).toBeGreaterThan(0));
+    await act(async () => {
+      await ctx.updateSchedule({ racePrep: { weeklyDay: 3 } });
+    });
+    await settle();
+    await act(async () => {
+      await ctx.disable('racePrep');
+    });
+    await settle();
+    expect(state.pending.size).toBe(1);
+    expect(state.pending.has('rs-test:athlete-1:basic:1')).toBe(true);
+    mockSession = null;
+    await view.rerenderTree();
+    await settle();
+    expect(state.pending.has('rs-test:athlete-1:basic:1')).toBe(true);
+    expect(state.cancelled.some((id) => id.startsWith('rs-test:'))).toBe(false);
+  });
+});

@@ -17,7 +17,11 @@ export interface ReconcileSummary {
   failed: number;
 }
 
-export async function reconcileSchedule(api: NotificationsApi, desired: PlannedNotification[], options: { rescheduleAll?: boolean } = {}): Promise<ReconcileSummary> {
+export async function reconcileSchedule(
+  api: NotificationsApi,
+  desired: PlannedNotification[],
+  options: { rescheduleAll?: boolean; timeZone?: string | null } = {},
+): Promise<ReconcileSummary> {
   const pending = await api.listPending();
   const ours = pending.filter((p) => isOurs(p.identifier));
   const wanted = new Set(options.rescheduleAll ? [] : desired.map((n) => n.identifier));
@@ -38,7 +42,7 @@ export async function reconcileSchedule(api: NotificationsApi, desired: PlannedN
   for (const notification of desired) {
     if (stillPending.has(notification.identifier)) continue;
     try {
-      await api.schedule({ identifier: notification.identifier, title: notification.title, body: notification.body, data: notification.data as unknown as Record<string, unknown>, fireAt: notification.fireAt });
+      await api.schedule({ identifier: notification.identifier, title: notification.title, body: notification.body, data: notification.data as unknown as Record<string, unknown>, fireAt: notification.fireAt, ...(options.timeZone ? { timeZone: options.timeZone } : {}) });
       summary.scheduled += 1;
     } catch (err) {
       summary.failed += 1;

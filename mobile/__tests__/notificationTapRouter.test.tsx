@@ -4,12 +4,15 @@ import { act, render } from '@testing-library/react-native';
 import { NotificationTapRouter, resetHandledTaps } from '@/components/notifications/NotificationTapRouter';
 import type { Race } from '@/fixtures/races';
 import { resetOverlayBlockers, setOverlayBlocked } from '@/lib/overlayBlockers';
+import { Alert } from 'react-native';
 
 /**
  * Tapping a notification: validated against the signed-in account and current data, handled exactly once (cold start and warm taps arrive the same
  * way), cleared afterwards, held until it is safe, and dropped in onboarding or when signed out.
  */
 
+let mockVariant: 'development' | 'production' = 'development';
+jest.mock('@/lib/environment', () => ({ getAppVariant: () => mockVariant }));
 const mockPush = jest.fn();
 const mockNavigate = jest.fn();
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, navigate: mockNavigate }) }));
@@ -37,6 +40,7 @@ beforeEach(() => {
   mockSession = { user: { id: 'athlete-1' } };
   mockRaces = { isLoading: false, data: [race()] };
   mockSettled = true;
+  mockVariant = 'development';
 });
 
 const mountRouter = async (phase: 'app' | 'onboarding' = 'app') => render(<NotificationTapRouter phase={phase} />);
@@ -150,5 +154,33 @@ describe('account and state validation', () => {
     await mountRouter();
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockClear).not.toHaveBeenCalled();
+  });
+});
+
+describe('the development test notification', () => {
+  it('confirms the tap in the development variant, once, and navigates nowhere', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockTap = tap({ v: 1, a: 'athlete-1', t: 'test' });
+    const view = await mountRouter();
+    expect(alertSpy).toHaveBeenCalledWith('Test notification tapped', expect.stringMatching(/Tap handling works/));
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    await view.rerender(<NotificationTapRouter phase="app" />);
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  it('shows nothing in the production variant, and ignores a test notification for another account', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockVariant = 'production';
+    mockTap = tap({ v: 1, a: 'athlete-1', t: 'test' });
+    await mountRouter();
+    expect(alertSpy).not.toHaveBeenCalled();
+    resetHandledTaps();
+    mockVariant = 'development';
+    mockTap = tap({ v: 1, a: 'someone-else', t: 'test' }, 'tap-2');
+    await mountRouter();
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
   });
 });

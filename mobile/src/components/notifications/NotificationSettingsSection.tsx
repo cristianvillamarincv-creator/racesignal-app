@@ -5,8 +5,8 @@ import { Platform, Pressable, StyleSheet, Switch, Text, useColorScheme, View, ty
 import { HairlineRule } from '@/components/HairlineRule';
 import { SectionHeader } from '@/components/SectionHeader';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
-import { formatTimeOfDay, formatWeeklySlot, SIGNAL_ASK_NOTE } from '@/lib/notifications/format';
-import { useNotifications, type NotificationType } from '@/lib/notifications/NotificationsProvider';
+import { formatLocalMoment, formatTimeOfDay, formatWeeklySlot, SIGNAL_ASK_NOTE } from '@/lib/notifications/format';
+import { useNotifications, type NotificationType, type ScheduleStatusEntry } from '@/lib/notifications/NotificationsProvider';
 import { weekdayName, type Weekday } from '@/lib/notifications/prefs';
 import { minTouchSize, spacing } from '@/lib/theme';
 
@@ -46,6 +46,14 @@ function DayChips({ value, onPick, styles, palette }: { value: Weekday; onPick: 
   );
 }
 
+/** What is actually scheduled with iOS for this type, read back after the last reconcile (or why nothing is). */
+function StatusLine({ entry, styles }: { entry: ScheduleStatusEntry | null | undefined; styles: Styles }) {
+  if (!entry) return <Text style={styles.status}>Checking…</Text>;
+  if (entry.scheduled === 0) return <Text style={styles.status}>{entry.note ?? 'Nothing scheduled.'}</Text>;
+  const count = `${entry.scheduled} reminder${entry.scheduled === 1 ? '' : 's'} scheduled`;
+  return <Text style={styles.status}>{entry.next ? `${count}. Next: ${formatLocalMoment(entry.next)}.` : `${count}.`}</Text>;
+}
+
 function ScheduleRow({ label, value, open, onPress, styles, children }: { label: string; value: string; open: boolean; onPress: () => void; styles: Styles; children: ReactNode }) {
   return (
     <View>
@@ -63,7 +71,7 @@ function ScheduleRow({ label, value, open, onPress, styles, children }: { label:
  * editable weekly day and time (and the race-milestone time), and a clear message with a shortcut when iOS permission is denied or was turned off later.
  */
 export function NotificationSettingsSection() {
-  const { prefs, permission, enable, disable, updateSchedule, openSystemSettings } = useNotifications();
+  const { prefs, permission, scheduleStatus, enable, disable, updateSchedule, openSystemSettings } = useNotifications();
   const palette = useBrandPalette();
   const scheme = useColorScheme();
   const styles = useMemo(() => createStyles(palette), [palette]);
@@ -125,6 +133,7 @@ export function NotificationSettingsSection() {
       </View>
       {prefs.racePrep.enabled ? (
         <View>
+          <StatusLine entry={scheduleStatus?.racePrep} styles={styles} />
           <ScheduleRow
             styles={styles}
             label="Weekly reminder"
@@ -158,6 +167,7 @@ export function NotificationSettingsSection() {
           trackColor={{ true: palette.signalBlue, false: withAlpha(palette.inkSecondary, 0.3) }}
         />
       </View>
+      {prefs.betweenRace.enabled ? <StatusLine entry={scheduleStatus?.betweenRace} styles={styles} /> : null}
       {prefs.betweenRace.enabled ? (
         <ScheduleRow
             styles={styles}
@@ -168,6 +178,12 @@ export function NotificationSettingsSection() {
           <DayChips styles={styles} palette={palette} value={prefs.betweenRace.day} onPick={(day) => void updateSchedule({ betweenRace: { day } })} />
           {picker('betweenWeekly', prefs.betweenRace.hour, prefs.betweenRace.minute)}
         </ScheduleRow>
+      ) : null}
+
+      {scheduleStatus?.error ? (
+        <View style={styles.warning} accessibilityRole="alert">
+          <Text style={styles.warningText}>{scheduleStatus.error}</Text>
+        </View>
       ) : null}
 
       {(permissionOff && anyEnabled) || denied ? (
@@ -195,6 +211,7 @@ interface Styles {
   dayRow: ViewStyle;
   dayChip: ViewStyle;
   dayLetter: TextStyle;
+  status: TextStyle;
   warning: ViewStyle;
   warningText: TextStyle;
   warningButton: ViewStyle;
@@ -215,6 +232,7 @@ function createStyles(palette: BrandPalette): Styles {
     dayRow: { flexDirection: 'row', justifyContent: 'space-between' },
     dayChip: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: palette.hairline, alignItems: 'center', justifyContent: 'center' },
     dayLetter: { fontSize: 14, fontWeight: '600', color: palette.ink },
+    status: { fontSize: 13, lineHeight: 18, color: palette.inkSecondary, paddingBottom: spacing.xs },
     warning: { gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: 12, backgroundColor: withAlpha(palette.danger, 0.1) },
     warningText: { fontSize: 13, lineHeight: 18, color: palette.ink },
     warningButton: { minHeight: minTouchSize, justifyContent: 'center' },

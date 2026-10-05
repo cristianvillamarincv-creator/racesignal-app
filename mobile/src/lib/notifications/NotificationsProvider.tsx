@@ -3,6 +3,8 @@ import { AppState } from 'react-native';
 
 import { useAuth } from '@/lib/auth';
 import { installForegroundHandler, notificationsApi, type NotificationsApi, type PermissionState } from '@/lib/notifications/api';
+import { describeError } from '@/lib/notifications/devTests';
+import { toDate, type LocalDateTime } from '@/lib/notifications/localTime';
 import { eligibleUpcomingRaces, planNotifications } from '@/lib/notifications/planner';
 import { DEFAULT_PREFS, type NotificationPrefs, type Weekday } from '@/lib/notifications/prefs';
 import { loadPrefs, savePrefs } from '@/lib/notifications/prefsStorage';
@@ -24,6 +26,21 @@ import { useAthleteRaces } from '@/lib/racesContext';
 export type NotificationType = 'racePrep' | 'betweenRace';
 export type Invitation = { kind: 'racePrep'; raceId: string } | { kind: 'betweenRace' };
 
+/** What reconciliation last did, read back from iOS, so Settings can confirm that reminders exist (or say why none do). */
+export interface ScheduleStatusEntry {
+  /** Reminders of this type that iOS lists as pending. */
+  scheduled: number;
+  next: LocalDateTime | null;
+  /** Why nothing is scheduled, or another thing worth knowing. */
+  note: string | null;
+}
+export interface ScheduleStatus {
+  racePrep: ScheduleStatusEntry | null;
+  betweenRace: ScheduleStatusEntry | null;
+  /** A problem scheduling or verifying (never swallowed silently). */
+  error: string | null;
+}
+
 export interface SchedulePatch {
   racePrep?: Partial<Pick<NotificationPrefs['racePrep'], 'weeklyDay' | 'weeklyHour' | 'weeklyMinute' | 'milestoneHour' | 'milestoneMinute'>>;
   betweenRace?: Partial<Pick<NotificationPrefs['betweenRace'], 'day' | 'hour' | 'minute'>>;
@@ -34,6 +51,8 @@ interface NotificationsContextValue {
   ready: boolean;
   prefs: NotificationPrefs;
   permission: PermissionState | 'unknown';
+  /** The result of the last reconcile, verified against iOS's pending list; null while nothing is enabled. */
+  scheduleStatus: ScheduleStatus | null;
   /** Asks iOS for permission only now (never earlier), then turns the type on with its defaults. */
   enable: (type: NotificationType) => Promise<'enabled' | 'denied'>;
   disable: (type: NotificationType) => Promise<void>;
@@ -105,6 +124,7 @@ export function NotificationsProvider({
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [permission, setPermission] = useState<PermissionState | 'unknown'>('unknown');
   const [racePrepOfferRaceId, setRacePrepOfferRaceId] = useState<string | null>(null);
+  const [scheduleStatus, setScheduleStatus] = useState<ScheduleStatus | null>(null);
   const rotationRef = useRef<RotationState>(EMPTY_ROTATION);
   const prefsRef = useRef(prefs);
   prefsRef.current = prefs;
@@ -121,6 +141,7 @@ export function NotificationsProvider({
     setPrefsState(DEFAULT_PREFS);
     rotationRef.current = EMPTY_ROTATION;
     setRacePrepOfferRaceId(null);
+    setScheduleStatus(null);
     if (!athleteId) return;
     (async () => {
       const [loaded, rotation] = await Promise.all([loadPrefs(athleteId), loadRotation(athleteId)]);
@@ -171,6 +192,7 @@ export function NotificationsProvider({
       try {
         if (!athleteId) {
           await cancelAllOurs(api);
+          setScheduleStatus(null);
           return;
         }
         if (!ready || races.isLoading || races.isError) return; // never plan from data that is not there yet
@@ -179,12 +201,40 @@ export function NotificationsProvider({
         setPermission(state);
         if ((!current.racePrep.enabled && !current.betweenRace.enabled) || state !== 'granted') {
           await cancelAllOurs(api);
+          setScheduleStatus(null);
           return;
         }
         const zone = currentTimeZone();
         const zoneChanged = current.lastTimeZone !== null && zone !== null && current.lastTimeZone !== zone;
         const plan = planNotifications({ now: now(), athleteId, prefs: current, races: races.data, rotation: rotationRef.current });
-        await reconcileSchedule(api, plan.notifications, { rescheduleAll: zoneChanged });
+        const summary = await reconcileSchedule(api, plan.notifications, { rescheduleAll: zoneChanged, timeZone: zone });
+        // Read iOS's pending list back: a reminder only counts as scheduled if iOS lists it.
+        const pendingIds = new Set((await api.listPending()).map((entry) => entry.identifier));
+        const verified = plan.notifications.filter((n) => pendingIds.has(n.identifier));
+        const entry = (kinds: string[], enabled: boolean, note: string | null): ScheduleStatusEntry | null => {
+          if (!enabled) return null;
+          const mine = verified.filter((n) => kinds.includes(n.kind)).sort((a, b) => toDate(a.fireAt).getTime() - toDate(b.fireAt).getTime());
+          return { scheduled: mine.length, next: mine[0]?.fireAt ?? null, note: mine.length === 0 ? note : null };
+        };
+        const racePrepNote =
+          plan.eligibleCount === 0
+            ? 'Nothing to schedule yet. Save an upcoming race and reminders start automatically.'
+            : plan.candidateCount === 0
+              ? 'Nothing to remind you about: every relevant Race Prep item is checked.'
+              : 'No reminders fall in the next 12 weeks yet.';
+        const betweenNote = plan.hasUpcomingRace ? 'Paused while you have an upcoming race. It resumes automatically afterward.' : 'No prompts could be scheduled.';
+        const missing = plan.notifications.length - verified.length;
+        console.log('[notifications] reconcile', { planned: plan.notifications.length, verified: verified.length, scheduled: summary.scheduled, cancelled: summary.cancelled, kept: summary.kept, failed: summary.failed });
+        setScheduleStatus({
+          racePrep: entry(['weekly', 'milestone', 'milestones-combined'], current.racePrep.enabled, racePrepNote),
+          betweenRace: entry(['between'], current.betweenRace.enabled, betweenNote),
+          error:
+            summary.failed > 0
+              ? `iOS refused ${summary.failed} reminder${summary.failed === 1 ? '' : 's'}. Open the development test tools for details.`
+              : missing > 0
+                ? `Scheduled ${plan.notifications.length} but iOS lists only ${verified.length}.`
+                : null,
+        });
         if (!sameRotation(plan.rotation, rotationRef.current)) {
           rotationRef.current = plan.rotation;
           await saveRotation(athleteId, plan.rotation);
@@ -192,6 +242,7 @@ export function NotificationsProvider({
         if (zone !== null && current.lastTimeZone !== zone) await persist({ ...prefsRef.current, lastTimeZone: zone });
       } catch (err) {
         console.warn('[notifications] reconcile failed:', err);
+        setScheduleStatus({ racePrep: null, betweenRace: null, error: `Could not schedule reminders: ${describeError(err)}` });
       }
     };
     queue.current = queue.current.then(run, run);
@@ -309,6 +360,7 @@ export function NotificationsProvider({
       ready,
       prefs,
       permission,
+      scheduleStatus,
       enable,
       disable,
       updateSchedule,
@@ -322,7 +374,7 @@ export function NotificationsProvider({
       api,
       reconcileNow: reconcile,
     }),
-    [ready, prefs, permission, enable, disable, updateSchedule, refreshPermission, api, invitation, markInvitationPresented, dismissInvitation, requestRacePrepOffer, cancelAllForSignOut, reconcile],
+    [ready, prefs, permission, scheduleStatus, enable, disable, updateSchedule, refreshPermission, api, invitation, markInvitationPresented, dismissInvitation, requestRacePrepOffer, cancelAllForSignOut, reconcile],
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

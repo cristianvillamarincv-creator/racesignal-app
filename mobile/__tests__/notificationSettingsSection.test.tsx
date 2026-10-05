@@ -12,8 +12,9 @@ const mockUpdate = jest.fn();
 const mockOpenSettings = jest.fn();
 let mockPrefs: any;
 let mockPermission: string;
+let mockStatus: any = null;
 jest.mock('@/lib/notifications/NotificationsProvider', () => ({
-  useNotifications: () => ({ prefs: mockPrefs, permission: mockPermission, enable: mockEnable, disable: mockDisable, updateSchedule: mockUpdate, openSystemSettings: mockOpenSettings }),
+  useNotifications: () => ({ prefs: mockPrefs, permission: mockPermission, scheduleStatus: mockStatus, enable: mockEnable, disable: mockDisable, updateSchedule: mockUpdate, openSystemSettings: mockOpenSettings }),
 }));
 
 const basePrefs = () => ({
@@ -24,6 +25,7 @@ const basePrefs = () => ({
 beforeEach(() => {
   mockPrefs = basePrefs();
   mockPermission = 'undetermined';
+  mockStatus = null;
   mockEnable.mockReset().mockResolvedValue('enabled');
   mockDisable.mockReset().mockResolvedValue(undefined);
   mockUpdate.mockReset().mockResolvedValue(undefined);
@@ -107,5 +109,36 @@ describe('Notifications settings', () => {
       fireEvent(ui.getByLabelText('Race-prep reminders'), 'valueChange', true);
     });
     expect(ui.getByText(/Turn them on in iOS Settings, then switch this back on here\./)).toBeTruthy();
+  });
+});
+
+describe('what is actually scheduled', () => {
+  it('confirms enabled reminders with the count and the next one, read back from iOS (no separate scheduling step)', async () => {
+    mockPrefs = { ...basePrefs(), racePrep: { ...basePrefs().racePrep, enabled: true } };
+    mockPermission = 'granted';
+    mockStatus = { racePrep: { scheduled: 9, next: { year: 2026, month: 10, day: 11, hour: 16, minute: 0 }, note: null }, betweenRace: null, error: null };
+    const ui = await render(<NotificationSettingsSection />);
+    expect(ui.getByText('9 reminders scheduled. Next: Sun, Oct 11, 4:00 PM.')).toBeTruthy();
+  });
+
+  it('says why nothing is scheduled instead of leaving the switch unexplained', async () => {
+    mockPrefs = { ...basePrefs(), racePrep: { ...basePrefs().racePrep, enabled: true }, betweenRace: { ...basePrefs().betweenRace, enabled: true } };
+    mockPermission = 'granted';
+    mockStatus = {
+      racePrep: { scheduled: 0, next: null, note: 'Nothing to schedule yet. Save an upcoming race and reminders start automatically.' },
+      betweenRace: { scheduled: 8, next: { year: 2026, month: 10, day: 11, hour: 16, minute: 0 }, note: null },
+      error: null,
+    };
+    const ui = await render(<NotificationSettingsSection />);
+    expect(ui.getByText('Nothing to schedule yet. Save an upcoming race and reminders start automatically.')).toBeTruthy();
+    expect(ui.getByText('8 reminders scheduled. Next: Sun, Oct 11, 4:00 PM.')).toBeTruthy();
+  });
+
+  it('shows a scheduling problem as an alert', async () => {
+    mockPrefs = { ...basePrefs(), racePrep: { ...basePrefs().racePrep, enabled: true } };
+    mockPermission = 'granted';
+    mockStatus = { racePrep: null, betweenRace: null, error: 'Could not schedule reminders: boom' };
+    const ui = await render(<NotificationSettingsSection />);
+    expect(ui.getByText('Could not schedule reminders: boom')).toBeTruthy();
   });
 });

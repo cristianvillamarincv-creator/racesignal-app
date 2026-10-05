@@ -13,7 +13,9 @@ export const PAYLOAD_VERSION = 1;
 export type TapPayload =
   | { v: 1; a: string; t: 'prep'; r: string; i?: string }
   | { v: 1; a: string; t: 'prep-list' }
-  | { v: 1; a: string; t: 'between'; p: string };
+  | { v: 1; a: string; t: 'between'; p: string }
+  /** Development tools only: a standalone test notification with no destination. */
+  | { v: 1; a: string; t: 'test' };
 
 export function parsePayload(data: unknown): TapPayload | null {
   if (!data || typeof data !== 'object') return null;
@@ -23,6 +25,7 @@ export function parsePayload(data: unknown): TapPayload | null {
     return { v: 1, a: d.a, t: 'prep', r: d.r, ...(typeof d.i === 'string' ? { i: d.i } : {}) };
   }
   if (d.t === 'prep-list') return { v: 1, a: d.a, t: 'prep-list' };
+  if (d.t === 'test') return { v: 1, a: d.a, t: 'test' };
   if (d.t === 'between' && typeof d.p === 'string') return { v: 1, a: d.a, t: 'between', p: d.p };
   return null;
 }
@@ -31,7 +34,9 @@ export type Destination =
   | { kind: 'none' }
   | { kind: 'race'; raceId: string; itemId: string | null }
   | { kind: 'races' }
-  | { kind: 'signal'; promptId: string };
+  | { kind: 'signal'; promptId: string }
+  /** A development test notification was tapped (the tap router shows a confirmation in the development variant only). */
+  | { kind: 'test' };
 
 /** `expand` for a race with no item to highlight. */
 export const PREP_EXPAND_ONLY = '1';
@@ -39,6 +44,7 @@ export const PREP_EXPAND_ONLY = '1';
 export function resolveDestination(payload: TapPayload | null, signedInAthleteId: string | null, races: Race[]): Destination {
   if (!payload || !signedInAthleteId || payload.a !== signedInAthleteId) return { kind: 'none' };
   if (payload.t === 'prep-list') return { kind: 'races' };
+  if (payload.t === 'test') return { kind: 'test' };
   if (payload.t === 'between') return promptById(payload.p) ? { kind: 'signal', promptId: payload.p } : { kind: 'none' };
   const race = races.find((candidate) => candidate.id === payload.r);
   if (!race || race.status === 'completed') return { kind: 'races' };
@@ -55,6 +61,7 @@ export function resolveDestination(payload: TapPayload | null, signedInAthleteId
 export function routeFor(destination: Destination): { pathname: string; params?: Record<string, string> } | null {
   switch (destination.kind) {
     case 'none':
+    case 'test':
       return null;
     case 'races':
       return { pathname: '/' };

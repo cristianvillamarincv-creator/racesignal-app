@@ -21,3 +21,12 @@ export function formatWeeklyPhrase(day: Weekday, hour: number, minute: number): 
 }
 
 export const SIGNAL_ASK_NOTE = 'Sending it needs an available Signal ask or Premium.';
+
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Sun, Oct 11, 4:00 PM" from a local date-time. */
+export function formatLocalMoment(value: { year: number; month: number; day: number; hour: number; minute: number }): string {
+  const weekday = WEEKDAYS_SHORT[new Date(value.year, value.month - 1, value.day).getDay()];
+  return `${weekday}, ${MONTHS_SHORT[value.month - 1]} ${value.day}, ${formatTimeOfDay(value.hour, value.minute)}`;
+}

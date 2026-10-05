@@ -15,8 +15,17 @@ export interface PendingNotification {
   title: string | null;
   body: string | null;
   data: unknown;
-  /** The calendar components the trigger was scheduled with, when the OS reports them. */
+  /** The calendar components the trigger was scheduled with, when the OS reports them (an interval trigger reports none). */
   trigger: { year?: number; month?: number; day?: number; hour?: number; minute?: number } | null;
+}
+
+/** What iOS actually says about notification authorization (not just whether we think we have it). */
+export interface PermissionDetails {
+  state: PermissionState;
+  /** False once the athlete has denied: iOS will not show the prompt again, only Settings can change it. */
+  canAskAgain: boolean;
+  /** iOS's per-setting answers when available, for example { authorization: 'authorized', alerts: 'on', lockScreen: 'on', bannerStyle: 'banner' }. */
+  settings: Record<string, string>;
 }
 
 export interface ScheduleRequest {
@@ -25,6 +34,10 @@ export interface ScheduleRequest {
   body: string;
   data: Record<string, unknown>;
   fireAt: LocalDateTime;
+  /** The IANA timezone the calendar components are in (explicit, so the trigger's meaning does not depend on the OS default). */
+  timeZone?: string;
+  /** Development tools only: deliver this many seconds from now with a time-interval trigger instead of a calendar trigger. */
+  intervalSeconds?: number;
 }
 
 export interface TapResponse {
@@ -35,6 +48,9 @@ export interface TapResponse {
 
 export interface NotificationsApi {
   getPermission(): Promise<PermissionState>;
+  getPermissionDetails(): Promise<PermissionDetails>;
+  /** When iOS itself says this request will next fire (epoch ms), or null; proves the trigger shape is valid before anything is relied on. */
+  nextTriggerTime(request: ScheduleRequest): Promise<number | null>;
   /** Shows the iOS permission prompt (once; afterwards it returns the existing decision). */
   requestPermission(): Promise<PermissionState>;
   listPending(): Promise<PendingNotification[]>;
@@ -58,9 +74,50 @@ export function installForegroundHandler(): void {
   });
 }
 
+function triggerFor(request: ScheduleRequest): Notifications.SchedulableNotificationTriggerInput {
+  if (request.intervalSeconds !== undefined) {
+    return { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: request.intervalSeconds, repeats: false };
+  }
+  // Calendar COMPONENTS with an explicit timezone. (expo-notifications 0.32 builds the iOS trigger from a DateComponents whose calendar is
+  // ISO8601 and applies the timezone only if one is given, so the meaning is fixed at scheduling time; the schedule is rebuilt when the device
+  // timezone changes.) One-shot, so no repeats.
+  return {
+    type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+    year: request.fireAt.year,
+    month: request.fireAt.month,
+    day: request.fireAt.day,
+    hour: request.fireAt.hour,
+    minute: request.fireAt.minute,
+    second: 0,
+    repeats: false,
+    ...(request.timeZone ? { timezone: request.timeZone } : {}),
+  };
+}
+
 export const notificationsApi: NotificationsApi = {
   async getPermission() {
     return toState((await Notifications.getPermissionsAsync()).status);
+  },
+  async getPermissionDetails() {
+    const result = await Notifications.getPermissionsAsync();
+    const ios = result.ios;
+    const settings: Record<string, string> = {};
+    if (ios) {
+      const names: Record<number, string> = { 0: 'notDetermined', 1: 'denied', 2: 'authorized', 3: 'provisional', 4: 'ephemeral' };
+      settings.authorization = names[ios.status] ?? String(ios.status);
+      const flag = (value: boolean | null | undefined) => (value === null || value === undefined ? undefined : value ? 'on' : 'off');
+      const entries: [string, string | undefined][] = [
+        ['alerts', flag(ios.allowsAlert)],
+        ['lockScreen', flag(ios.allowsDisplayOnLockScreen)],
+        ['notificationCenter', flag(ios.allowsDisplayInNotificationCenter)],
+        ['bannerStyle', ios.alertStyle === 0 ? 'none' : ios.alertStyle === 1 ? 'banner' : ios.alertStyle === 2 ? 'alert' : undefined],
+      ];
+      for (const [key, value] of entries) if (value) settings[key] = value;
+    }
+    return { state: toState(result.status), canAskAgain: result.canAskAgain !== false, settings };
+  },
+  async nextTriggerTime(request) {
+    return Notifications.getNextTriggerDateAsync(triggerFor(request));
   },
   async requestPermission() {
     const result = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: false, allowSound: false } });
@@ -84,18 +141,7 @@ export const notificationsApi: NotificationsApi = {
     await Notifications.scheduleNotificationAsync({
       identifier: request.identifier,
       content: { title: request.title, body: request.body, data: request.data, sound: false },
-      // Calendar COMPONENTS with no timezone: iOS evaluates them in the device's current timezone when they fire, so "4 p.m." stays 4 p.m.
-      // after a timezone change. This is the intended behavior and still needs device verification (see docs/notifications.md).
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
-        year: request.fireAt.year,
-        month: request.fireAt.month,
-        day: request.fireAt.day,
-        hour: request.fireAt.hour,
-        minute: request.fireAt.minute,
-        second: 0,
-        repeats: false,
-      },
+      trigger: triggerFor(request),
     });
   },
   async cancel(identifier) {

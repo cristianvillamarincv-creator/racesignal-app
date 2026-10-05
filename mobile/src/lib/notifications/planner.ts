@@ -73,6 +73,10 @@ export interface PlanResult {
   rotation: RotationState;
   /** True while an eligible upcoming race exists (between-race prompts are paused). */
   hasUpcomingRace: boolean;
+  /** Eligible upcoming races (incomplete, dated today or later). */
+  eligibleCount: number;
+  /** Of those, the ones with unchecked relevant checklist items (the only ones that get reminders). */
+  candidateCount: number;
 }
 
 export const IDENTIFIER_PREFIX = 'rs:';
@@ -163,15 +167,16 @@ export function planNotifications(input: PlanInput): PlanResult {
   const hasUpcomingRace = upcoming.length > 0;
   const planned: PlannedNotification[] = [];
 
+  const candidates: EligibleRace[] = upcoming
+    .map(({ race, date }) => {
+      const relevance = relevantItemsFor(race.sport);
+      return { race, date, uncertain: relevance.uncertain, open: uncheckedRelevantItems(race.sport, race.checklistCompleted) };
+    })
+    .filter((entry) => entry.open.length > 0); // a completed checklist gets no reminders
+
   // ---- Race prep ----
   if (prefs.racePrep.enabled) {
     const horizon = addCalendarDays(now, RACE_HORIZON_DAYS).getTime();
-    const candidates: EligibleRace[] = upcoming
-      .map(({ race, date }) => {
-        const relevance = relevantItemsFor(race.sport);
-        return { race, date, uncertain: relevance.uncertain, open: uncheckedRelevantItems(race.sport, race.checklistCompleted) };
-      })
-      .filter((entry) => entry.open.length > 0); // a completed checklist gets no reminders
 
     // Milestones (all of them, even past the horizon, count for suppression; only the in-horizon ones are scheduled).
     interface Milestone { entry: EligibleRace; which: 7 | 2; at: Date }
@@ -268,5 +273,5 @@ export function planNotifications(input: PlanInput): PlanResult {
   }
 
   planned.sort((a, b) => toDate(a.fireAt).getTime() - toDate(b.fireAt).getTime());
-  return { notifications: planned.slice(0, MAX_PENDING), rotation, hasUpcomingRace };
+  return { notifications: planned.slice(0, MAX_PENDING), rotation, hasUpcomingRace, eligibleCount: upcoming.length, candidateCount: candidates.length };
 }

@@ -12,6 +12,7 @@ describe('parsePayload', () => {
     expect(parsePayload({ v: 1, a: ME, t: 'prep', r: 'r1' })).toEqual({ v: 1, a: ME, t: 'prep', r: 'r1' });
     expect(parsePayload({ v: 1, a: ME, t: 'prep-list' })).toEqual({ v: 1, a: ME, t: 'prep-list' });
     expect(parsePayload({ v: 1, a: ME, t: 'between', p: 'went-well' })).toEqual({ v: 1, a: ME, t: 'between', p: 'went-well' });
+    expect(parsePayload({ v: 1, a: ME, t: 'test' })).toEqual({ v: 1, a: ME, t: 'test' });
     for (const bad of [null, undefined, 'x', {}, { v: 2, a: ME, t: 'prep-list' }, { v: 1, t: 'prep-list' }, { v: 1, a: '', t: 'prep-list' }, { v: 1, a: ME, t: 'prep' }, { v: 1, a: ME, t: 'between' }, { v: 1, a: ME, t: 'other' }]) {
       expect(parsePayload(bad)).toBeNull();
     }
@@ -53,6 +54,12 @@ describe('resolveDestination: every tap is validated', () => {
     expect(routeFor(d)).toEqual({ pathname: '/signal', params: { starter: 'went-well' } });
     expect(resolveDestination(parsePayload({ v: 1, a: ME, t: 'between', p: 'unknown' }), ME, [])).toEqual({ kind: 'none' });
     expect(routeFor({ kind: 'none' })).toBeNull();
+  });
+
+  it('a development test payload resolves to a test destination with no route, and only for the signed-in account', () => {
+    expect(resolveDestination(parsePayload({ v: 1, a: ME, t: 'test' }), ME, [])).toEqual({ kind: 'test' });
+    expect(resolveDestination(parsePayload({ v: 1, a: 'other', t: 'test' }), ME, [])).toEqual({ kind: 'none' });
+    expect(routeFor({ kind: 'test' })).toBeNull();
   });
 
   it('every template item id is known to the relevance map (so no item can be named without a question)', () => {

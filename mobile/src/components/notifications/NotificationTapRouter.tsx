@@ -1,8 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
+import { Alert } from 'react-native';
 
 import { useInitialPaywallSettled } from '@/components/InitialPaywallGate';
 import { useAuth } from '@/lib/auth';
+import { getAppVariant } from '@/lib/environment';
 import { clearLastResponse, useLastTap } from '@/lib/notifications/api';
 import { parsePayload, resolveDestination, routeFor } from '@/lib/notifications/payload';
 import { useOverlayBlocked } from '@/lib/overlayBlockers';
@@ -47,6 +49,11 @@ export function NotificationTapRouter({ phase }: { phase: 'onboarding' | 'app' }
     handledTaps.add(tap.key);
     clearLastResponse();
     const destination = resolveDestination(parsePayload(tap.data), athleteId, races.data);
+    if (destination.kind === 'test') {
+      // A development test notification: confirm that taps reach the app. Never shown in the production variant.
+      if (getAppVariant() === 'development') Alert.alert('Test notification tapped', 'Tap handling works: the app received your tap on the test notification.');
+      return;
+    }
     const route = routeFor(destination);
     if (!route) return;
     if (route.pathname === '/') router.navigate('/');

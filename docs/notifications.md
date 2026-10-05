@@ -58,23 +58,40 @@ Tapping the basic or calendar test shows "Test notification tapped" (development
 
 **2026-10-05, first attempt: failed.** The race-prep test scheduled nothing (the account had no active upcoming race; its registered races were removed) and the old tool gave no counts. The between-race prompt test was not delivered, cause never established: the old tool swallowed scheduling errors, never read iOS's pending list back and showed no authorization details. The rebuilt tools answer those questions.
 
-**Passed on the iPhone (development build, no rebuild):**
-- Basic notification delivery and tap handling.
-- Calendar-trigger delivery and tap handling.
-- A between-race notification opens Signal with the matching editable starter.
-- An existing draft (a swimming draft) remains intact, with the starter choice shown.
-- A race-prep notification opens the correct race, expands its checklist and highlights "Hotel booked". The same flow works after swiping the app closed.
+**Passed on the iPhone (development build, no rebuild), reported by the owner:**
 
-**Still open (not passed):**
-- **Automatic keyboard focus.** A screenshot of the Signal screen showed the starter but no keyboard. The earlier code focused the composer from a single 400 ms timer. That can silently do nothing on iOS: a focus is ignored while the app is not yet active (a notification tap launches or resumes the app while it is inactive) and while the navigation transition is still running. It is now handled by `useInputFocusRequest`, which waits for the screen to be focused, the transition to finish and the app to be ACTIVE, then focuses, checks `isFocused()`, and retries up to four more times (and again whenever the app becomes active) until the input really holds focus. The development build also shows a line under the Signal composer ("Keyboard focus (development): focused / NOT focused after N attempts, app active") after a starter, so a device test reads the result from the input rather than from a timer. Unit tests cover the waiting, retry and give-up behavior; **whether the iOS keyboard actually opens is unconfirmed until it is tried on the iPhone.**
-- "Keep my draft" dismissal and "Add starter" behavior have each passed in automated tests but have not been separately confirmed on the device.
-- Milestone delivery (seven-day, two-day), timezone changes, account cleanup (sign-out and deletion), permission changes, invitation timing and larger text sizes.
-- **The countdown fix is not device-verified.** The latest closed-app weekly test still showed 21 days while the race screen showed 14. It was scheduled at 11:15:50, about when the fix (`39f8f02`) shipped, so it may have been scheduled by the earlier bundle (a notification keeps the text it was scheduled with). Re-test with a fresh reload; see below.
-- **Single-race focus is not device-verified** (new, below).
+Test-tool deliveries (accelerated; see the note below):
+- Basic and calendar-trigger notifications delivered, and their taps worked.
+- Between-race prompts opened Signal with the matching starter, without sending a question.
+- Weekly race-prep notification showed the correct countdown: **13 days** for the California race, then **6 days** for the December race after its date was edited. The countdown fix (`39f8f02`) is now device-verified for the accelerated weekly test.
+- The accelerated two-day milestone delivered "Two days until Ironman december", and tapping it opened that race with Race Prep expanded.
+
+Taps, Signal and focus:
+- An empty Signal composer received the starter and the keyboard opened (**automatic keyboard focus: passed** for the starter flow; the dev-only focus line's text was not reported).
+- "Keep my draft" preserved the text and dismissed the choice.
+- "Add starter" appended the starter after the existing text and opened the keyboard. Nothing was sent automatically.
+- Race-prep taps opened the correct race with its checklist expanded. The earlier "Hotel booked" highlight also worked after closing the app.
+
+One race at a time:
+- With two upcoming races, changing December's date to be nearer removed California's pending reminders; only December's two-day reminder remained. Selection by nearest date and cancellation of obsolete reminders on a date edit are **device-verified**.
+
+**Accelerated test delivery is not the same as a real scheduled delivery.** The test tools schedule a notification about a minute ahead (the weekly and milestone tests preview the real wording and countdown at a near time). They prove trigger shape, delivery, tap routing and wording. They do **not** prove that a real weekly (Sunday, default 4 p.m.) or real seven-day or two-day milestone, scheduled by reconciliation for its actual date and time, is delivered at that time. That has not been observed.
+
+**Still pending (not passed, not tested):**
+- Real scheduled deliveries at normal times: a weekly reminder at its set time, and real seven-day and two-day milestones on their dates. The seven-day accelerated test was not reported either.
+- Timezone changes: reminders rebuilt at the preferred hour after the phone's timezone changes.
+- Permission changes: deny then enable via iOS Settings, and revoke after enabling, then reopen.
+- Account cleanup: sign-out and account deletion leave nothing pending; a different account sees nothing from the first.
+- Invitation timing: appears on the second fresh launch with no upcoming race, never over onboarding, the initial paywall or the consent sheet.
+- Larger text sizes in Settings, the invitation sheet and the starter offer.
+- Single-race focus when the nearest race's checklist is completed, the race is removed, or its date passes (only the date-edit case was exercised on the device).
+- Not separately reported: starter delivery from the lock screen, from another app and with the app closed; the checklist toggle and delete reschedule cases.
+
+**The notification feature is not release-ready.** The items above are release blockers until they are verified (or consciously accepted and recorded as such).
 
 ## Countdown wording: the "21 days" finding (2026-10-05)
 
-The development weekly test said "21 days until [race]" while the race screen showed 14. Cause: the **test tool** passed a hard-coded 21 to the weekly wording builder, a leftover placeholder, not a calculation. It was not a real-reminder bug: the planner already computes each weekly reminder's countdown from **its own delivery date** (`calendarDaysBetween(slot day, race date)`), so a reminder delivered on a Sunday counts the days from that Sunday, not from the day it was scheduled. Fixed in the tool: the weekly test now counts the days from the delivery date of the test notification (the next whole minute at least a minute ahead, so it is correct even across midnight), refuses to schedule on race day (as real reminders do), and reports the number it used. The seven-day and two-day tests preview the real milestone wording, which is by definition 7 or 2 days before the race; their result now says when the real reminder is delivered and how many days away the race is today. New tests pin the countdown for every weekly slot (for example, a race 74 days away today is 70 days away for a reminder delivered four days from now) and show the wording is fixed for its delivery date.
+The development weekly test said "21 days until [race]" while the race screen showed 14. Cause: the **test tool** passed a hard-coded 21 to the weekly wording builder, a leftover placeholder, not a calculation. It was not a real-reminder bug: the planner already computes each weekly reminder's countdown from **its own delivery date** (`calendarDaysBetween(slot day, race date)`), so a reminder delivered on a Sunday counts the days from that Sunday, not from the day it was scheduled. Fixed in the tool: the weekly test now counts the days from the delivery date of the test notification (the next whole minute at least a minute ahead, so it is correct even across midnight), refuses to schedule on race day (as real reminders do), and reports the number it used. The seven-day and two-day tests preview the real milestone wording, which is by definition 7 or 2 days before the race; their result now says when the real reminder is delivered and how many days away the race is today. New tests pin the countdown for every weekly slot (for example, a race 74 days away today is 70 days away for a reminder delivered four days from now) and show the wording is fixed for its delivery date. **Device-verified (accelerated weekly test):** 13 days for the California race and 6 days for the edited December race, matching the race screen. A real Sunday delivery has not yet been observed.
 
 ## Full re-test list (development build, no rebuild expected)
 
@@ -91,7 +108,7 @@ If step 1 reports permission or alert problems, it names the iOS Settings path. 
 ## Verified automatically (Jest)
 Planner (defaults, suppression, milestone preservation, 12-week horizon, OS cap, today-or-later eligibility, completed checklists, sport relevance, uncertain sport, copy, one-race-at-a-time focus with stable ties, moving focus on completion, removal, past date and date edits, no combined milestones, between-race pause, 12-month retrospective rule, stability), rotation (no replacement, cycle boundary, persisted assignments, advance, re-seating, pause and resume, eligibility changes), payload validation and routing, reconcile diffing against a fake scheduler, the provider (opt-in and permission, denied, revoked permission, checklist and race changes, loading data, timezone rebuild, account isolation, session loss, launch counting, one-time invitation, rotation persistence), tap routing (once, cleared, wrong account, onboarding, held until safe), the invitation sheet (gating, latching, copy, choices, denied), the Settings section, checklist expand and highlight, Signal drafts and starters (never overwritten, never sent, per athlete, cold start, cleared on send, exhausted paywall unchanged), and sign-out and deletion cleanup.
 
-## Needs a device (development build 2, not yet done)
+## Needs a device (open items; items 2 to 4 and part of 6 passed in accelerated tests, see Device test record)
 1. Enable each type: the iOS prompt appears only then; deny, then enable via iOS Settings; revoke later and reopen.
 2. Test tools: a banner appears; tapping it (app foreground, background, and killed) opens the right screen exactly once.
 3. Highlight: the tapped checklist item is expanded, highlighted and scrolled into view.
@@ -103,9 +120,12 @@ Planner (defaults, suppression, milestone preservation, 12-week horizon, OS cap,
 9. Larger text sizes in Settings, the invitation sheet and the starter offer.
 10. Background delivery of a real weekly slot (set the weekly time a few minutes ahead).
 
-## Targeted re-test (after `Reload` in the app)
+## Remaining re-test (development build)
 
-1. **Countdown.** In Settings → test tools run **Race-prep weekly in ~1 min** with your nearest race. The result line states "The countdown is N days"; the notification body must say the same N, and N must equal the days from the delivery day to the race (the race screen shows days from today, so they can differ by the days between today and delivery only if delivery is on another day; with a one-minute test they match). Do not reuse a notification scheduled before the reload.
-2. **Keyboard focus.** Tap a between-race prompt (test tool or banner) from the lock screen, from another app, and with the app closed. In Signal, with an empty composer, the starter should appear and the keyboard should open. Read the development line under the composer: "focused after N attempts" is a pass; "NOT focused" or no keyboard is a fail (note the attempts and app state it shows). Then, with a saved draft, tap **Add starter** and confirm the keyboard opens and the starter is added after your text; separately tap **Keep my draft** and confirm the draft is unchanged.
-3. **One race at a time.** Save two upcoming races. In Settings → test tools tap **Show pending notifications**: every race-prep line must mention the nearer race only. Edit the farther race's date to be nearer: after reopening Settings (or returning to the app) the pending list should switch to that race and the old lines disappear. Mark the nearest race's checklist complete: pending race-prep lines for it disappear and the later race is NOT used.
-4. Switch off Race-prep reminders, then on again: the status line under the switch shows the count and next reminder.
+Done on the device (see Device test record): countdown, keyboard focus, Keep my draft, Add starter, single-race selection and date-edit cancellation, accelerated weekly and two-day delivery and taps. Still to do:
+
+1. **Real weekly delivery.** Set the weekly time a few minutes ahead in Settings, leave the app, and confirm the reminder arrives at that time with the countdown for its delivery date (not just the accelerated test). Do the same for a real milestone if a race date allows (two or seven days out).
+2. **Single-race focus.** With two upcoming races, mark the nearest race's checklist complete (pending lines for it disappear; the later race must not be used). Then delete the nearest race: the later race becomes the focus.
+3. **Timezone.** Schedule, change the phone's timezone, reopen the app, and check that "Show pending notifications" lists the new times.
+4. **Permission, account and invitation**: items 1, 7 and 8 above. **Larger text**: item 9 above.
+5. Switch off Race-prep reminders, then on again: the status line under the switch shows the count and next reminder.

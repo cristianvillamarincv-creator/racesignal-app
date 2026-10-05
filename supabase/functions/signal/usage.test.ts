@@ -15,6 +15,7 @@ import {
   currentMonthWindow,
   failSignalRequest,
   getSignalUsage,
+  nextMonthWindowStart,
   releaseSignalAsk,
   reserveSignalAsk,
   type RpcClient,
@@ -587,19 +588,20 @@ function readOnlyClient(rows: Record<string, Record<string, unknown> | null>, er
 Deno.test('usage read: free is the lifetime counter, remaining is cap minus used floored at 0, and only selects run', async () => {
   for (const [used, remaining] of [[0, 3], [2, 1], [3, 0], [5, 0]] as const) {
     const { client, calls } = readOnlyClient({ signal_free_usage: { lifetime_count: used } });
-    assertEquals(await getSignalUsage(client, 'a1', 'free', CAPS, '2026-10-01'), { ok: true, remaining, cap: 3, isPremium: false });
+    assertEquals(await getSignalUsage(client, 'a1', 'free', CAPS, '2026-10-01'), { ok: true, remaining, cap: 3, isPremium: false, resetsAt: null });
     assertEquals(calls, ['from:signal_free_usage', 'select:lifetime_count', 'eq:athlete_id=a1', 'maybeSingle']);
   }
 });
 
 Deno.test('usage read: no counter row yet is a genuine zero used (full allowance), free and premium', async () => {
-  assertEquals(await getSignalUsage(readOnlyClient({}).client, 'a1', 'free', CAPS), { ok: true, remaining: 3, cap: 3, isPremium: false });
-  assertEquals(await getSignalUsage(readOnlyClient({}).client, 'a1', 'premium', CAPS), { ok: true, remaining: 40, cap: 40, isPremium: true });
+  assertEquals(await getSignalUsage(readOnlyClient({}).client, 'a1', 'free', CAPS), { ok: true, remaining: 3, cap: 3, isPremium: false, resetsAt: null });
+  const result = await getSignalUsage(readOnlyClient({}).client, 'a1', 'premium', CAPS, '2026-10-01', new Date('2026-10-15T12:00:00Z'));
+  assertEquals(result, { ok: true, remaining: 40, cap: 40, isPremium: true, resetsAt: '2026-11-01T00:00:00.000Z' });
 });
 
 Deno.test('usage read: premium reads the current month window of the monthly counter and never touches the free counter', async () => {
   const { client, calls } = readOnlyClient({ signal_rate_limit: { premium_request_count: 33 }, signal_free_usage: { lifetime_count: 3 } });
-  assertEquals(await getSignalUsage(client, 'a1', 'premium', CAPS, '2026-10-01'), { ok: true, remaining: 7, cap: 40, isPremium: true });
+  assertEquals(await getSignalUsage(client, 'a1', 'premium', CAPS, '2026-10-01', new Date('2026-10-04T23:00:00Z')), { ok: true, remaining: 7, cap: 40, isPremium: true, resetsAt: '2026-11-01T00:00:00.000Z' });
   assertEquals(calls, ['from:signal_rate_limit', 'select:premium_request_count', 'eq:athlete_id=a1', 'eq:window_date=2026-10-01', 'maybeSingle']);
 });
 
@@ -618,4 +620,20 @@ Deno.test('usage read: repeated reads never change what a read returns (no count
   const { client } = readOnlyClient({ signal_free_usage: { lifetime_count: 1 } });
   const first = await getSignalUsage(client, 'a1', 'free', CAPS);
   for (let i = 0; i < 5; i++) assertEquals(await getSignalUsage(client, 'a1', 'free', CAPS), first);
+});
+
+Deno.test('nextMonthWindowStart: midnight UTC at the start of the next UTC calendar month, including year rollover and boundaries', () => {
+  assertEquals(nextMonthWindowStart(new Date('2026-10-15T12:00:00Z')), '2026-11-01T00:00:00.000Z');
+  assertEquals(nextMonthWindowStart(new Date('2026-12-31T23:59:59.999Z')), '2027-01-01T00:00:00.000Z');
+  assertEquals(nextMonthWindowStart(new Date('2026-11-01T00:00:00.000Z')), '2026-12-01T00:00:00.000Z'); // exactly at a boundary: the NEXT month
+  assertEquals(nextMonthWindowStart(new Date('2026-01-31T23:59:59.999Z')), '2026-02-01T00:00:00.000Z');
+  // The reset follows the UTC calendar month the quota window uses, not a local or billing date.
+  assertEquals(nextMonthWindowStart(new Date('2026-10-31T23:30:00-04:00')), '2026-12-01T00:00:00.000Z'); // 03:30 UTC on Nov 1
+});
+
+Deno.test('usage read: free has no reset (lifetime total); premium reports the next UTC month start', async () => {
+  const free = await getSignalUsage(readOnlyClient({}).client, 'a1', 'free', CAPS, '2026-10-01', new Date('2026-10-04T00:00:00Z'));
+  assertEquals(free.ok && free.resetsAt, null);
+  const premium = await getSignalUsage(readOnlyClient({}).client, 'a1', 'premium', CAPS, '2026-12-01', new Date('2026-12-31T23:00:00Z'));
+  assertEquals(premium.ok && premium.resetsAt, '2027-01-01T00:00:00.000Z');
 });

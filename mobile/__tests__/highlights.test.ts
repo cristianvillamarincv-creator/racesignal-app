@@ -14,7 +14,6 @@ function race(overrides: Partial<Race> & Pick<Race, 'id' | 'eventDate' | 'distan
     sport: 'triathlon',
     location: 'Test City',
     status: 'completed',
-    locked: false,
     ...overrides,
   };
 }

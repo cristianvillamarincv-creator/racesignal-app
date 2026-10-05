@@ -5,7 +5,6 @@ import { AchievementPill } from '@/components/AchievementPill';
 import type { Race } from '@/fixtures/races';
 import { formatRaceDate } from '@/lib/format';
 import type { Highlight } from '@/lib/highlights';
-import { AppIcon } from '@/lib/icons';
 import { type BrandPalette, tabularNumerals, useBrandPalette } from '@/lib/brandTheme';
 import { spacing } from '@/lib/theme';
 
@@ -47,16 +46,13 @@ export function RaceRow({ race, primaryHighlight, onPress, isLast = false }: Rac
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
   const dateDisplay = formatRaceDate(race.eventDate);
-  const showLock = race.status === 'completed' && race.locked;
   const metaLine = race.status === 'completed' ? race.location : `${race.location} · ${STATUS_LABEL[race.status]}`;
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${race.name}, ${STATUS_LABEL[race.status]}, ${race.location}${
-        showLock ? ', locked, Premium required for full detail' : ''
-      }`}
+      accessibilityLabel={`${race.name}, ${STATUS_LABEL[race.status]}, ${race.location}`}
       style={[styles.row, !isLast && styles.rowDivider]}>
       <View style={styles.dateBlock}>
         {dateDisplay.precision === 'year' ? (
@@ -93,11 +89,7 @@ export function RaceRow({ race, primaryHighlight, onPress, isLast = false }: Rac
           </View>
         ) : null}
       </View>
-      {showLock ? (
-        <AppIcon name="lock" size={18} color={palette.inkSecondary} />
-      ) : (
-        <Text style={styles.distanceLabel}>{race.distanceLabel}</Text>
-      )}
+      <Text style={styles.distanceLabel}>{race.distanceLabel}</Text>
     </Pressable>
   );
 }

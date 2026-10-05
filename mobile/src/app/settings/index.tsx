@@ -18,6 +18,7 @@ import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLi
 import { clearOnboardingDraft } from '@/lib/onboardingDraft';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
+import { SETTINGS_FREE_DETAIL, SETTINGS_FREE_TITLE, SETTINGS_PREMIUM_DETAIL, SETTINGS_UPGRADE_LABEL } from '@/lib/signalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { clearSignalConsent, hasAgreedToSignalDisclosure } from '@/lib/signalConsent';
 import { requestAppleRevocationCode, type ConnectedProvider, type SocialProvider } from '@/lib/socialAuth';
@@ -233,12 +234,18 @@ export default function SettingsScreen() {
           <SectionHeader title="Subscription" />
           <HairlineRule color={palette.hairline} />
           {isPremium ? (
-            <PlanStatusRow title="RaceSignal Premium" badge="ACTIVE" detail="40 Signal asks per month" styles={styles} />
+            <PlanStatusRow title="RaceSignal Premium" badge="ACTIVE" detail={SETTINGS_PREMIUM_DETAIL} styles={styles} />
           ) : (
             <>
-              <PlanStatusRow title="RaceSignal Free" detail="3 Signal asks included" styles={styles} />
+              <PlanStatusRow title={SETTINGS_FREE_TITLE} detail={SETTINGS_FREE_DETAIL} styles={styles} />
               <HairlineRule color={palette.hairline} />
-              <ActionRow label="Upgrade to RaceSignal Premium" onPress={handleUpgradePress} styles={styles} palette={palette} />
+              <ActionRow
+                label={SETTINGS_UPGRADE_LABEL}
+                detail={SETTINGS_PREMIUM_DETAIL}
+                onPress={handleUpgradePress}
+                styles={styles}
+                palette={palette}
+              />
             </>
           )}
           <HairlineRule color={palette.hairline} />
@@ -387,18 +394,24 @@ function initialsFor(name: string): string {
 
 function ActionRow({
   label,
+  detail,
   onPress,
   styles,
   palette,
 }: {
   label: string;
+  /** Optional supporting line under the label (for example what Premium includes). */
+  detail?: string;
   onPress: () => void;
   styles: Styles;
   palette: BrandPalette;
 }) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={styles.actionRow}>
-      <Text style={styles.actionLabel}>{label}</Text>
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={detail ? `${label}, ${detail}` : label} style={styles.actionRow}>
+      <View style={styles.actionTextBlock}>
+        <Text style={styles.actionLabel}>{label}</Text>
+        {detail ? <Text style={styles.planDetail}>{detail}</Text> : null}
+      </View>
       <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
     </Pressable>
   );
@@ -463,6 +476,7 @@ interface Styles {
   identityEmail: TextStyle;
   section: ViewStyle;
   actionRow: ViewStyle;
+  actionTextBlock: ViewStyle;
   actionLabel: TextStyle;
   inertRow: ViewStyle;
   inertLabel: TextStyle;
@@ -512,6 +526,10 @@ function createStyles(palette: BrandPalette): Styles {
     },
     section: {
       gap: 0,
+    },
+    actionTextBlock: {
+      flex: 1,
+      gap: 2,
     },
     actionRow: {
       flexDirection: 'row',

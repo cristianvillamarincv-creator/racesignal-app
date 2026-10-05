@@ -15,7 +15,6 @@ const SAMPLE_UPCOMING_RACE: Race = {
   eventDate: '2027-06-13',
   location: 'Huntsville, ON, CAN',
   status: 'registered',
-  locked: false,
   isManual: true,
   checklistCompleted: [],
 };

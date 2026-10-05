@@ -1,9 +1,8 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  AppState,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -21,6 +20,7 @@ import {
 import { ErrorState } from '@/components/ErrorState';
 import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { SignalAllowance } from '@/components/SignalAllowance';
 import { SignalConsentSheet } from '@/components/SignalConsentSheet';
 import { SignalMark } from '@/components/SignalMark';
 import { useAuth } from '@/lib/auth';
@@ -29,10 +29,9 @@ import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { appendSignalTurn, createSignalConversation, fetchSignalConversationWithMessages } from '@/lib/db/signal';
 import { AppIcon } from '@/lib/icons';
 import { usePremium } from '@/lib/premium';
-import { PAYWALL_RESULT, presentPremiumPaywall } from '@/lib/purchases';
+import { presentPremiumPaywall } from '@/lib/purchases';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
 import {
-  fetchSignalUsage,
   generateSignalRequestId,
   sendSignalMessage,
   type SignalChatTurn,
@@ -42,7 +41,8 @@ import {
 import { hasAgreedToSignalDisclosure, saveSignalConsent, SIGNAL_CONSENT_DISCLOSURE_VERSION } from '@/lib/signalConsent';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
-import { formatSignalUsageLabel } from '@/lib/signalUsage';
+import { isFreeExhausted, isPremiumExhausted, PREMIUM_MONTHLY_ASKS } from '@/lib/signalUsage';
+import { useSignalUsage } from '@/lib/useSignalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { isNearBottom, messageTopGap, QUESTION_BUBBLE_MAX_WIDTH } from '@/lib/signalLayout';
 import { minTouchSize, spacing } from '@/lib/theme';
@@ -160,15 +160,13 @@ export default function SignalScreen() {
   const [pendingSignalSend, setPendingSignalSend] = useState<{ text: string; image: StagedImage | null; requestId?: string } | null>(
     null,
   );
-  // Always a server-confirmed count, never computed or guessed client-side (see lib/signalUsage.ts): set from a reply's own
-  // response, or from the read-only usage lookup (refreshUsage below). Null (nothing renders) until one succeeds, and again
-  // whenever a refresh fails, since a count we could not confirm must not be shown.
-  const [usageState, setUsageState] = useState<{ remaining: number; cap: number; isPremium: boolean } | null>(null);
-  // Orders usage updates: every refresh and every reply takes a new number, and a response applies only if it is still the
-  // newest, so a slow lookup can never overwrite a fresher count (for example the one a reply just returned).
-  const usageRequestRef = useRef(0);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const { isPremium, refresh: refreshPremiumStatus } = usePremium();
+  // The allowance, as the server reports it: refreshed when Signal opens or regains focus, after sends settle, and after every
+  // paywall return. Null (nothing shown) whenever it is unknown; unknown is never treated as zero or as Premium.
+  const { usage, refresh: refreshUsage, applyReply: applyReplyUsage } = useSignalUsage({ enabled: !isPreviewMode && !!session?.user.id });
+  // Single-flight guard for the paywall hand-off below, so a send cannot open it twice.
+  const paywallInFlightRef = useRef(false);
   const scrollRef = useRef<ScrollView>(null);
   // A synchronous, ref-based single-flight guard — `isSending` state alone isn't enough, since a
   // rapid double-invocation (e.g. two near-simultaneous events) can both read the pre-update value
@@ -218,34 +216,6 @@ export default function SignalScreen() {
       cancelled = true;
     };
   }, [conversationIdParam, isPreviewMode]);
-
-  /** Reads the current allowance from the server (the read-only usage action: no ask is reserved, no model is called). A
-   *  failed lookup never blocks anything here: it shows no count (unless `keepOnFailure`, used right after a reply whose own
-   *  count was just applied) and the conversation carries on. Developer Preview and a signed-out athlete skip it. */
-  const refreshUsage = useCallback(
-    async (keepOnFailure = false) => {
-      if (isPreviewMode || !session?.user.id) return;
-      usageRequestRef.current += 1;
-      const request = usageRequestRef.current;
-      const usage = await fetchSignalUsage();
-      if (request !== usageRequestRef.current) return;
-      if (usage) setUsageState(usage);
-      else if (!keepOnFailure) setUsageState(null);
-    },
-    [isPreviewMode, session?.user.id],
-  );
-
-  // Refresh when Signal opens and each time it regains focus (returning from the paywall, another screen, or the app being
-  // brought back to the foreground while this screen is showing).
-  useFocusEffect(
-    useCallback(() => {
-      void refreshUsage();
-      const subscription = AppState.addEventListener('change', (state) => {
-        if (state === 'active') void refreshUsage();
-      });
-      return () => subscription.remove();
-    }, [refreshUsage]),
-  );
 
   // Submits a suggestion tapped on the Signal landing screen exactly once, through the exact same
   // sendMessage path a manually-typed question uses (same conversation persistence, same Developer
@@ -301,7 +271,8 @@ export default function SignalScreen() {
     }
   }
 
-  async function sendMessage(text: string, imageOverride?: StagedImage | null, requestIdOverride?: string) {
+  /** `skipAllowanceCheck` is only passed by the paywall hand-off, once the server has just confirmed an available allowance. */
+  async function sendMessage(text: string, imageOverride?: StagedImage | null, requestIdOverride?: string, skipAllowanceCheck = false) {
     const trimmed = text.trim();
     if (!trimmed) return;
     if (isSendingRef.current) return; // hard guard — see isSendingRef's comment above.
@@ -313,6 +284,21 @@ export default function SignalScreen() {
     // than a brand-new one (see lib/signal.ts's generateSignalRequestId).
     const image = imageOverride !== undefined ? imageOverride : stagedImage;
     const requestId = requestIdOverride ?? generateSignalRequestId();
+
+    // A balance the server has confirmed is used up never reaches the transcript or the model: Send is intercepted here, before any
+    // message is added or any input cleared, so the draft and any attachment stay exactly as they are. Free opens the existing
+    // paywall (the athlete just chose to send); Premium at its monthly limit gets the reset information the allowance area shows.
+    // Unknown usage is not treated as exhausted: the server's own check below stays authoritative.
+    if (!skipAllowanceCheck && !isPreviewMode && usage) {
+      if (isFreeExhausted(usage)) {
+        void openPaywallForPendingSend({ text: trimmed, image, requestId });
+        return;
+      }
+      if (isPremiumExhausted(usage)) {
+        setErrorText(`You\u2019ve used all ${usage.cap} of your Signal asks for this month.`);
+        return;
+      }
+    }
 
     // First-use consent gate (B.12) — checked before ANYTHING else in this function: before the
     // user's message is added to the transcript, before inputText/stagedImage are cleared, before
@@ -352,6 +338,7 @@ export default function SignalScreen() {
     }
 
     let appliedReplyUsage = false;
+    let gateRequest: { text: string; image: StagedImage | null; requestId: string } | null = null;
     try {
       const context = buildSignalContext(races.data, effectiveSeedRaceId);
       const history: SignalChatTurn[] = messages.map((message) => ({ role: message.role, text: message.text }));
@@ -369,45 +356,38 @@ export default function SignalScreen() {
         // deliberately not shown here: it was useful while chasing real device failures, but an
         // athlete-facing error should stay short and friendly, never expose implementation
         // details. It's still logged via console.warn in sendSignalMessage for developer use.
-        if (result.reason === 'rate_limited' && !isPremium) {
-          // A free athlete who's exhausted their 3-ask LIFETIME allowance (Build 11 correction —
-          // never monthly for free, see migrations/0010_signal_free_lifetime_allowance.sql) sees
-          // the RevenueCat paywall itself, not a generic error (Step 8.5) — presentPremiumPaywall's
-          // own "×" close button is what makes this dismissible. isPremium here only decides WHICH
-          // message/paywall the UI shows after the server has already said no; the allowance itself
-          // is enforced entirely server-side (see supabase/functions/signal/index.ts) regardless of
-          // this flag.
-          const paywallResult = await presentPremiumPaywall();
-          if (paywallResult === PAYWALL_RESULT.PURCHASED || paywallResult === PAYWALL_RESULT.RESTORED) {
-            await refreshPremiumStatus();
-            // Drop the just-added user turn so retrying doesn't duplicate it — sendMessage always
-            // re-appends it fresh.
-            setMessages((current) => current.slice(0, -1));
-            isSendingRef.current = false;
-            setIsSending(false);
-            await sendMessage(trimmed);
+        if (result.reason === 'rate_limited') {
+          // The server's own allowance check is authoritative, and it just said no. The question was not answered, so it leaves
+          // the thread and the draft and attachment go back to the composer exactly as they were.
+          setMessages((current) => (current.length > 0 && current[current.length - 1]?.role === 'user' ? current.slice(0, -1) : current));
+          setInputText(trimmed);
+          setStagedImage(image);
+          // Which tier hit its limit comes from a fresh server read; only if that is unavailable does the app's own entitlement
+          // decide, and it is never treated as exhausted-Premium on a guess.
+          const fresh = await refreshUsage();
+          if (fresh ? fresh.isPremium : isPremium) {
+            setErrorText(`You\u2019ve used all ${fresh?.cap ?? PREMIUM_MONTHLY_ASKS} of your Signal asks for this month.`);
             return;
           }
-          setErrorText("You've used your 3 free Signal asks. Upgrade to RaceSignal Premium any time to keep asking.");
-          return;
-        }
-        if (result.reason === 'rate_limited') {
-          // Already premium and still hit the (40/month) cap — no paywall to offer.
-          setErrorText("You've used all your Signal asks for this month. More become available next month.");
+          if (paywallInFlightRef.current) {
+            // Already inside the paywall hand-off (the server has not yet recognized a just-completed purchase): never loop.
+            setErrorText("Signal couldn't confirm your Premium access yet. Your question is saved, so try again in a moment.");
+            return;
+          }
+          gateRequest = { text: trimmed, image, requestId };
           return;
         }
         // Every other failure reason (timeout, network_error, model_error, service_unavailable,
         // bad_request, forbidden, unauthorized) is recoverable via Retry — see retryLastMessage
-        // below and its render. The two rate_limited branches above are deliberately excluded: a
-        // capped athlete retrying the identical question would just fail again identically, and
-        // each already offers its own dedicated recovery (upgrade, or wait for next month).
+        // below and its render. The rate_limited branch above is deliberately excluded: a capped
+        // athlete retrying the identical question would just fail again identically, and it
+        // already offers its own recovery (the paywall for free, the reset time for Premium).
         setErrorText(REASON_MESSAGES[result.reason]);
         setLastFailedAttempt({ text: trimmed, image, requestId });
         return;
       }
       setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: 'assistant', text: result.data.reply }]);
-      usageRequestRef.current += 1; // supersedes any lookup still in flight; the reply's own count is the newest
-      setUsageState({ remaining: result.data.remaining, cap: result.data.cap, isPremium: result.data.isPremium });
+      applyReplyUsage({ remaining: result.data.remaining, cap: result.data.cap, isPremium: result.data.isPremium });
       appliedReplyUsage = true;
 
       // Persist this turn — lazily creates the conversation on the first successful exchange, so
@@ -434,6 +414,32 @@ export default function SignalScreen() {
       setIsSending(false);
       // The send has settled (answered, failed, rate-limited, or ended by the paywall): confirm the allowance with the server.
       void refreshUsage(appliedReplyUsage);
+      // The server refused a free athlete's send: hand the same question (same request id) to the paywall, now that this send is over.
+      if (gateRequest) void openPaywallForPendingSend(gateRequest);
+    }
+  }
+
+  /**
+   * The hand-off from a send that needs Premium (a free balance confirmed or reported exhausted) to the existing RevenueCat paywall.
+   * Nothing is added to the thread and the draft and attachment stay in the composer. After the paywall returns, entitlement AND the
+   * server's usage are re-read; the pending question is sent exactly once, with its original request id, and only if the server now
+   * confirms an available allowance (a purchase does not necessarily give 40 unused asks: the real monthly counter decides). If
+   * the paywall was dismissed, usage is still exhausted, or usage cannot be confirmed, nothing is sent.
+   */
+  async function openPaywallForPendingSend(pending: { text: string; image: StagedImage | null; requestId: string }) {
+    if (paywallInFlightRef.current) return;
+    paywallInFlightRef.current = true;
+    try {
+      await presentPremiumPaywall();
+      await refreshPremiumStatus();
+      const fresh = await refreshUsage();
+      if (!fresh) {
+        setErrorText(REASON_MESSAGES.service_unavailable);
+        return;
+      }
+      if (fresh.remaining > 0) await sendMessage(pending.text, pending.image, pending.requestId, true);
+    } finally {
+      paywallInFlightRef.current = false;
     }
   }
 
@@ -483,7 +489,9 @@ export default function SignalScreen() {
     if (isUpgrading) return;
     setIsUpgrading(true);
     await presentPremiumPaywall();
+    // Every paywall return re-reads entitlement and the server's usage, so the allowance area reflects a purchase or restore.
     await refreshPremiumStatus();
+    await refreshUsage();
     setIsUpgrading(false);
   }
 
@@ -629,20 +637,8 @@ export default function SignalScreen() {
           </View>
         ) : null}
 
-        {/* Compact Signal-blue usage strip (Build 10 polish) — restrained by design: same
-            treatment for free and premium, no large banner, no upgrade CTA once premium. */}
-        {usageState ? (
-          <View style={styles.usageStrip}>
-            <Text style={styles.usageStripText}>
-              {formatSignalUsageLabel(usageState.remaining, usageState.cap, usageState.isPremium)}
-            </Text>
-            {!usageState.isPremium ? (
-              <Pressable onPress={handleUpgradePress} disabled={isUpgrading} accessibilityRole="button" accessibilityLabel="Upgrade">
-                <Text style={styles.usageStripUpgrade}>{isUpgrading ? '…' : 'Upgrade'}</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
+        {/* The allowance area: compact, two lines, server-confirmed counts only (see SignalAllowance). */}
+        <SignalAllowance usage={usage} variant="conversation" onExplorePremium={handleUpgradePress} />
 
         <View style={styles.inputBar}>
           <Pressable
@@ -712,9 +708,6 @@ interface Styles {
   retryButtonLabel: TextStyle;
   attachHintRow: ViewStyle;
   attachHintText: TextStyle;
-  usageStrip: ViewStyle;
-  usageStripText: TextStyle;
-  usageStripUpgrade: TextStyle;
   stagedImageRow: ViewStyle;
   stagedImageThumb: ImageStyle;
   stagedImageLabel: TextStyle;
@@ -868,28 +861,6 @@ function createStyles(palette: BrandPalette): Styles {
       fontSize: 12,
       lineHeight: 17,
       color: palette.inkSecondary,
-    },
-    usageStrip: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.xs,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      borderRadius: 10,
-      backgroundColor: withAlpha(palette.signalBlue, 0.08),
-    },
-    usageStripText: {
-      fontSize: 12,
-      fontWeight: '600',
-      color: palette.signalBlue,
-    },
-    usageStripUpgrade: {
-      fontSize: 12,
-      fontWeight: '700',
-      color: palette.signalBlue,
-      textDecorationLine: 'underline',
     },
     stagedImageRow: {
       flexDirection: 'row',

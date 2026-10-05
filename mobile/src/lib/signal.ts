@@ -67,6 +67,9 @@ export interface SignalUsagePayload {
   remaining: number;
   cap: number;
   isPremium: boolean;
+  /** Premium only: the instant the monthly counter next resets (start of the next UTC calendar month, ISO 8601). Null for
+   *  free (3 asks in total, never renewed) or when the server did not supply it. */
+  resetsAt: string | null;
 }
 
 export type SignalResult<T> =
@@ -272,9 +275,11 @@ export async function fetchSignalUsage(): Promise<SignalUsagePayload | null> {
     if (error) return null;
     const result = data as SignalResult<SignalUsagePayload> | null;
     if (!result || !result.available) return null;
-    const { remaining, cap, isPremium } = result.data ?? ({} as Partial<SignalUsagePayload>);
+    const { remaining, cap, isPremium, resetsAt } = result.data ?? ({} as Partial<SignalUsagePayload>);
     if (!Number.isInteger(remaining) || !Number.isInteger(cap) || (remaining as number) < 0 || (cap as number) <= 0 || typeof isPremium !== 'boolean') return null;
-    return { remaining: remaining as number, cap: cap as number, isPremium };
+    // The reset instant is optional (an older function omits it): anything that is not a parseable date becomes null, never a guess.
+    const validReset = typeof resetsAt === 'string' && !Number.isNaN(Date.parse(resetsAt)) ? resetsAt : null;
+    return { remaining: remaining as number, cap: cap as number, isPremium, resetsAt: isPremium ? validReset : null };
   } catch {
     return null;
   }

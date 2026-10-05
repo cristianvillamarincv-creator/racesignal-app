@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { BuildHistoryEmptyState } from '@/components/BuildHistoryEmptyState';
@@ -25,7 +25,6 @@ export default function StatsScreen() {
   const router = useRouter();
   const races = useAthleteRaces();
   const { sportFilter, setSportFilter, yearFilter, setYearFilter } = useRaceFilter();
-  const [premiumHint, setPremiumHint] = useState<string | null>(null);
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
 
@@ -97,10 +96,6 @@ export default function StatsScreen() {
   ];
 
   function openRace(race: Race) {
-    if (race.locked) {
-      setPremiumHint(`${race.name}: full result is Premium.`);
-      return;
-    }
     router.push(`/results/${race.id}`);
   }
 
@@ -130,8 +125,6 @@ export default function StatsScreen() {
               onSelectSport={selectSport}
               onSelectYear={selectYear}
             />
-
-            {premiumHint ? <Text style={styles.premiumHint}>{premiumHint}</Text> : null}
 
             {/* Performance Snapshot — a genuine hero module, not three equal-weight columns. The
                 strongest available fact (age-group percentile, or Races as a fallback) takes the
@@ -221,7 +214,6 @@ function capitalize(value: string): string {
 interface Styles {
   screen: ViewStyle;
   content: ViewStyle;
-  premiumHint: TextStyle;
   section: ViewStyle;
   snapshotCard: ViewStyle;
   snapshotHeroLabel: TextStyle;
@@ -249,11 +241,6 @@ function createStyles(palette: BrandPalette): Styles {
     content: {
       padding: spacing.lg,
       gap: spacing.lg,
-    },
-    premiumHint: {
-      fontSize: 13,
-      fontWeight: '500',
-      color: palette.inkSecondary,
     },
     section: {
       gap: spacing.sm,

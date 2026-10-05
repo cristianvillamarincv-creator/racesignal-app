@@ -358,7 +358,7 @@ Deno.serve(async (req) => {
       if (!usage.ok) return unavailable(usage.reason);
       return json({
         available: true,
-        data: { remaining: usage.remaining, cap: usage.cap, isPremium: usage.isPremium },
+        data: { remaining: usage.remaining, cap: usage.cap, isPremium: usage.isPremium, resetsAt: usage.resetsAt },
       } satisfies SignalResponse<SignalUsagePayload>);
     }
 

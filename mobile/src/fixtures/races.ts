@@ -54,8 +54,6 @@ export interface Race {
   eventDate: string;
   location: string;
   status: RaceStatus;
-  /** Gates the full result-detail view (Premium, visual-only — see results/[id].tsx). */
-  locked: boolean;
   /** Hand-entered by the athlete (provider = 'manual'), as opposed to imported from a discovery
    *  provider like Sportstats. Only a manual race can be edited after the fact — an imported race
    *  stays read-only (removal is still available for either) so it always reflects what the
@@ -81,7 +79,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2018',
     location: 'Syracuse',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(6, 36, 45),
       splits: [
@@ -107,7 +104,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2019-05-11',
     location: 'Panama City Beach, FL, USA',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(5, 32, 11),
       splits: [
@@ -129,7 +125,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2022-05-29',
     location: 'Victoria, BC, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(5, 44, 5),
       splits: [
@@ -152,7 +147,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2026-06-14',
     location: 'Cambridge, MD, USA',
     status: 'completed',
-    locked: false,
     result: {
       finishSeconds: h(4, 54, 58),
       splits: [
@@ -177,7 +171,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2024-07-28',
     location: 'Kingston, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(4, 6, 9),
       splits: [
@@ -204,7 +197,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2021-09-11',
     location: 'Gravenhurst, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 30, 49),
       splits: [
@@ -227,7 +219,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2022-08-27',
     location: 'Wasaga Beach, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 32, 25),
       splits: [
@@ -249,7 +240,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2024-08-27',
     location: 'Wasaga Beach, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 51, 48),
       splits: [
@@ -272,7 +262,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2025-06-21',
     location: 'Welland, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 45, 29),
       splits: [
@@ -294,7 +283,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2025-07-12',
     location: 'Bracebridge, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 47, 14),
       splits: [
@@ -317,7 +305,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2025-08-23',
     location: 'Wasaga Beach, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 30, 59),
       splits: [
@@ -342,7 +329,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2025-09-14',
     location: 'Niagara Falls, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(2, 30, 43),
       splits: [
@@ -369,7 +355,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2026-07-11',
     location: 'Bracebridge, ON, CAN',
     status: 'completed',
-    locked: false,
     result: {
       finishSeconds: h(2, 31, 45),
       splits: [
@@ -391,7 +376,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2026-07-26',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: false,
     result: {
       finishSeconds: h(2, 35, 7),
       splits: [
@@ -417,7 +401,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2023-05-07',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(1, 30, 16),
       splits: [],
@@ -441,7 +424,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2026-05-03',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: false,
     result: {
       finishSeconds: h(1, 26, 56),
       splits: [{ label: 'Half', elapsedSeconds: h(1, 26, 56), paceLabel: '4:07/km' }],
@@ -462,7 +444,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2024-05-12',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(0, 44, 26),
       splits: [
@@ -487,7 +468,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2024-06-15',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(0, 44, 19),
       splits: [{ label: '10K', elapsedSeconds: h(0, 44, 19), paceLabel: '4:24/km, 4:25.8/km' }],
@@ -505,7 +485,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2025-06-14',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(0, 40, 39),
       splits: [{ label: '10K', elapsedSeconds: h(0, 40, 39), paceLabel: '4:04.2/km' }],
@@ -524,7 +503,6 @@ export const racesPopulated: Race[] = [
     eventDate: '2026-05-10',
     location: 'Toronto, ON, CAN',
     status: 'completed',
-    locked: true,
     result: {
       finishSeconds: h(0, 51, 46),
       splits: [],

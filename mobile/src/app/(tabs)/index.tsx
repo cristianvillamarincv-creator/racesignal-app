@@ -45,7 +45,6 @@ export default function RacesScreen() {
   const { sportFilter, setSportFilter, yearFilter, setYearFilter, searchFocusRequestId } = useRaceFilter();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
-  const [premiumHint, setPremiumHint] = useState<string | null>(null);
   const searchInputRef = useRef<TextInput>(null);
 
   // The header search icon is the one global entry point (reachable from Stats too, which has no
@@ -117,10 +116,6 @@ export default function RacesScreen() {
 
   function openRace(race: Race) {
     if (race.status === 'completed') {
-      if (race.locked) {
-        setPremiumHint(`${race.name}: full result is Premium.`);
-        return;
-      }
       router.push(`/results/${race.id}`);
     } else {
       router.push(`/race/${race.id}`);
@@ -178,8 +173,6 @@ export default function RacesScreen() {
               onSelectSport={selectSport}
               onSelectYear={selectYear}
             />
-
-            {premiumHint ? <Text style={styles.premiumHint}>{premiumHint}</Text> : null}
 
             {!isSearching ? (
               upcomingFiltered.length > 0 ? (
@@ -293,11 +286,6 @@ function createStyles(palette: BrandPalette) {
       fontSize: 15,
       fontWeight: '600',
       color: palette.signalBlue,
-    },
-    premiumHint: {
-      fontSize: 13,
-      fontWeight: '500',
-      color: palette.inkSecondary,
     },
     addRaceButton: {
       minHeight: 44,

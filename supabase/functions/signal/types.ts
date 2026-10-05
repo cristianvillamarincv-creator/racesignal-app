@@ -164,4 +164,7 @@ export interface SignalUsagePayload {
   remaining: number;
   cap: number;
   isPremium: boolean;
+  /** Premium only: the instant the monthly counter next resets (start of the next UTC calendar month, ISO 8601). Null for
+   *  free, whose asks are a lifetime total. */
+  resetsAt: string | null;
 }

@@ -223,8 +223,22 @@ export interface TableClient {
 
 export type EntitlementStatus = 'premium' | 'free' | 'error';
 
+/** The instant the monthly Premium counter next starts over: midnight UTC at the start of the next UTC calendar month. The quota
+ *  follows UTC calendar months (see currentMonthWindow), never the subscription's billing date. */
+export function nextMonthWindowStart(now: Date = new Date()): string {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+}
+
 export type UsageSnapshot =
-  | { ok: true; remaining: number; cap: number; isPremium: boolean }
+  | {
+      ok: true;
+      remaining: number;
+      cap: number;
+      isPremium: boolean;
+      /** Premium only: when the monthly counter next resets (an ISO instant). Null for free, whose 3 asks are a lifetime total
+       *  that never resets. */
+      resetsAt: string | null;
+    }
   | { ok: false; reason: 'service_unavailable' };
 
 /** The number of asks already used in the bucket for `tier`, or `ok: false` if it could not be read (never guessed as 0). */
@@ -260,6 +274,7 @@ export async function getSignalUsage(
   entitlement: EntitlementStatus,
   caps: { free: number; premium: number },
   windowDate: string = currentMonthWindow(),
+  now: Date = new Date(),
 ): Promise<UsageSnapshot> {
   if (entitlement === 'error') return { ok: false, reason: 'service_unavailable' };
   const isPremium = entitlement === 'premium';
@@ -267,5 +282,5 @@ export async function getSignalUsage(
   const cap = isPremium ? caps.premium : caps.free;
   const used = await readUsedCount(client, athleteId, tier, windowDate);
   if (!used.ok) return { ok: false, reason: 'service_unavailable' };
-  return { ok: true, remaining: Math.max(cap - used.count, 0), cap, isPremium };
+  return { ok: true, remaining: Math.max(cap - used.count, 0), cap, isPremium, resetsAt: isPremium ? nextMonthWindowStart(now) : null };
 }

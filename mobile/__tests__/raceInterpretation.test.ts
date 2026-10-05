@@ -10,7 +10,6 @@ function completedRace(
     sport: 'triathlon',
     location: 'Test City',
     status: 'completed',
-    locked: false,
     ...overrides,
     result: {
       finishSeconds: overrides.finishSeconds,
@@ -30,7 +29,6 @@ describe('buildRaceInterpretation', () => {
       eventDate: '2026-06-14',
       location: 'Cambridge, MD',
       status: 'registered',
-      locked: false,
     };
     expect(buildRaceInterpretation([race], race)).toBeNull();
   });

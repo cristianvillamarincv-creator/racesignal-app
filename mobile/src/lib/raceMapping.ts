@@ -104,7 +104,6 @@ export function dbRowToRace(row: RaceRow): Race {
     eventDate,
     location: row.location ?? '',
     status: row.race_status,
-    locked: false, // Premium gating is explicitly out of scope for B.1 — every persisted race is fully viewable
     isManual: row.provider === 'manual',
     result,
     checklistCompleted: row.checklist_completed ?? undefined,

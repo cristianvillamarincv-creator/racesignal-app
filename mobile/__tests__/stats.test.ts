@@ -11,7 +11,6 @@ function race(overrides: Partial<Race> & Pick<Race, 'id' | 'eventDate'>): Race {
     distanceLabel: 'Olympic',
     location: 'Test City',
     status: 'completed',
-    locked: false,
     ...overrides,
   };
 }

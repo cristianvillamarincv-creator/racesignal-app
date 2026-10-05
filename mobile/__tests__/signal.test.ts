@@ -164,14 +164,22 @@ describe('sendSignalMessage — client-side timeout (B.1 Task 1)', () => {
 describe('fetchSignalUsage (read-only allowance lookup)', () => {
   it('sends exactly the usage action, with no context, message, history, image or request id, and a short timeout', async () => {
     mockInvoke.mockResolvedValue({ data: { available: true, data: { remaining: 3, cap: 3, isPremium: false } }, error: null });
-    expect(await fetchSignalUsage()).toEqual({ remaining: 3, cap: 3, isPremium: false });
+    expect(await fetchSignalUsage()).toEqual({ remaining: 3, cap: 3, isPremium: false, resetsAt: null });
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(mockInvoke).toHaveBeenCalledWith('signal', { body: { action: 'usage' }, timeout: 15_000 });
   });
 
-  it('returns the premium allowance as reported', async () => {
-    mockInvoke.mockResolvedValue({ data: { available: true, data: { remaining: 7, cap: 40, isPremium: true } }, error: null });
-    expect(await fetchSignalUsage()).toEqual({ remaining: 7, cap: 40, isPremium: true });
+  it('returns the premium allowance with the server\'s reset instant', async () => {
+    mockInvoke.mockResolvedValue({ data: { available: true, data: { remaining: 7, cap: 40, isPremium: true, resetsAt: '2026-11-01T00:00:00.000Z' } }, error: null });
+    expect(await fetchSignalUsage()).toEqual({ remaining: 7, cap: 40, isPremium: true, resetsAt: '2026-11-01T00:00:00.000Z' });
+  });
+
+  it('treats a missing, malformed or free-tier reset as null, never a guess', async () => {
+    for (const [isPremium, resetsAt] of [[true, undefined], [true, 'soon'], [true, 123], [false, '2026-11-01T00:00:00.000Z']] as const) {
+      mockInvoke.mockReset();
+      mockInvoke.mockResolvedValue({ data: { available: true, data: { remaining: 7, cap: isPremium ? 40 : 3, isPremium, resetsAt } }, error: null });
+      expect((await fetchSignalUsage())?.resetsAt).toBeNull();
+    }
   });
 
   it('returns null, never a guessed count, for every failure shape', async () => {

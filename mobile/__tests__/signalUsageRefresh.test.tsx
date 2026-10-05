@@ -49,8 +49,8 @@ jest.mock('expo-router', () => ({
   },
 }));
 
-const usage = (remaining: number, isPremium = false) => ({ remaining, cap: isPremium ? 40 : 3, isPremium });
-const FREE = (n: number) => `Free plan · ${n} of 3 Signal asks left`;
+const usage = (remaining: number, isPremium = false) => ({ remaining, cap: isPremium ? 40 : 3, isPremium, resetsAt: isPremium ? '2026-11-01T00:00:00.000Z' : null });
+const FREE = (n: number) => `${n} of 3 free asks remaining`;
 let appStateHandler: ((state: string) => void) | null = null;
 
 beforeEach(async () => {
@@ -87,9 +87,9 @@ describe('Signal allowance refresh', () => {
   });
 
   it('refreshes when Signal regains focus and when the app returns to the foreground (the out-of-band change case)', async () => {
-    mockFetchSignalUsage.mockResolvedValueOnce(usage(0)).mockResolvedValueOnce(usage(3)).mockResolvedValueOnce(usage(2));
+    mockFetchSignalUsage.mockResolvedValueOnce(usage(1)).mockResolvedValueOnce(usage(3)).mockResolvedValueOnce(usage(2));
     const ui = await render(<SignalScreen />);
-    await waitFor(() => expect(ui.getByText(FREE(0))).toBeTruthy());
+    await waitFor(() => expect(ui.getByText(FREE(1))).toBeTruthy());
 
     await act(async () => {
       mockFocusCallback!();
@@ -117,7 +117,7 @@ describe('Signal allowance refresh', () => {
     await act(async () => {
       mockFocusCallback!();
     });
-    await waitFor(() => expect(ui.queryByText(/Signal asks left/)).toBeNull());
+    await waitFor(() => expect(ui.queryByText(/asks remaining/)).toBeNull());
 
     // The conversation still works while the allowance is unknown.
     await send(ui, 'What is my 10K personal best?');
@@ -152,7 +152,7 @@ describe('Signal allowance refresh', () => {
     await act(async () => {
       mockFocusCallback!();
     });
-    await waitFor(() => expect(ui.queryByText(/Signal asks left/)).toBeNull());
+    await waitFor(() => expect(ui.queryByText(/asks remaining/)).toBeNull());
     await act(async () => ui.unmount());
   });
 

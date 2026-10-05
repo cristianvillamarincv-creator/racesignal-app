@@ -6,18 +6,24 @@ import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type Vie
 import { ErrorState } from '@/components/ErrorState';
 import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { PremiumPromoCard } from '@/components/PremiumPromoCard';
 import { SectionHeader } from '@/components/SectionHeader';
+import { SignalAllowance } from '@/components/SignalAllowance';
 import { SignalMark } from '@/components/SignalMark';
 import { SignalModule } from '@/components/SignalModule';
 import { useAuth } from '@/lib/auth';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { fetchRecentSignalConversations, type SignalConversationRow } from '@/lib/db/signal';
+import { isDevPreviewAvailable, useDevPreview } from '@/lib/devPreview';
 import { formatRelativeDate } from '@/lib/format';
 import { AppIcon } from '@/lib/icons';
+import { usePremium } from '@/lib/premium';
+import { presentPremiumPaywall } from '@/lib/purchases';
 import { getSuggestedPrompts, hasCompletedResults } from '@/lib/signalContext';
 import { getNextRace } from '@/lib/races';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { minTouchSize, spacing } from '@/lib/theme';
+import { useSignalUsage } from '@/lib/useSignalUsage';
 
 /**
  * Signal tab (Step 5, V1) — the minimal real landing, not the mocked chat this used to be. No
@@ -33,6 +39,12 @@ export default function AskScreen() {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
   const [recentConversations, setRecentConversations] = useState<SignalConversationRow[]>([]);
+  const { mode: devPreviewMode } = useDevPreview();
+  const isPreviewMode = isDevPreviewAvailable() && devPreviewMode === 'browse';
+  const { refresh: refreshPremiumStatus } = usePremium();
+  // The allowance as the server reports it (null when unknown, and never fetched in Developer Preview). Free athletes see the
+  // remaining count and the Premium card; Premium athletes see their monthly count and reset time instead; unknown shows neither.
+  const { usage, refresh: refreshUsage } = useSignalUsage({ enabled: !isPreviewMode && !!session?.user.id });
 
   // Refetch on focus (not just mount) — this tab stays mounted across tab switches, so a
   // conversation started/reopened elsewhere wouldn't otherwise ever refresh this list.
@@ -73,6 +85,13 @@ export default function AskScreen() {
   const suggestions = getSuggestedPrompts(races.data)
     .filter((suggestion) => !(canAskAboutNextRace && suggestion === nextRaceQuestion))
     .slice(0, 3);
+
+  /** Opens the existing paywall, then re-reads entitlement and the server's usage so this tab reflects a purchase or restore. */
+  async function handleExplorePremium() {
+    await presentPremiumPaywall();
+    await refreshPremiumStatus();
+    await refreshUsage();
+  }
 
   function openSignal(raceId?: string) {
     router.push(raceId ? { pathname: '/signal', params: { raceId } } : '/signal');
@@ -128,15 +147,23 @@ export default function AskScreen() {
             progressively buried under it; anchoring it here keeps it equally easy to find no matter
             how long "Recent Signals" gets. Deliberately plain (no card, no fill, no border) so it
             never competes with the next-race module above it. */}
-        <Pressable
-          onPress={() => openSignal()}
-          accessibilityRole="button"
-          accessibilityLabel="Ask Signal anything"
-          style={styles.askAnythingRow}>
-          <SignalMark color={palette.signalBlue} size={16} />
-          <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
-          <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
-        </Pressable>
+        <View style={styles.askBlock}>
+          <Pressable
+            onPress={() => openSignal()}
+            accessibilityRole="button"
+            accessibilityLabel="Ask Signal anything"
+            style={styles.askAnythingRow}>
+            <SignalMark color={palette.signalBlue} size={16} />
+            <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
+            <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
+          </Pressable>
+          {/* The allowance, near where a question starts: the server's count only, and nothing at all while it is unknown. */}
+          <SignalAllowance usage={usage} variant="summary" />
+        </View>
+
+        {/* Premium card: confirmed free athletes only, below the question entry and above Recent Signals. Deliberately quieter
+            than the Ask Signal action. Premium athletes see their monthly allowance above instead. */}
+        {usage && !usage.isPremium ? <PremiumPromoCard onPress={handleExplorePremium} /> : null}
 
         {/* 3 — Recent Signals: completed analysis HISTORY. Deliberately unboxed/editorial — the
             distinction from the Prompt Actions module below comes from typography and a quiet
@@ -213,6 +240,7 @@ interface Styles {
   suggestionsModule: ViewStyle;
   suggestionRow: ViewStyle;
   suggestionLabel: TextStyle;
+  askBlock: ViewStyle;
   askAnythingRow: ViewStyle;
   askAnythingLabel: TextStyle;
   recentSection: ViewStyle;
@@ -277,6 +305,9 @@ function createStyles(palette: BrandPalette): Styles {
     // 2 — Ask Signal: a quiet, single action row — deliberately plain (no card, no fill, no
     // border) so it never reads as a second SignalModule-weight block next to the next-race card.
     // Placed right after the next-race module in render order, above Recent Signals (Task 3.1).
+    askBlock: {
+      gap: spacing.xs,
+    },
     askAnythingRow: {
       flexDirection: 'row',
       alignItems: 'center',

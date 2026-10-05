@@ -6,9 +6,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View, type TextStyle, type Vie
 import { ErrorState } from '@/components/ErrorState';
 import { HairlineRule } from '@/components/HairlineRule';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { PremiumPromoCard } from '@/components/PremiumPromoCard';
 import { SectionHeader } from '@/components/SectionHeader';
-import { SignalAllowance } from '@/components/SignalAllowance';
+import { SignalAllowanceCard } from '@/components/SignalAllowanceCard';
 import { SignalMark } from '@/components/SignalMark';
 import { SignalModule } from '@/components/SignalModule';
 import { useAuth } from '@/lib/auth';
@@ -32,6 +31,10 @@ import { useSignalUsage } from '@/lib/useSignalUsage';
  * as the "Ask Signal" entry points on Result Detail and upcoming Race Detail, not a second
  * implementation.
  */
+const SECTION_GAP = spacing.xxl;
+const ASK_TO_CARD_GAP = 16;
+const CARD_TO_RECENT_GAP = 24;
+
 export default function AskScreen() {
   const router = useRouter();
   const races = useAthleteRaces();
@@ -147,23 +150,24 @@ export default function AskScreen() {
             progressively buried under it; anchoring it here keeps it equally easy to find no matter
             how long "Recent Signals" gets. Deliberately plain (no card, no fill, no border) so it
             never competes with the next-race module above it. */}
-        <View style={styles.askBlock}>
-          <Pressable
-            onPress={() => openSignal()}
-            accessibilityRole="button"
-            accessibilityLabel="Ask Signal anything"
-            style={styles.askAnythingRow}>
-            <SignalMark color={palette.signalBlue} size={16} />
-            <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
-            <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
-          </Pressable>
-          {/* The allowance, near where a question starts: the server's count only, and nothing at all while it is unknown. */}
-          <SignalAllowance usage={usage} variant="summary" />
-        </View>
+        <Pressable
+          onPress={() => openSignal()}
+          accessibilityRole="button"
+          accessibilityLabel="Ask Signal anything"
+          style={styles.askAnythingRow}>
+          <SignalMark color={palette.signalBlue} size={16} />
+          <Text style={styles.askAnythingLabel}>Ask Signal anything</Text>
+          <AppIcon name="chevron-right" size={18} color={palette.signalBlue} />
+        </Pressable>
 
-        {/* Premium card: confirmed free athletes only, below the question entry and above Recent Signals. Deliberately quieter
-            than the Ask Signal action. Premium athletes see their monthly allowance above instead. */}
-        {usage && !usage.isPremium ? <PremiumPromoCard onPress={handleExplorePremium} /> : null}
+        {/* One allowance card, confirmed usage only (nothing while it is unknown): the remaining count and Premium for free athletes,
+            the monthly count and reset time for Premium. 16pt below the ask row and 24pt above Recent Signals; the screen's own
+            section gap is larger, so the card pulls in by the difference. */}
+        {usage ? (
+          <View style={styles.allowanceBlock}>
+            <SignalAllowanceCard usage={usage} onExplorePremium={handleExplorePremium} />
+          </View>
+        ) : null}
 
         {/* 3 — Recent Signals: completed analysis HISTORY. Deliberately unboxed/editorial — the
             distinction from the Prompt Actions module below comes from typography and a quiet
@@ -240,7 +244,7 @@ interface Styles {
   suggestionsModule: ViewStyle;
   suggestionRow: ViewStyle;
   suggestionLabel: TextStyle;
-  askBlock: ViewStyle;
+  allowanceBlock: ViewStyle;
   askAnythingRow: ViewStyle;
   askAnythingLabel: TextStyle;
   recentSection: ViewStyle;
@@ -263,7 +267,7 @@ function createStyles(palette: BrandPalette): Styles {
       // Real vertical rhythm between the four sections — each section then sets its own tighter
       // internal spacing, so the page reads as distinct blocks of differing weight rather than
       // uniform slots stacked in a row.
-      gap: spacing.xxl,
+      gap: SECTION_GAP,
     },
     // 1 — Next race: the analytical entry point itself, most prominent on the screen.
     nextRaceBlock: {
@@ -305,8 +309,10 @@ function createStyles(palette: BrandPalette): Styles {
     // 2 — Ask Signal: a quiet, single action row — deliberately plain (no card, no fill, no
     // border) so it never reads as a second SignalModule-weight block next to the next-race card.
     // Placed right after the next-race module in render order, above Recent Signals (Task 3.1).
-    askBlock: {
-      gap: spacing.xs,
+    // Content gap between sections is spacing.xxl (32): -16 above gives 16pt from the ask row, -8 below gives 24pt to Recent Signals.
+    allowanceBlock: {
+      marginTop: ASK_TO_CARD_GAP - SECTION_GAP,
+      marginBottom: CARD_TO_RECENT_GAP - SECTION_GAP,
     },
     askAnythingRow: {
       flexDirection: 'row',

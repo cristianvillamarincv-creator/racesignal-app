@@ -4,11 +4,10 @@ import { Pressable, StyleSheet, Text, View, type TextStyle, type ViewStyle } fro
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import type { SignalUsagePayload } from '@/lib/signal';
 import {
-  EXHAUSTED_HEADLINE,
   EXHAUSTED_SUPPORT,
   EXPLORE_PREMIUM_LABEL,
   formatAllowanceHeadline,
-  formatFreeNoRenewal,
+  formatExhaustedHeadline,
   formatResetLine,
   isFreeExhausted,
   PREMIUM_INCLUDES_LINE,
@@ -16,24 +15,18 @@ import {
 import { minTouchSize, spacing } from '@/lib/theme';
 
 /**
- * The Signal allowance as the server reports it (null renders nothing: unknown usage is never shown as a count).
- *
- * `conversation` is the compact two-line area above the composer: free shows the remaining count and what Premium includes with an
- * "Explore Premium" action; a confirmed-exhausted free balance shows the exhausted message instead; Premium shows the monthly count
- * and the reset date and time in the phone's timezone, with no upgrade action. Text wraps and the action drops below it at larger
- * text sizes; nothing has a fixed height.
- *
- * `summary` is the quieter version near the question entry on the Signal tab: the count and either "your free asks don't renew" or the
- * Premium reset line, with no action (the Premium card carries that).
+ * The Signal allowance as the server reports it, in the compact two-line area above the conversation composer (null renders nothing:
+ * unknown usage is never shown as a count). Free shows the remaining count and what Premium includes with an "Explore Premium" action;
+ * a confirmed-exhausted free balance shows the exhausted message instead; Premium shows the monthly count and the reset date and time
+ * in the phone's timezone, with no upgrade action. Text wraps and the action drops below it at larger text sizes; nothing has a fixed
+ * height. (The Signal tab has its own single card: see SignalAllowanceCard.)
  */
 export function SignalAllowance({
   usage,
-  variant,
   onExplorePremium,
   resetFormat,
 }: {
   usage: SignalUsagePayload | null;
-  variant: 'conversation' | 'summary';
   onExplorePremium?: () => void;
   /** Test hook: pins the locale and timezone the reset line is rendered in. */
   resetFormat?: { locale?: string; timeZone?: string };
@@ -43,24 +36,18 @@ export function SignalAllowance({
   if (!usage) return null;
 
   const reset = usage.isPremium ? formatResetLine(usage.resetsAt, resetFormat) : null;
-  const exhaustedFree = variant === 'conversation' && isFreeExhausted(usage);
-  const headline = exhaustedFree ? EXHAUSTED_HEADLINE : formatAllowanceHeadline(usage);
-  const support = exhaustedFree
-    ? EXHAUSTED_SUPPORT
-    : usage.isPremium
-      ? (reset?.text ?? null)
-      : variant === 'conversation'
-        ? PREMIUM_INCLUDES_LINE
-        : formatFreeNoRenewal(usage);
-  const supportLabel = usage.isPremium && !exhaustedFree ? reset?.accessibilityLabel : undefined;
-  const showAction = variant === 'conversation' && !usage.isPremium && !!onExplorePremium;
+  const exhaustedFree = isFreeExhausted(usage);
+  const headline = exhaustedFree ? formatExhaustedHeadline(usage) : formatAllowanceHeadline(usage);
+  const support = exhaustedFree ? EXHAUSTED_SUPPORT : usage.isPremium ? (reset?.text ?? null) : PREMIUM_INCLUDES_LINE;
+  const supportLabel = usage.isPremium ? reset?.accessibilityLabel : undefined;
+  const showAction = !usage.isPremium && !!onExplorePremium;
 
   return (
-    <View style={variant === 'conversation' ? styles.strip : styles.summary} testID={`signal-allowance-${variant}`}>
+    <View style={styles.strip} testID="signal-allowance-conversation">
       <View style={styles.textBlock}>
-        <Text style={variant === 'conversation' ? styles.stripHeadline : styles.summaryHeadline}>{headline}</Text>
+        <Text style={styles.stripHeadline}>{headline}</Text>
         {support ? (
-          <Text style={variant === 'conversation' ? styles.stripSupport : styles.summarySupport} accessibilityLabel={supportLabel}>
+          <Text style={styles.stripSupport} accessibilityLabel={supportLabel}>
             {support}
           </Text>
         ) : null}
@@ -76,12 +63,9 @@ export function SignalAllowance({
 
 interface Styles {
   strip: ViewStyle;
-  summary: ViewStyle;
   textBlock: ViewStyle;
   stripHeadline: TextStyle;
   stripSupport: TextStyle;
-  summaryHeadline: TextStyle;
-  summarySupport: TextStyle;
   action: ViewStyle;
   actionLabel: TextStyle;
 }
@@ -103,11 +87,6 @@ function createStyles(palette: BrandPalette): Styles {
       borderRadius: 10,
       backgroundColor: withAlpha(palette.signalBlue, 0.08),
     },
-    summary: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      alignItems: 'center',
-    },
     textBlock: {
       flexShrink: 1,
       flexGrow: 1,
@@ -120,15 +99,6 @@ function createStyles(palette: BrandPalette): Styles {
     },
     stripSupport: {
       fontSize: 12,
-      color: palette.inkSecondary,
-    },
-    summaryHeadline: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: palette.ink,
-    },
-    summarySupport: {
-      fontSize: 13,
       color: palette.inkSecondary,
     },
     action: {

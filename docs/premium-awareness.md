@@ -12,8 +12,7 @@ Premium awareness explains the Signal allowance and the existing Premium offer i
 
 | Surface | Free | Premium |
 |---|---|---|
-| Signal tab, near "Ask Signal anything" | "2 of 3 free asks remaining" / "Your 3 free asks don't renew." | "28 of 40 asks remaining this month" / "Resets [local date and time]" |
-| Signal tab card (confirmed free only; below the entry, above Recent Signals) | "Keep exploring your race history" / "Compare your results, revisit race details and ask follow-up questions with 40 Signal asks each month." / "Explore Premium" | not shown |
+| Signal tab, one card below "Ask Signal anything" and above Recent Signals (16pt below the ask row, 24pt above Recent Signals; 16pt padding and corners; 18pt heading; 14pt/20pt body; 8pt heading to body, 12pt before the action; 44pt target) | Heading "Keep exploring your race history"; "2 of 3 free asks remaining" (or, at zero, "You've used your 3 free asks."); "Your free asks don't renew. Premium includes 40 asks each month." (at zero, "Get 40 Signal asks each month with Premium."); "Explore Premium" | "28 of 40 asks remaining this month" / "Resets [local date and time]"; no heading, no action. Hidden while usage is unknown |
 | Conversation allowance area (two lines, wraps, no fixed height) | "2 of 3 free asks remaining" / "Premium includes 40 asks each month." / "Explore Premium" | "28 of 40 asks remaining this month" / "Resets [date and time]"; no upgrade action |
 | Conversation, free balance 0 | "You've used your 3 free asks." / "Keep the conversation going with 40 asks each month." / "Explore Premium" | n/a |
 | Settings, Subscription | "RaceSignal Free" / "3 free Signal asks total. They don't renew." / "Explore RaceSignal Premium" with "40 Signal asks each month." / Restore Purchases | "RaceSignal Premium" ACTIVE / "40 Signal asks each month." / Restore Purchases |

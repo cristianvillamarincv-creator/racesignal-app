@@ -1,15 +1,16 @@
 import type { SignalUsagePayload } from '@/lib/signal';
 import {
-  EXHAUSTED_HEADLINE,
+  buildAllowanceCardContent,
+  CARD_EXHAUSTED_SUPPORT,
+  CARD_FREE_SUPPORT,
   EXHAUSTED_SUPPORT,
   EXPLORE_PREMIUM_LABEL,
   formatAllowanceHeadline,
-  formatFreeNoRenewal,
+  formatExhaustedHeadline,
   formatResetLine,
   isFreeExhausted,
   isPremiumExhausted,
   PREMIUM_INCLUDES_LINE,
-  PREMIUM_PROMO_BODY,
   PREMIUM_PROMO_HEADING,
   SETTINGS_FREE_DETAIL,
   SETTINGS_PREMIUM_DETAIL,
@@ -24,7 +25,6 @@ describe('allowance copy', () => {
   it('free: "N of 3 free asks remaining" and that the free asks do not renew', () => {
     expect(formatAllowanceHeadline(free(2))).toBe('2 of 3 free asks remaining');
     expect(formatAllowanceHeadline(free(0))).toBe('0 of 3 free asks remaining');
-    expect(formatFreeNoRenewal(free(2))).toBe('Your 3 free asks don’t renew.');
   });
 
   it('Premium: the monthly count, from the server cap', () => {
@@ -33,15 +33,16 @@ describe('allowance copy', () => {
 
   it('uses the specified wording everywhere else, and promises only what exists (more Signal asks)', () => {
     expect(PREMIUM_INCLUDES_LINE).toBe('Premium includes 40 asks each month.');
-    expect(EXHAUSTED_HEADLINE).toBe('You’ve used your 3 free asks.');
+    expect(formatExhaustedHeadline(free(0))).toBe('You’ve used your 3 free asks.');
+    expect(CARD_FREE_SUPPORT).toBe('Your free asks don’t renew. Premium includes 40 asks each month.');
+    expect(CARD_EXHAUSTED_SUPPORT).toBe('Get 40 Signal asks each month with Premium.');
     expect(EXHAUSTED_SUPPORT).toBe('Keep the conversation going with 40 asks each month.');
     expect(EXPLORE_PREMIUM_LABEL).toBe('Explore Premium');
     expect(PREMIUM_PROMO_HEADING).toBe('Keep exploring your race history');
-    expect(PREMIUM_PROMO_BODY).toBe('Compare your results, revisit race details and ask follow-up questions with 40 Signal asks each month.');
     expect(SETTINGS_FREE_DETAIL).toBe('3 free Signal asks total. They don’t renew.');
     expect(SETTINGS_UPGRADE_LABEL).toBe('Explore RaceSignal Premium');
     expect(SETTINGS_PREMIUM_DETAIL).toBe('40 Signal asks each month.');
-    const all = [PREMIUM_INCLUDES_LINE, EXHAUSTED_SUPPORT, PREMIUM_PROMO_BODY, SETTINGS_PREMIUM_DETAIL].join(' ');
+    const all = [PREMIUM_INCLUDES_LINE, EXHAUSTED_SUPPORT, CARD_FREE_SUPPORT, CARD_EXHAUSTED_SUPPORT, SETTINGS_PREMIUM_DETAIL].join(' ');
     expect(all).not.toMatch(/unlimited|predict|notification|better|improved|faster/i);
   });
 });
@@ -75,5 +76,49 @@ describe('formatResetLine (the reset instant in the viewer\'s timezone)', () => 
   it('is omitted, never guessed, when there is no valid instant', () => {
     expect(formatResetLine(null)).toBeNull();
     expect(formatResetLine('not a date')).toBeNull();
+  });
+});
+
+describe('singular and plural wording agrees with the actual numbers', () => {
+  it('uses the real remaining count; the noun agrees with the total the count is "of"', () => {
+    expect(formatAllowanceHeadline(free(3))).toBe('3 of 3 free asks remaining');
+    expect(formatAllowanceHeadline(free(1))).toBe('1 of 3 free asks remaining');
+    expect(formatAllowanceHeadline({ remaining: 1, cap: 1, isPremium: false, resetsAt: null })).toBe('1 of 1 free ask remaining');
+    expect(formatExhaustedHeadline({ remaining: 0, cap: 1, isPremium: false, resetsAt: null })).toBe('You\u2019ve used your 1 free ask.');
+    expect(formatAllowanceHeadline(premium(1))).toBe('1 of 40 asks remaining this month');
+  });
+});
+
+describe('buildAllowanceCardContent (the Signal tab card)', () => {
+  it('confirmed free with asks remaining: heading, count, no-renewal plus what Premium includes, and the action', () => {
+    expect(buildAllowanceCardContent(free(2))).toEqual({
+      heading: 'Keep exploring your race history',
+      status: '2 of 3 free asks remaining',
+      support: 'Your free asks don\u2019t renew. Premium includes 40 asks each month.',
+      showAction: true,
+    });
+  });
+
+  it('confirmed free and exhausted: the used-up message and the Premium line, with the action', () => {
+    expect(buildAllowanceCardContent(free(0))).toEqual({
+      heading: 'Keep exploring your race history',
+      status: 'You\u2019ve used your 3 free asks.',
+      support: 'Get 40 Signal asks each month with Premium.',
+      showAction: true,
+    });
+  });
+
+  it('Premium: the monthly count and the reset time, with no promotional heading and no action', () => {
+    const content = buildAllowanceCardContent(premium(28), { locale: 'en-US', timeZone: 'America/Toronto' })!;
+    expect(content.heading).toBeNull();
+    expect(content.status).toBe('28 of 40 asks remaining this month');
+    expect(plain(content.support!)).toBe('Resets Oct 31, 8:00 PM');
+    expect(content.supportAccessibilityLabel).toMatch(/^Resets on /);
+    expect(content.showAction).toBe(false);
+    expect(buildAllowanceCardContent(premium(28, null))!.support).toBeNull(); // no valid reset: omitted, not guessed
+  });
+
+  it('unknown usage has no card at all', () => {
+    expect(buildAllowanceCardContent(null)).toBeNull();
   });
 });

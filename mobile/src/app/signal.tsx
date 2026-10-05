@@ -638,7 +638,7 @@ export default function SignalScreen() {
         ) : null}
 
         {/* The allowance area: compact, two lines, server-confirmed counts only (see SignalAllowance). */}
-        <SignalAllowance usage={usage} variant="conversation" onExplorePremium={handleUpgradePress} />
+        <SignalAllowance usage={usage} onExplorePremium={handleUpgradePress} />
 
         <View style={styles.inputBar}>
           <Pressable

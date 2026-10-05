@@ -41,7 +41,7 @@ import {
 import { hasAgreedToSignalDisclosure, saveSignalConsent, SIGNAL_CONSENT_DISCLOSURE_VERSION } from '@/lib/signalConsent';
 import { exceedsSignalImageSizeLimit, resolveSignalImageMediaType } from '@/lib/signalImageGuard';
 import { shouldAutoSubmitInitialPrompt } from '@/lib/signalInitialPrompt';
-import { isFreeExhausted, isPremiumExhausted, PREMIUM_MONTHLY_ASKS } from '@/lib/signalUsage';
+import { formatPremiumExhaustedMessage, isFreeExhausted, isPremiumExhausted, PREMIUM_MONTHLY_ASKS } from '@/lib/signalUsage';
 import { useSignalUsage } from '@/lib/useSignalUsage';
 import { useAthleteRaces } from '@/lib/racesContext';
 import { isNearBottom, messageTopGap, QUESTION_BUBBLE_MAX_WIDTH } from '@/lib/signalLayout';
@@ -295,7 +295,7 @@ export default function SignalScreen() {
         return;
       }
       if (isPremiumExhausted(usage)) {
-        setErrorText(`You\u2019ve used all ${usage.cap} of your Signal asks for this month.`);
+        setErrorText(formatPremiumExhaustedMessage(usage));
         return;
       }
     }
@@ -366,7 +366,7 @@ export default function SignalScreen() {
           // decide, and it is never treated as exhausted-Premium on a guess.
           const fresh = await refreshUsage();
           if (fresh ? fresh.isPremium : isPremium) {
-            setErrorText(`You\u2019ve used all ${fresh?.cap ?? PREMIUM_MONTHLY_ASKS} of your Signal asks for this month.`);
+            setErrorText(fresh ? formatPremiumExhaustedMessage(fresh) : formatPremiumExhaustedMessage({ remaining: 0, cap: PREMIUM_MONTHLY_ASKS, isPremium: true, resetsAt: null }));
             return;
           }
           if (paywallInFlightRef.current) {

@@ -151,14 +151,24 @@ describe('Signal tab: one allowance card for a confirmed free athlete', () => {
 });
 
 describe('Signal tab: Premium athlete uses the same card without promotion', () => {
-  it('shows the monthly count and the existing reset time, with no heading and no action', async () => {
+  it('shows only the monthly count: no heading, no action, and no reset date or hidden reset text', async () => {
     const ui = await open(premium(28));
     expect(ui.getAllByTestId('signal-allowance-card')).toHaveLength(1);
     expect(ui.getByText('28 of 40 asks remaining this month')).toBeTruthy();
-    expect(ui.getByText(/^Resets /)).toBeTruthy();
-    expect(ui.getByLabelText(/^Resets on .*2026/)).toBeTruthy();
+    expect(ui.queryByText(/Resets/)).toBeNull();
+    expect(ui.queryByLabelText(/Resets/)).toBeNull();
+    expect(JSON.stringify(ui.toJSON())).not.toMatch(/Resets/);
     expect(ui.queryByText('Keep exploring your race history')).toBeNull();
     expect(ui.queryByLabelText('Explore Premium')).toBeNull();
+    await act(async () => ui.unmount());
+  });
+
+  it('at its monthly limit: the used-up message and that more become available next month, with no action', async () => {
+    const ui = await open(premium(0));
+    expect(ui.getByText('You\u2019ve used your 40 asks this month.')).toBeTruthy();
+    expect(ui.getByText('More become available next month.')).toBeTruthy();
+    expect(ui.queryByLabelText('Explore Premium')).toBeNull();
+    expect(ui.queryByText(/free asks/)).toBeNull();
     await act(async () => ui.unmount());
   });
 });

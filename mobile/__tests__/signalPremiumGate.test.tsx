@@ -116,11 +116,12 @@ describe('allowance area', () => {
     await act(async () => ui.unmount());
   });
 
-  it('Premium: monthly count and reset time with an accessible full date, and no upgrade action', async () => {
+  it('Premium: the monthly count only (no reset date or hidden reset text), and no upgrade action', async () => {
     const ui = await open(premium(28));
     expect(ui.getByText('28 of 40 asks remaining this month')).toBeTruthy();
-    expect(ui.getByText(/^Resets /)).toBeTruthy();
-    expect(ui.getByLabelText(/^Resets on .*2026/)).toBeTruthy();
+    expect(ui.queryByText(/Resets/)).toBeNull();
+    expect(ui.queryByLabelText(/Resets/)).toBeNull();
+    expect(JSON.stringify(ui.toJSON())).not.toMatch(/Resets/);
     expect(ui.queryByLabelText('Explore Premium')).toBeNull();
     await act(async () => ui.unmount());
   });
@@ -221,15 +222,16 @@ describe('a confirmed-exhausted free balance intercepts Send', () => {
 });
 
 describe('Premium at the monthly limit', () => {
-  it('blocks Send without the paywall or the model, shows the reset information, and keeps the draft', async () => {
+  it('blocks Send without the paywall or the model, says more become available next month, and keeps the draft', async () => {
     const ui = await open(premium(0));
     await typeDraft(ui);
     await pressSend(ui);
     expect(mockPaywall).not.toHaveBeenCalled();
     expect(mockSendSignalMessage).not.toHaveBeenCalled();
-    expect(ui.getByText('You’ve used all 40 of your Signal asks for this month.')).toBeTruthy();
-    expect(ui.getByText('0 of 40 asks remaining this month')).toBeTruthy();
-    expect(ui.getByText(/^Resets /)).toBeTruthy();
+    expect(ui.getByText('You’ve used your 40 asks this month. More become available next month.')).toBeTruthy(); // the blocked-Send message
+    expect(ui.getByText('You’ve used your 40 asks this month.')).toBeTruthy(); // the allowance area
+    expect(ui.getByText('More become available next month.')).toBeTruthy();
+    expect(ui.queryByText(/Resets/)).toBeNull();
     expect(ui.queryByLabelText('Explore Premium')).toBeNull();
     expect(draftOf(ui)).toBe(DRAFT);
     await act(async () => ui.unmount());

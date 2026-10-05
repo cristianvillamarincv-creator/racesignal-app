@@ -10,25 +10,16 @@ import { minTouchSize } from '@/lib/theme';
 /**
  * The Signal tab's one allowance card (it replaces a separate allowance line and a separate promotional card). It shows only what the
  * server has confirmed, so it renders nothing while usage is unknown. Free athletes get the heading, their remaining count (or the used-up
- * message), what Premium includes, and "Explore Premium"; Premium athletes get their monthly count and the reset date and time in the
- * phone's timezone, with no heading and no action. Content-driven height: text wraps and the card grows at larger text sizes.
+ * message), what Premium includes, and "Explore Premium"; Premium athletes get their monthly count only (or, at the limit, that more become
+ * available next month), with no heading, no reset date and no action. Content-driven height: text wraps and the card grows at larger text sizes.
  *
  * Locked metrics: 16pt padding and corners, 18pt semibold heading, 14pt/20pt secondary body, 8pt heading to body, 12pt body to action,
  * 44pt minimum action target. The 16pt gap above and 24pt gap below the card are set by the screen that places it.
  */
-export function SignalAllowanceCard({
-  usage,
-  onExplorePremium,
-  resetFormat,
-}: {
-  usage: SignalUsagePayload | null;
-  onExplorePremium: () => void;
-  /** Test hook: pins the locale and timezone the reset line is rendered in. */
-  resetFormat?: { locale?: string; timeZone?: string };
-}) {
+export function SignalAllowanceCard({ usage, onExplorePremium }: { usage: SignalUsagePayload | null; onExplorePremium: () => void }) {
   const palette = useBrandPalette();
   const styles = useMemo(() => createStyles(palette), [palette]);
-  const content = buildAllowanceCardContent(usage, resetFormat);
+  const content = buildAllowanceCardContent(usage);
   if (!content) return null;
 
   return (
@@ -41,9 +32,7 @@ export function SignalAllowanceCard({
       <View style={content.heading ? styles.bodyAfterHeading : undefined}>
         <Text style={content.heading ? styles.body : styles.bodyPrimary}>{content.status}</Text>
         {content.support ? (
-          <Text style={styles.body} accessibilityLabel={content.supportAccessibilityLabel}>
-            {content.support}
-          </Text>
+          <Text style={styles.body}>{content.support}</Text>
         ) : null}
       </View>
       {content.showAction ? (

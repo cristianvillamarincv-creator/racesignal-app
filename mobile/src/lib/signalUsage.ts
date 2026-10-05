@@ -4,7 +4,7 @@
  * (the server-side source of truth, see supabase/functions/signal/index.ts); nothing here computes an allowance.
  *
  * Free: 3 asks in total, for the life of the account; they do not renew. Premium: 40 asks each UTC calendar month (the quota follows
- * UTC calendar months, not the subscription's billing date), reset instant supplied by the server and shown in the phone's timezone.
+ * UTC calendar months, not the subscription's billing date). The function still returns the reset instant; no surface shows it.
  */
 import type { SignalUsagePayload } from '@/lib/signal';
 
@@ -13,6 +13,8 @@ export const PREMIUM_MONTHLY_ASKS = 40;
 /** Mirrors the function's SIGNAL_FREE_MONTHLY_CAP default (a lifetime total) and the paywall's "3 Signal asks in total". */
 export const FREE_TOTAL_ASKS = 3;
 
+/** Premium at its monthly limit (no upgrade action). */
+export const PREMIUM_EXHAUSTED_SUPPORT = 'More become available next month.';
 export const EXPLORE_PREMIUM_LABEL = 'Explore Premium';
 export const PREMIUM_PROMO_HEADING = 'Keep exploring your race history';
 export const PREMIUM_INCLUDES_LINE = `Premium includes ${PREMIUM_MONTHLY_ASKS} asks each month.`;
@@ -44,39 +46,14 @@ export function formatAllowanceHeadline(usage: SignalUsagePayload): string {
     : `${usage.remaining} of ${usage.cap} free ${asks(usage.cap)} remaining`;
 }
 
-/** "You\u2019ve used your 3 free asks." (a confirmed free balance of zero). */
+/** "You\u2019ve used your 3 free asks." (free) or "You\u2019ve used your 40 asks this month." (Premium), for a confirmed balance of zero. */
 export function formatExhaustedHeadline(usage: SignalUsagePayload): string {
-  return `You\u2019ve used your ${usage.cap} free ${asks(usage.cap)}.`;
+  return usage.isPremium ? `You\u2019ve used your ${usage.cap} ${asks(usage.cap)} this month.` : `You\u2019ve used your ${usage.cap} free ${asks(usage.cap)}.`;
 }
 
-export interface ResetLine {
-  /** Compact, for the screen: "Resets Nov 1, 8:00 PM". */
-  text: string;
-  /** Full date and time with weekday, year and timezone, for screen readers. */
-  accessibilityLabel: string;
-}
-
-/**
- * The monthly reset instant rendered in the viewer's timezone (the device's by default). Returns null when there is no valid
- * instant to show, so a missing reset is simply omitted rather than guessed. `locale`/`timeZone` are injectable for tests.
- */
-export function formatResetLine(resetsAt: string | null, options: { locale?: string; timeZone?: string } = {}): ResetLine | null {
-  if (!resetsAt) return null;
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) return null;
-  const { locale, timeZone } = options;
-  const short = date.toLocaleString(locale, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone });
-  const full = date.toLocaleString(locale, {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-    timeZone,
-  });
-  return { text: `Resets ${short}`, accessibilityLabel: `Resets on ${full}` };
+/** The full Premium-exhausted message used where a single line is needed (a blocked Send). */
+export function formatPremiumExhaustedMessage(usage: SignalUsagePayload): string {
+  return `${formatExhaustedHeadline(usage)} ${PREMIUM_EXHAUSTED_SUPPORT}`;
 }
 
 export interface AllowanceCardContent {
@@ -84,8 +61,6 @@ export interface AllowanceCardContent {
   heading: string | null;
   status: string;
   support: string | null;
-  /** Full date and time for screen readers when `support` is the Premium reset line. */
-  supportAccessibilityLabel?: string;
   /** "Explore Premium" is offered to confirmed free athletes only. */
   showAction: boolean;
 }
@@ -93,13 +68,19 @@ export interface AllowanceCardContent {
 /**
  * What the Signal tab's single allowance card says. Null for unknown usage: the card is hidden until the server confirms the plan
  * and count, never guessed. Free (remaining or exhausted) gets the heading, status, supporting line and the Explore Premium action;
- * Premium gets its monthly count and the reset date and time, with no heading and no action.
+ * Premium gets its monthly count only (or, at its limit, the used-up message and that more become available next month), with no
+ * heading, no reset date and no action.
  */
-export function buildAllowanceCardContent(usage: SignalUsagePayload | null, resetFormat?: { locale?: string; timeZone?: string }): AllowanceCardContent | null {
+export function buildAllowanceCardContent(usage: SignalUsagePayload | null): AllowanceCardContent | null {
   if (!usage) return null;
   if (usage.isPremium) {
-    const reset = formatResetLine(usage.resetsAt, resetFormat);
-    return { heading: null, status: formatAllowanceHeadline(usage), support: reset?.text ?? null, supportAccessibilityLabel: reset?.accessibilityLabel, showAction: false };
+    const exhausted = isPremiumExhausted(usage);
+    return {
+      heading: null,
+      status: exhausted ? formatExhaustedHeadline(usage) : formatAllowanceHeadline(usage),
+      support: exhausted ? PREMIUM_EXHAUSTED_SUPPORT : null,
+      showAction: false,
+    };
   }
   const exhausted = isFreeExhausted(usage);
   return {

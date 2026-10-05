@@ -7,7 +7,7 @@ import {
   EXPLORE_PREMIUM_LABEL,
   formatAllowanceHeadline,
   formatExhaustedHeadline,
-  formatResetLine,
+  formatPremiumExhaustedMessage,
   isFreeExhausted,
   isPremiumExhausted,
   PREMIUM_INCLUDES_LINE,
@@ -19,7 +19,6 @@ import {
 
 const free = (remaining: number): SignalUsagePayload => ({ remaining, cap: 3, isPremium: false, resetsAt: null });
 const premium = (remaining: number, resetsAt: string | null = '2026-11-01T00:00:00.000Z'): SignalUsagePayload => ({ remaining, cap: 40, isPremium: true, resetsAt });
-const plain = (text: string) => text.replace(/[  ]/g, ' ');
 
 describe('allowance copy', () => {
   it('free: "N of 3 free asks remaining" and that the free asks do not renew', () => {
@@ -63,19 +62,10 @@ describe('exhausted states are only ever confirmed ones', () => {
   });
 });
 
-describe('formatResetLine (the reset instant in the viewer\'s timezone)', () => {
-  it('renders the server instant in the given timezone, with a full accessible date and time', () => {
-    const toronto = formatResetLine('2026-11-01T00:00:00.000Z', { locale: 'en-US', timeZone: 'America/Toronto' })!;
-    expect(plain(toronto.text)).toBe('Resets Oct 31, 8:00 PM');
-    expect(plain(toronto.accessibilityLabel)).toBe('Resets on Saturday, October 31, 2026 at 8:00 PM EDT');
-    const tokyo = formatResetLine('2026-11-01T00:00:00.000Z', { locale: 'en-US', timeZone: 'Asia/Tokyo' })!;
-    expect(plain(tokyo.text)).toBe('Resets Nov 1, 9:00 AM');
-    expect(plain(tokyo.accessibilityLabel)).toContain('Sunday, November 1, 2026 at 9:00 AM');
-  });
-
-  it('is omitted, never guessed, when there is no valid instant', () => {
-    expect(formatResetLine(null)).toBeNull();
-    expect(formatResetLine('not a date')).toBeNull();
+describe('Premium exhaustion wording', () => {
+  it('is the specified message, as a headline and as a single line', () => {
+    expect(formatExhaustedHeadline(premium(0))).toBe('You\u2019ve used your 40 asks this month.');
+    expect(formatPremiumExhaustedMessage(premium(0))).toBe('You\u2019ve used your 40 asks this month. More become available next month.');
   });
 });
 
@@ -108,14 +98,18 @@ describe('buildAllowanceCardContent (the Signal tab card)', () => {
     });
   });
 
-  it('Premium: the monthly count and the reset time, with no promotional heading and no action', () => {
-    const content = buildAllowanceCardContent(premium(28), { locale: 'en-US', timeZone: 'America/Toronto' })!;
-    expect(content.heading).toBeNull();
-    expect(content.status).toBe('28 of 40 asks remaining this month');
-    expect(plain(content.support!)).toBe('Resets Oct 31, 8:00 PM');
-    expect(content.supportAccessibilityLabel).toMatch(/^Resets on /);
-    expect(content.showAction).toBe(false);
-    expect(buildAllowanceCardContent(premium(28, null))!.support).toBeNull(); // no valid reset: omitted, not guessed
+  it('Premium: the monthly count only, with no heading, no reset date and no action', () => {
+    expect(buildAllowanceCardContent(premium(28))).toEqual({ heading: null, status: '28 of 40 asks remaining this month', support: null, showAction: false });
+    expect(JSON.stringify(buildAllowanceCardContent(premium(28)))).not.toMatch(/resets/i);
+  });
+
+  it('Premium at its limit: the used-up message and that more become available next month, with no action', () => {
+    expect(buildAllowanceCardContent(premium(0))).toEqual({
+      heading: null,
+      status: 'You\u2019ve used your 40 asks this month.',
+      support: 'More become available next month.',
+      showAction: false,
+    });
   });
 
   it('unknown usage has no card at all', () => {

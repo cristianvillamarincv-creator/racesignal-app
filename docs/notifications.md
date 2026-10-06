@@ -20,7 +20,7 @@ Two optional notification types, both **off by default**, scheduled **locally on
 
 ## Opt-in, permission and Settings
 - iOS permission is requested **only after Enable is tapped** (invitation or Settings switch); defaults are applied immediately with no scheduling form. "Not now" dismisses the invitation permanently; Settings can enable it any time. A refused prompt leaves the type off and explains where to turn it on (Open iOS Settings). Permission turned off later is detected on return to the foreground: reminders are cancelled and Settings shows why.
-- Settings → Notifications: a separate switch per type, editable weekly day and time, editable race-milestone time.
+- Settings → Preferences → Notifications: a separate switch per type, editable weekly day and time, editable race-milestone time.
 - Preferences, rotation and launch counts are **per athlete, per device** (AsyncStorage, keyed by athlete id). Existing users start counting launches at their first launch of this feature. Only launches that begin in the app (not the one that finishes onboarding) count.
 - The invitation is a root-level sheet gated until onboarding has ended and the initial paywall has settled, and never shown over the paywall or the Signal consent sheet (`lib/overlayBlockers.ts`).
 
@@ -45,7 +45,7 @@ Two optional notification types, both **off by default**, scheduled **locally on
 
 ## Development test tools (development variant only)
 
-Settings → "Notification test tools (development only)". It shows live diagnostics (the real iOS authorization and its alert, lock-screen and banner settings, how many notifications iOS has pending, how many races the app has loaded for this account and how many are upcoming, the device clock and timezone) and six tests. Each test: checks the real iOS permission and names any blocker (with an Open iOS Settings shortcut); explains a missing prerequisite instead of doing nothing; asks iOS when the trigger will next fire (which proves the trigger shape is valid); schedules with a time limit; **reads iOS's pending list back** to confirm the identifier exists; and shows either an actionable error or the identifier and expected delivery time. Every step is time-bounded and the busy state always clears. Test notifications are identified `rs-test:` and normal reconciliation never cancels them.
+Settings → Developer tools → "Notification test tools" (development only). It shows live diagnostics (the real iOS authorization and its alert, lock-screen and banner settings, how many notifications iOS has pending, how many races the app has loaded for this account and how many are upcoming, the device clock and timezone) and six tests. Each test: checks the real iOS permission and names any blocker (with an Open iOS Settings shortcut); explains a missing prerequisite instead of doing nothing; asks iOS when the trigger will next fire (which proves the trigger shape is valid); schedules with a time limit; **reads iOS's pending list back** to confirm the identifier exists; and shows either an actionable error or the identifier and expected delivery time. Every step is time-bounded and the busy state always clears. Test notifications are identified `rs-test:` and normal reconciliation never cancels them.
 
 1. **Test notification in 60 seconds**: a time-interval trigger, no race, entitlement or model call. Run this first: it proves basic local delivery.
 2. **Calendar-trigger test**: the same calendar trigger real reminders use, with a standalone payload. If 1 delivers and 2 does not, the calendar trigger is the problem.
@@ -95,13 +95,13 @@ The development weekly test said "21 days until [race]" while the race screen sh
 
 ## Full re-test list (development build, no rebuild expected)
 
-1. Reload the app from Metro. Open Settings → scroll to "Notification test tools". Note the diagnostics lines: permission should read `granted` with alerts `on`.
+1. Reload the app from Metro. Open Settings → Developer tools and find "Notification test tools". Note the diagnostics lines: permission should read `granted` with alerts `on`.
 2. Tap **Test notification in 60 seconds**. Expect a green line with an identifier starting `rs-test:` and a delivery time. Lock the phone (or leave the app) and wait about a minute. Expect a banner "RaceSignal test". Tap it: the app opens and shows "Test notification tapped".
 3. If nothing arrives, check Notification Center (swipe down) and Focus: a Focus can deliver silently. Tap **Show pending notifications** and confirm the identifier is listed.
 4. Tap **Calendar-trigger test**. Same checks. Compare with step 2.
 5. Tap **Between-race prompt**: wait, tap the banner: Signal opens with the starter in an editable composer, nothing sent.
 6. Save an upcoming race (a date in the future), then run **Race-prep weekly** and the milestone tests; tapping opens the race with the checklist expanded and an item highlighted.
-7. In Settings → Notifications, with a type switched on, check the status line under the switch (reminders scheduled and the next one).
+7. In Settings → Notifications (under Preferences), with a type switched on, check the status line under the switch (reminders scheduled and the next one).
 
 If step 1 reports permission or alert problems, it names the iOS Settings path. If it reports "iOS did not accept the notification", paste the message: it contains the native error. If the native module is reported unavailable, a rebuild would be needed; nothing so far indicates that.
 

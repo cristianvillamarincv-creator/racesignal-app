@@ -70,7 +70,7 @@ function ScheduleRow({ label, value, open, onPress, styles, children }: { label:
  * Settings → Notifications: a separate switch for each type (both start off, and iOS permission is requested only when one is switched on),
  * editable weekly day and time (and the race-milestone time), and a clear message with a shortcut when iOS permission is denied or was turned off later.
  */
-export function NotificationSettingsSection() {
+export function NotificationSettingsSection({ showHeader = true }: { showHeader?: boolean } = {}) {
   const { prefs, permission, scheduleStatus, enable, disable, updateSchedule, openSystemSettings } = useNotifications();
   const palette = useBrandPalette();
   const scheme = useColorScheme();
@@ -116,8 +116,8 @@ export function NotificationSettingsSection() {
 
   return (
     <View style={styles.section} testID="notification-settings">
-      <SectionHeader title="Notifications" />
-      <HairlineRule color={palette.hairline} />
+      {showHeader ? <SectionHeader title="Notifications" /> : null}
+      {showHeader ? <HairlineRule color={palette.hairline} /> : null}
 
       <View style={styles.switchRow}>
         <View style={styles.switchText}>

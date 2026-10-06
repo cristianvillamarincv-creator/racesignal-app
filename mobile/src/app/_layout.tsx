@@ -80,7 +80,7 @@ function RootLayoutBody() {
     // Real AuthProvider/AppPhaseProvider/AthleteRacesProvider are replaced with stub/fixture-backed
     // providers — no real session is ever held, and no lib/db/races.ts, lib/db/signal.ts, or
     // lib/signal.ts network call is ever reachable from this branch. AppStack renders the exact
-    // same Stack.Screen configuration as the real app, minus race/add, settings/index and
+    // same Stack.Screen configuration as the real app, minus race/add, the Settings screens and
     // find-races (excluded via Stack.Protected — see AppStack's own comment for why that specific
     // mechanism, not just omitting the Stack.Screen entries, is required here).
     return (
@@ -188,8 +188,9 @@ function RootNavigator() {
 /**
  * The app's real Stack, extracted so Developer Preview's "browse" mode (RootLayoutBody above) can
  * render the EXACT SAME Stack.Screen configuration rather than a second, hand-duplicated one.
- * `preview` only toggles a `Stack.Protected` guard around three screens: `race/add`,
- * `settings/index`, `find-races`.
+ * `preview` only toggles a `Stack.Protected` guard around the screens that need the real providers: `race/add`,
+ * `settings/index` and its detail screens (`settings/subscription`, `notifications`, `signal-privacy`, `sign-in-methods`,
+ * `developer`), `find-races`.
  *
  * These three specifically must never be reachable from preview — `settings/index` calls the REAL
  * `useAppPhase()` (for `resetToOnboarding`) and `useAuth()` (for `signOut`), and NEITHER of those
@@ -228,6 +229,11 @@ function AppStack({ preview }: { preview: boolean }) {
           name="settings/index"
           options={{ headerShown: true, title: 'Settings', headerLeft: () => <HeaderBackButton /> }}
         />
+        <Stack.Screen name="settings/subscription" options={{ headerShown: true, title: 'Subscription', headerLeft: () => <HeaderBackButton /> }} />
+        <Stack.Screen name="settings/notifications" options={{ headerShown: true, title: 'Notifications', headerLeft: () => <HeaderBackButton /> }} />
+        <Stack.Screen name="settings/signal-privacy" options={{ headerShown: true, title: 'Signal privacy & consent', headerLeft: () => <HeaderBackButton /> }} />
+        <Stack.Screen name="settings/sign-in-methods" options={{ headerShown: true, title: 'Sign-in methods', headerLeft: () => <HeaderBackButton /> }} />
+        <Stack.Screen name="settings/developer" options={{ headerShown: true, title: 'Developer tools', headerLeft: () => <HeaderBackButton /> }} />
         <Stack.Screen
           name="find-races"
           options={{ headerShown: true, title: 'Find my races', headerLeft: () => <HeaderBackButton /> }}

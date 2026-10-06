@@ -33,6 +33,7 @@ import { AppIcon } from '@/lib/icons';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
 import { buildSignalContext, buildConversationTitle, getSuggestedPrompts } from '@/lib/signalContext';
+import { seedNoteText } from '@/lib/signalSeedNote';
 import {
   generateSignalRequestId,
   sendSignalMessage,
@@ -592,13 +593,7 @@ export default function SignalScreen() {
             onContentSizeChange={() => {
               if (followLatestRef.current) scrollRef.current?.scrollToEnd({ animated: true });
             }}>
-            {seedRace ? (
-              <Text style={styles.seedNote}>
-                Signal has your {seedRace.name} result and your full race history.
-              </Text>
-            ) : (
-              <Text style={styles.seedNote}>Signal has your full race history.</Text>
-            )}
+            <Text style={styles.seedNote}>{seedNoteText(seedRace)}</Text>
 
             {messages.length > 0 ? (
               <View style={styles.messages}>

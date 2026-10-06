@@ -4,7 +4,7 @@ Signal can give a **historical reference range** for an upcoming race: the faste
 
 ## Status
 
-Implemented on `release-1.1` and deployed to the **development** project only. Not deployed to production. Not yet device-tested. No paid model evaluation has been run, so the example answers below are **editorial**: they show the intended behavior and have not been checked against the real model.
+Implemented on `release-1.1` and deployed to the **development** project only. Not deployed to production. Partly device-tested: see the QA record at the end (prediction QA is not complete). No paid model evaluation has been run, so the example answers below are **editorial**: they show the intended behavior and have not been checked against the real model.
 
 ## The one calculation
 
@@ -34,7 +34,7 @@ The rest of the context is still client-built (unchanged), so the model can see 
 
 ## Prompt changes
 
-Removed: the instruction to give a "provisional range" and state confidence, the 2-4 pieces of evidence list, and the cited-benchmark wording. Added rules: lead with the range or reference, name the supporting races, give one short limitation (said once per conversation), use only the supplied numbers, never use confidence/interval/probability language, never comment on there being only one result, and never expose how results were chosen, never build a time from another distance, and the could-not-check behavior. Model, quotas and the output cap (700 tokens) are unchanged.
+Removed: the instruction to give a "provisional range" and state confidence, the 2-4 pieces of evidence list, and the cited-benchmark wording. Added rules: keep the first answer short (about 50 to 80 words), lead with the range or reference, name the supporting races, give one short limitation in natural words (said once per conversation, never as "I know nothing about your training"), stop there with no unrequested trend or improvement paragraph, use only the supplied numbers, never use confidence/interval/probability language, never comment on there being only one result, and never expose how results were chosen, never build a time from another distance, and the could-not-check behavior. Model, quotas and the output cap (700 tokens) are unchanged.
 
 ## Suggestions
 
@@ -49,16 +49,16 @@ A next-race question is suggested proactively (Signal tab "Your next race" modul
 
 ## Example answers (editorial, not yet tested against the real model)
 
-Assuming today is Oct 5, 2026 and synthetic races.
+Assuming today is Oct 5, 2026 and synthetic races. A first answer is short (about 50 to 80 words): the range, the supporting results, one limitation in natural words, and nothing after it. Later answers in the thread give the numbers without repeating the limitation, and trends or improvement are discussed only when asked.
 
-- **Two results:** "Your two recent Olympic results ran from 2:41:55 (Riverside, Aug 17, 2026) to 2:48:20 (Harbor, Jul 6, 2025). That's how those two races went; it doesn't account for training, the course or the weather, so Lakefront can land outside it."
-- **Nearly identical:** "Your two recent half marathons were 1:44:09 (Spring Half, Apr 12, 2026) and 1:44:31 (Harbor Half, Nov 9, 2025), 22 seconds apart. Two races that close say little about the next course or conditions, so it can land outside that."
+- **Two results:** "Your two recent Olympic results ran from 2:41:55 (Riverside, Aug 16, 2026) to 2:48:20 (Harbor, Jul 13, 2025), a 6 minute 25 second difference. This reflects your past results; current training and race-day conditions could put you outside that range."
+- **Nearly identical:** "Your two recent half marathons were 1:44:09 (Spring Half, Apr 12, 2026) and 1:44:31 (Harbor Half, Nov 9, 2025), 22 seconds apart. These are only two races, so the next course and conditions could put you outside that."
 - **One result:** "Your one recent 10K on file is the Spring 10K on Mar 8, 2026, in 47:12. That's the reference I have for that distance."
 - **Older history:** "Your last Olympic triathlon was Riverside on Aug 17, 2023, in 2:52:40, over 3 years ago. That's an older result, so I don't treat it as an estimate for Lakefront."
 - **No comparable history:** "I don't have a half marathon result on file, and I don't turn your 10K times into a half marathon time. A recent half marathon result would let me give you a range."
 - **Could not check:** "I couldn't check your race history just now. Try again in a moment."
 
-The "22 seconds" figure is supplied by the calculation; Signal is told not to work out any other difference.
+The "22 seconds" and "6 minute 25 second" figures are supplied by the calculation; Signal is told not to work out any other difference.
 
 ## Checks (synthetic only)
 
@@ -81,3 +81,27 @@ The app has no control for setting a race to "considering"; the status for step 
 1. Open the upcoming test race, open its Signal module, ask "What does my history suggest for this race?". Expect: 2:41:55 to 2:48:20, naming Riverside (Aug 16, 2026, 2:41:55) and Harbor (Jul 13, 2025, 2:48:20), one short limitation.
 2. Same thread: "Which result is the faster end based on?". Expect: Riverside, 2:41:55, without repeating the whole limitation.
 3. After the test race is set to considering (force-quit and reopen so the app reloads races): no suggestion module on the race screen and no suggested question in Signal for it; a custom question about its finish-time reference gets the same range.
+
+## Device QA record (development build, `cristian.flipd@gmail.com`)
+
+Reported by the owner after the first test pass. The considering-race check is still pending, so **prediction QA is not complete**.
+
+Passed (registered Prediction Test Olympic):
+- The suggested question gave the correct historical range, 2:41:55 to 2:48:20.
+- Supporting races, dates and the supplied 6:25 difference were correct.
+- The same-thread follow-up ("Which result is the faster end based on?") correctly named Riverside, Aug 16, 2026, 2:41:55, stayed concise and did not repeat the limitation.
+- The visible allowance went from 38 to 37 after the follow-up.
+
+Corrections made after that pass (prompt and header only; calculation, matching rules, quotas and model unchanged):
+1. First answer shortened: range, supporting results, one short limitation.
+2. The limitation reads naturally ("This reflects your past results; current training and race-day conditions could put you outside that range") instead of "it knows nothing about your training".
+3. No unsolicited second paragraph about trends or improvement.
+4. The Signal header says "Signal has your race details and your full race history." for a race without a recorded result (it still says "your <race> result" when one exists).
+
+These corrections are deployed to development but **not yet re-tested on the device**: the corrected wording and the header need a fresh look.
+
+Pending:
+- **Considering-race check.** Prediction Test Olympic is currently `considering` in the dev account. Expected: no Signal module on its race screen, no suggested question in its chat, and a custom question about its finish-time reference gets the same range. Not yet run.
+- Re-check of the corrected wording and header on the registered race (restore it to `registered` after the considering check).
+- Not yet covered on a device: one result, older history, no comparable history and unsupported distance (covered by automated tests only).
+- Open from before: DNF/DNS detection does not exist (see above), and the real-model behavior for any case other than the two registered-race questions is unverified.

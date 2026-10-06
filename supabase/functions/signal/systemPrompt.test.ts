@@ -335,7 +335,7 @@ Deno.test('prompt — the invented-range and stated-confidence instructions are 
   }
   for (const required of [
     'The only source for a finish-time range is the RACE HISTORY CHECK',
-    'Say that limitation once in a conversation',
+    'Say the limitation once in a conversation',
     'Never say or imply the finish will land inside the range',
     'Do not average, pick a middle, round, widen, narrow, add a margin',
     'Never use a different distance or sport to build or suggest a time',
@@ -395,4 +395,14 @@ Deno.test('prompt — one result is a reference (not dismissed), and an unsuppor
   const sprint: PredictionRaceInput = { id: 's', name: 'Sprint Race', sport: 'triathlon', distanceLabel: 'Sprint', eventDate: '2027-04-01', status: 'registered' };
   const rendered = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases: buildPredictionBases([sprint], '2026-10-05') });
   assertStringIncludes(rendered, 'UNSUPPORTED distance: no estimated time or range can be given for it (recorded results can still be quoted)');
+});
+
+Deno.test('prompt — range answers are short, end on one naturally worded limitation, and add no unrequested trend paragraph', () => {
+  const prompt = buildSystemPrompt(EMPTY_CONTEXT, { status: 'ok', bases: [] });
+  assertStringIncludes(prompt, 'Keep the first answer short, about 50 to 80 words. Lead with the range (or the reference), name the past races it comes from with their dates and times, then give one short limitation in natural words');
+  assertStringIncludes(prompt, 'This reflects your past results; current training and race-day conditions could put you outside that range.');
+  assertStringIncludes(prompt, 'never say that you know nothing about their training, the course or the weather');
+  assertStringIncludes(prompt, 'Do not add a second paragraph about trends, improvement, form, strengths or what to do next unless the athlete asked for it');
+  assertStringIncludes(prompt, 'Say the limitation once in a conversation');
+  for (const removed of ['it knows nothing about training, the course or conditions', 'add one short limitation in plain words']) assertEquals(prompt.includes(removed), false, removed);
 });

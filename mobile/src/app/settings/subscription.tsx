@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert } from 'react-native';
 
-import { HairlineRule } from '@/components/HairlineRule';
-import { ActionRow, PlanStatusRow, SettingsScroll, useSettingsStyles } from '@/components/settings/SettingsRows';
+import { ActionRow, PlanStatusRow, SettingsScroll, SettingsSection } from '@/components/settings/SettingsRows';
 import { usePremium } from '@/lib/premium';
 import { presentPremiumPaywall } from '@/lib/purchases';
 import { SETTINGS_FREE_DETAIL, SETTINGS_FREE_TITLE, SETTINGS_PREMIUM_DETAIL, SETTINGS_UPGRADE_LABEL } from '@/lib/signalUsage';
@@ -11,7 +10,6 @@ import { SETTINGS_FREE_DETAIL, SETTINGS_FREE_TITLE, SETTINGS_PREMIUM_DETAIL, SET
 export default function SubscriptionScreen() {
   const { isPremium, refresh: refreshPremiumStatus, restorePurchases } = usePremium();
   const [isRestoring, setIsRestoring] = useState(false);
-  const { styles, palette } = useSettingsStyles();
 
   async function handleUpgradePress() {
     await presentPremiumPaywall();
@@ -31,19 +29,15 @@ export default function SubscriptionScreen() {
 
   return (
     <SettingsScroll>
-      <View style={styles.section}>
+      <SettingsSection>
         {isPremium ? (
-          <PlanStatusRow title="RaceSignal Premium" badge="ACTIVE" detail={SETTINGS_PREMIUM_DETAIL} />
+          <PlanStatusRow title="RaceSignal Premium" badge="ACTIVE" detail={SETTINGS_PREMIUM_DETAIL} icon="credit-card-outline" />
         ) : (
-          <>
-            <PlanStatusRow title={SETTINGS_FREE_TITLE} detail={SETTINGS_FREE_DETAIL} />
-            <HairlineRule color={palette.hairline} />
-            <ActionRow label={SETTINGS_UPGRADE_LABEL} detail={SETTINGS_PREMIUM_DETAIL} onPress={handleUpgradePress} />
-          </>
+          <PlanStatusRow title={SETTINGS_FREE_TITLE} detail={SETTINGS_FREE_DETAIL} icon="credit-card-outline" />
         )}
-        <HairlineRule color={palette.hairline} />
-        <ActionRow label={isRestoring ? 'Restoring…' : 'Restore Purchases'} onPress={handleRestorePress} />
-      </View>
+        {isPremium ? null : <ActionRow label={SETTINGS_UPGRADE_LABEL} detail={SETTINGS_PREMIUM_DETAIL} icon="star-outline" onPress={handleUpgradePress} />}
+        <ActionRow label={isRestoring ? 'Restoring…' : 'Restore Purchases'} icon="restore" onPress={handleRestorePress} />
+      </SettingsSection>
     </SettingsScroll>
   );
 }

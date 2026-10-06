@@ -1,5 +1,5 @@
 import React from 'react';
-import { Linking } from 'react-native';
+import { Alert, Linking, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import DeveloperToolsScreen from '@/app/settings/developer';
@@ -236,6 +236,79 @@ describe('moved controls on their own screens', () => {
     ui = await render(<DeveloperToolsScreen />);
     await fireEvent.press(ui.getByLabelText('Preview onboarding'));
     expect(mockEnterReplay).toHaveBeenCalledTimes(1);
+    await act(async () => ui.unmount());
+  });
+});
+
+describe('presentation and touch behavior of the main screen', () => {
+  const flat = (node: { props: { style?: unknown } }) => StyleSheet.flatten(node.props.style as never) as Record<string, unknown>;
+
+  it('section headings are small, uppercase, secondary and not tappable; row labels are larger, primary and normal case', async () => {
+    const ui = await main();
+    const heading = ui.getByText('Race history');
+    const headingStyle = flat(heading);
+    expect(headingStyle.textTransform).toBe('uppercase');
+    expect(headingStyle.fontSize as number).toBeGreaterThanOrEqual(12);
+    expect(headingStyle.fontSize as number).toBeLessThanOrEqual(13);
+    expect(headingStyle.fontWeight).toBe('500');
+    expect(heading.props.accessibilityRole).toBe('header');
+    expect(ui.queryByLabelText('Race history')).toBeNull(); // not a button
+    const labelStyle = flat(ui.getByText('Add a race manually'));
+    expect(labelStyle.textTransform).toBeUndefined();
+    expect(labelStyle.fontSize as number).toBeGreaterThanOrEqual(16);
+    expect(labelStyle.fontSize as number).toBeLessThanOrEqual(17);
+    expect(labelStyle.color).not.toBe(headingStyle.color);
+    await act(async () => ui.unmount());
+  });
+
+  it('every actionable row is at least 56pt tall and spans the whole row', async () => {
+    const ui = await main();
+    for (const label of ['Add a race manually', 'Find my races', 'Plan, Free', 'Notifications', 'Signal privacy & consent', 'Support', 'Privacy', 'Terms of Use', 'Sign out', 'Delete account']) {
+      const row = flat(ui.getByLabelText(label));
+      expect(row.minHeight as number).toBeGreaterThanOrEqual(56);
+      expect(row.flexDirection).toBe('row');
+    }
+    await act(async () => ui.unmount());
+  });
+
+  it('Sign out is neutral and only Delete account carries the destructive color', async () => {
+    const ui = await main();
+    const signOut = flat(ui.getByText('Sign out'));
+    const deleteAccount = flat(ui.getByText('Delete account'));
+    expect(['#A63B2E', '#E1786A']).toContain(deleteAccount.color);
+    expect(signOut.color).not.toBe(deleteAccount.color);
+    expect(['#A63B2E', '#E1786A']).not.toContain(signOut.color);
+    await act(async () => ui.unmount());
+  });
+
+  it('Delete account asks for confirmation before anything happens, and Cancel changes nothing', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const ui = await main();
+    await fireEvent.press(ui.getByLabelText('Delete account'));
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alertSpy.mock.calls[0]![0]).toBe('Delete your account?');
+    const buttons = alertSpy.mock.calls[0]![2] as { text: string; style?: string }[];
+    expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Delete']);
+    expect(buttons[0]!.style).toBe('cancel');
+    alertSpy.mockRestore();
+    await act(async () => ui.unmount());
+  });
+
+  it('a second tap on the same row right away does not push a duplicate screen; other rows still respond', async () => {
+    const ui = await main();
+    await fireEvent.press(ui.getByLabelText('Notifications'));
+    await fireEvent.press(ui.getByLabelText('Notifications'));
+    expect(mockPush.mock.calls.filter(([path]) => path === '/settings/notifications')).toHaveLength(1);
+    await fireEvent.press(ui.getByLabelText('Signal privacy & consent'));
+    expect(mockPush).toHaveBeenLastCalledWith('/settings/signal-privacy');
+    await act(async () => ui.unmount());
+  });
+
+  it('the Developer entry is a clearly separate group, only where a development gate allows it', async () => {
+    mockVariant = 'development';
+    const ui = await main();
+    expect(ui.getByText('Developer')).toBeTruthy();
+    expect(ui.getAllByLabelText('Developer tools')).toHaveLength(1);
     await act(async () => ui.unmount());
   });
 });

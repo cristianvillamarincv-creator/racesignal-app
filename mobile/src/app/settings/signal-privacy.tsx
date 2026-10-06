@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View } from 'react-native';
-
-import { HairlineRule } from '@/components/HairlineRule';
-import { ActionRow, PlanStatusRow, SettingsScroll, useSettingsStyles } from '@/components/settings/SettingsRows';
+import { ActionRow, PlanStatusRow, SettingsScroll, SettingsSection } from '@/components/settings/SettingsRows';
 import { useAuth } from '@/lib/auth';
 import { clearSignalConsent, hasAgreedToSignalDisclosure } from '@/lib/signalConsent';
 
@@ -13,7 +10,6 @@ import { clearSignalConsent, hasAgreedToSignalDisclosure } from '@/lib/signalCon
 export default function SignalPrivacyScreen() {
   const { session } = useAuth();
   const [hasSignalConsent, setHasSignalConsent] = useState(false);
-  const { styles, palette } = useSettingsStyles();
 
   useEffect(() => {
     const athleteId = session?.user.id;
@@ -35,18 +31,14 @@ export default function SignalPrivacyScreen() {
 
   return (
     <SettingsScroll>
-      <View style={styles.section}>
+      <SettingsSection>
         <PlanStatusRow
           title="Signal & Anthropic"
+          icon="shield-lock-outline"
           detail={hasSignalConsent ? 'You’ve agreed to share race data with Anthropic for Signal.' : 'Not yet agreed — you’ll be asked before your first Signal question.'}
         />
-        {hasSignalConsent ? (
-          <>
-            <HairlineRule color={palette.hairline} />
-            <ActionRow label="Withdraw Signal consent" onPress={handleWithdrawSignalConsent} />
-          </>
-        ) : null}
-      </View>
+        {hasSignalConsent ? <ActionRow label="Withdraw Signal consent" icon="close-circle-outline" onPress={handleWithdrawSignalConsent} /> : null}
+      </SettingsSection>
     </SettingsScroll>
   );
 }

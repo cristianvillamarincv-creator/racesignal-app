@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
 import { NotificationSettingsSection } from '@/components/notifications/NotificationSettingsSection';
@@ -140,5 +141,29 @@ describe('what is actually scheduled', () => {
     mockStatus = { racePrep: null, betweenRace: null, error: 'Could not schedule reminders: boom' };
     const ui = await render(<NotificationSettingsSection />);
     expect(ui.getByText('Could not schedule reminders: boom')).toBeTruthy();
+  });
+});
+
+describe('layout of the schedule rows (no clipping at larger text)', () => {
+  it('the label and the day/time value can both wrap and shrink, and neither is truncated; each row is a full-width, 56pt-plus target', async () => {
+    mockPrefs = { ...basePrefs(), racePrep: { ...basePrefs().racePrep, enabled: true }, betweenRace: { ...basePrefs().betweenRace, enabled: true } };
+    const ui = await render(<NotificationSettingsSection />);
+    for (const [label, value] of [
+      ['Weekly reminder', 'Sunday, 4:00 PM'],
+      ['One week and two days before a race', '4:00 PM'],
+      ['Weekly prompt', 'Sunday, 4:00 PM'],
+    ]) {
+      const row = StyleSheet.flatten(ui.getByLabelText(`${label}, ${value}`).props.style) as Record<string, unknown>;
+      expect(row.minHeight as number).toBeGreaterThanOrEqual(56);
+      expect(row.flexDirection).toBe('row');
+      const labelNode = ui.getByText(label);
+      const valueNodes = ui.getAllByText(value);
+      expect(labelNode.props.numberOfLines).toBeUndefined();
+      expect((StyleSheet.flatten(labelNode.props.style) as Record<string, unknown>).flexShrink).toBe(1);
+      for (const node of valueNodes) {
+        expect(node.props.numberOfLines).toBeUndefined();
+        expect((StyleSheet.flatten(node.props.style) as Record<string, unknown>).flexShrink).toBe(1);
+      }
+    }
   });
 });

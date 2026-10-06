@@ -5,7 +5,7 @@ import { SettingsScroll } from '@/components/settings/SettingsRows';
 export default function NotificationsSettingsScreen() {
   return (
     <SettingsScroll>
-      <NotificationSettingsSection showHeader={false} />
+      <NotificationSettingsSection />
     </SettingsScroll>
   );
 }

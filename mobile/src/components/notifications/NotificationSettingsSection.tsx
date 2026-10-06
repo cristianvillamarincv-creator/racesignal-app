@@ -2,8 +2,8 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import { useMemo, useState, type ReactNode } from 'react';
 import { Platform, Pressable, StyleSheet, Switch, Text, useColorScheme, View, type TextStyle, type ViewStyle } from 'react-native';
 
-import { HairlineRule } from '@/components/HairlineRule';
-import { SectionHeader } from '@/components/SectionHeader';
+import { SettingsGroup, TEXT_DIVIDER_INSET } from '@/components/settings/SettingsRows';
+import { AppIcon } from '@/lib/icons';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { formatLocalMoment, formatTimeOfDay, formatWeeklySlot, SIGNAL_ASK_NOTE } from '@/lib/notifications/format';
 import { useNotifications, type NotificationType, type ScheduleStatusEntry } from '@/lib/notifications/NotificationsProvider';
@@ -54,12 +54,18 @@ function StatusLine({ entry, styles }: { entry: ScheduleStatusEntry | null | und
   return <Text style={styles.status}>{entry.next ? `${count}. Next: ${formatLocalMoment(entry.next)}.` : `${count}.`}</Text>;
 }
 
-function ScheduleRow({ label, value, open, onPress, styles, children }: { label: string; value: string; open: boolean; onPress: () => void; styles: Styles; children: ReactNode }) {
+function ScheduleRow({ label, value, open, onPress, styles, palette, children }: { label: string; value: string; open: boolean; onPress: () => void; styles: Styles; palette: BrandPalette; children: ReactNode }) {
   return (
     <View>
-      <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label}, ${value}`} accessibilityState={{ expanded: open }} style={styles.scheduleRow}>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}, ${value}`}
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [styles.scheduleRow, pressed && styles.rowPressed]}>
         <Text style={styles.scheduleLabel}>{label}</Text>
         <Text style={styles.scheduleValue}>{value}</Text>
+        <AppIcon name={open ? 'chevron-up' : 'chevron-down'} size={20} color={withAlpha(palette.inkSecondary, 0.7)} />
       </Pressable>
       {open ? <View style={styles.editor}>{children}</View> : null}
     </View>
@@ -70,7 +76,7 @@ function ScheduleRow({ label, value, open, onPress, styles, children }: { label:
  * Settings → Notifications: a separate switch for each type (both start off, and iOS permission is requested only when one is switched on),
  * editable weekly day and time (and the race-milestone time), and a clear message with a shortcut when iOS permission is denied or was turned off later.
  */
-export function NotificationSettingsSection({ showHeader = true }: { showHeader?: boolean } = {}) {
+export function NotificationSettingsSection() {
   const { prefs, permission, scheduleStatus, enable, disable, updateSchedule, openSystemSettings } = useNotifications();
   const palette = useBrandPalette();
   const scheme = useColorScheme();
@@ -116,26 +122,24 @@ export function NotificationSettingsSection({ showHeader = true }: { showHeader?
 
   return (
     <View style={styles.section} testID="notification-settings">
-      {showHeader ? <SectionHeader title="Notifications" /> : null}
-      {showHeader ? <HairlineRule color={palette.hairline} /> : null}
-
-      <View style={styles.switchRow}>
-        <View style={styles.switchText}>
-          <Text style={styles.title}>{NOTIFICATION_COPY.racePrep.title}</Text>
-          <Text style={styles.detail}>{NOTIFICATION_COPY.racePrep.detail}</Text>
+      <SettingsGroup inset={TEXT_DIVIDER_INSET}>
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.title}>{NOTIFICATION_COPY.racePrep.title}</Text>
+            <Text style={styles.detail}>{NOTIFICATION_COPY.racePrep.detail}</Text>
+          </View>
+          <Switch
+            value={prefs.racePrep.enabled}
+            onValueChange={(value) => void onToggle('racePrep', value)}
+            accessibilityLabel={NOTIFICATION_COPY.racePrep.title}
+            trackColor={{ true: palette.signalBlue, false: withAlpha(palette.inkSecondary, 0.3) }}
+          />
         </View>
-        <Switch
-          value={prefs.racePrep.enabled}
-          onValueChange={(value) => void onToggle('racePrep', value)}
-          accessibilityLabel={NOTIFICATION_COPY.racePrep.title}
-          trackColor={{ true: palette.signalBlue, false: withAlpha(palette.inkSecondary, 0.3) }}
-        />
-      </View>
-      {prefs.racePrep.enabled ? (
-        <View>
-          <StatusLine entry={scheduleStatus?.racePrep} styles={styles} />
+        {prefs.racePrep.enabled ? <StatusLine entry={scheduleStatus?.racePrep} styles={styles} /> : null}
+        {prefs.racePrep.enabled ? (
           <ScheduleRow
             styles={styles}
+            palette={palette}
             label="Weekly reminder"
             value={formatWeeklySlot(prefs.racePrep.weeklyDay, prefs.racePrep.weeklyHour, prefs.racePrep.weeklyMinute)}
             open={editor === 'racePrepWeekly'}
@@ -143,42 +147,47 @@ export function NotificationSettingsSection({ showHeader = true }: { showHeader?
             <DayChips styles={styles} palette={palette} value={prefs.racePrep.weeklyDay} onPick={(day) => void updateSchedule({ racePrep: { weeklyDay: day } })} />
             {picker('racePrepWeekly', prefs.racePrep.weeklyHour, prefs.racePrep.weeklyMinute)}
           </ScheduleRow>
+        ) : null}
+        {prefs.racePrep.enabled ? (
           <ScheduleRow
             styles={styles}
+            palette={palette}
             label="One week and two days before a race"
             value={formatTimeOfDay(prefs.racePrep.milestoneHour, prefs.racePrep.milestoneMinute)}
             open={editor === 'racePrepMilestone'}
             onPress={() => setEditor(editor === 'racePrepMilestone' ? null : 'racePrepMilestone')}>
             {picker('racePrepMilestone', prefs.racePrep.milestoneHour, prefs.racePrep.milestoneMinute)}
           </ScheduleRow>
-        </View>
-      ) : null}
-      <HairlineRule color={palette.hairline} />
+        ) : null}
+      </SettingsGroup>
 
-      <View style={styles.switchRow}>
-        <View style={styles.switchText}>
-          <Text style={styles.title}>{NOTIFICATION_COPY.betweenRace.title}</Text>
-          <Text style={styles.detail}>{NOTIFICATION_COPY.betweenRace.detail}</Text>
+      <SettingsGroup inset={TEXT_DIVIDER_INSET}>
+        <View style={styles.switchRow}>
+          <View style={styles.switchText}>
+            <Text style={styles.title}>{NOTIFICATION_COPY.betweenRace.title}</Text>
+            <Text style={styles.detail}>{NOTIFICATION_COPY.betweenRace.detail}</Text>
+          </View>
+          <Switch
+            value={prefs.betweenRace.enabled}
+            onValueChange={(value) => void onToggle('betweenRace', value)}
+            accessibilityLabel={NOTIFICATION_COPY.betweenRace.title}
+            trackColor={{ true: palette.signalBlue, false: withAlpha(palette.inkSecondary, 0.3) }}
+          />
         </View>
-        <Switch
-          value={prefs.betweenRace.enabled}
-          onValueChange={(value) => void onToggle('betweenRace', value)}
-          accessibilityLabel={NOTIFICATION_COPY.betweenRace.title}
-          trackColor={{ true: palette.signalBlue, false: withAlpha(palette.inkSecondary, 0.3) }}
-        />
-      </View>
-      {prefs.betweenRace.enabled ? <StatusLine entry={scheduleStatus?.betweenRace} styles={styles} /> : null}
-      {prefs.betweenRace.enabled ? (
-        <ScheduleRow
+        {prefs.betweenRace.enabled ? <StatusLine entry={scheduleStatus?.betweenRace} styles={styles} /> : null}
+        {prefs.betweenRace.enabled ? (
+          <ScheduleRow
             styles={styles}
-          label="Weekly prompt"
-          value={formatWeeklySlot(prefs.betweenRace.day, prefs.betweenRace.hour, prefs.betweenRace.minute)}
-          open={editor === 'betweenWeekly'}
-          onPress={() => setEditor(editor === 'betweenWeekly' ? null : 'betweenWeekly')}>
-          <DayChips styles={styles} palette={palette} value={prefs.betweenRace.day} onPick={(day) => void updateSchedule({ betweenRace: { day } })} />
-          {picker('betweenWeekly', prefs.betweenRace.hour, prefs.betweenRace.minute)}
-        </ScheduleRow>
-      ) : null}
+            palette={palette}
+            label="Weekly prompt"
+            value={formatWeeklySlot(prefs.betweenRace.day, prefs.betweenRace.hour, prefs.betweenRace.minute)}
+            open={editor === 'betweenWeekly'}
+            onPress={() => setEditor(editor === 'betweenWeekly' ? null : 'betweenWeekly')}>
+            <DayChips styles={styles} palette={palette} value={prefs.betweenRace.day} onPick={(day) => void updateSchedule({ betweenRace: { day } })} />
+            {picker('betweenWeekly', prefs.betweenRace.hour, prefs.betweenRace.minute)}
+          </ScheduleRow>
+        ) : null}
+      </SettingsGroup>
 
       {scheduleStatus?.error ? (
         <View style={styles.warning} accessibilityRole="alert">
@@ -199,6 +208,7 @@ export function NotificationSettingsSection({ showHeader = true }: { showHeader?
 }
 
 interface Styles {
+  rowPressed: ViewStyle;
   section: ViewStyle;
   switchRow: ViewStyle;
   switchText: ViewStyle;
@@ -220,19 +230,21 @@ interface Styles {
 
 function createStyles(palette: BrandPalette): Styles {
   return StyleSheet.create({
-    section: { gap: spacing.xs },
-    switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
+    section: { gap: spacing.lg },
+    rowPressed: { backgroundColor: withAlpha(palette.ink, 0.07) },
+    switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, minHeight: 56 },
     switchText: { flex: 1, gap: 2 },
-    title: { fontSize: 16, fontWeight: '600', color: palette.ink },
+    title: { fontSize: 17, fontWeight: '500', color: palette.ink },
     detail: { fontSize: 13, lineHeight: 18, color: palette.inkSecondary },
-    scheduleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.md, minHeight: minTouchSize },
-    scheduleLabel: { flex: 1, fontSize: 15, color: palette.ink },
-    scheduleValue: { fontSize: 15, fontWeight: '600', color: palette.signalBlue },
-    editor: { gap: spacing.sm, paddingBottom: spacing.sm },
+    // The label wraps and the value may wrap too (large text), so neither is ever clipped.
+    scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 56, paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
+    scheduleLabel: { flex: 1, flexShrink: 1, fontSize: 16, color: palette.ink },
+    scheduleValue: { flexShrink: 1, maxWidth: '50%', fontSize: 15, textAlign: 'right', color: palette.inkSecondary },
+    editor: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
     dayRow: { flexDirection: 'row', justifyContent: 'space-between' },
     dayChip: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: palette.hairline, alignItems: 'center', justifyContent: 'center' },
     dayLetter: { fontSize: 14, fontWeight: '600', color: palette.ink },
-    status: { fontSize: 13, lineHeight: 18, color: palette.inkSecondary, paddingBottom: spacing.xs },
+    status: { fontSize: 13, lineHeight: 18, color: palette.inkSecondary, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
     warning: { gap: spacing.sm, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, borderRadius: 12, backgroundColor: withAlpha(palette.danger, 0.1) },
     warningText: { fontSize: 13, lineHeight: 18, color: palette.ink },
     warningButton: { minHeight: minTouchSize, justifyContent: 'center' },

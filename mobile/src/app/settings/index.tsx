@@ -1,11 +1,9 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
-import { HairlineRule } from '@/components/HairlineRule';
-import { SectionHeader } from '@/components/SectionHeader';
-import { ActionRow, DestructiveRow, InertRow, useSettingsStyles } from '@/components/settings/SettingsRows';
+import { ActionRow, DestructiveRow, InertRow, SettingsScroll, SettingsSection, useSettingsStyles } from '@/components/settings/SettingsRows';
 import { useAppPhase } from '@/lib/appPhase';
 import { useAuth } from '@/lib/auth';
 import { APPLE_MANUAL_REMOVAL_MESSAGE, needsManualAppleRemovalNotice, planAppleRevocation } from '@/lib/accountDeletion';
@@ -13,7 +11,7 @@ import { deleteAccount } from '@/lib/deleteAccount';
 import { isDevPreviewAvailable } from '@/lib/devPreview';
 import { getAppVariant } from '@/lib/environment';
 import { clearFindRacesRetryDraft } from '@/lib/findRacesRetryDraft';
-import { AppIcon } from '@/lib/icons';
+import type { IconName } from '@/lib/icons';
 import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLinks';
 import { useNotifications } from '@/lib/notifications/NotificationsProvider';
 import { clearNotificationState } from '@/lib/notifications/prefsStorage';
@@ -28,10 +26,10 @@ import { spacing } from '@/lib/theme';
 
 // Privacy/Support/Terms each become a real link the moment their URL is filled in (lib/legalLinks.ts); until then they
 // fall back to the visibly subdued, clearly non-interactive InertRow rather than reading as broken.
-const HELP_ROWS: { label: string; url: string }[] = [
-  { label: 'Support', url: SUPPORT_URL },
-  { label: 'Privacy', url: PRIVACY_POLICY_URL },
-  { label: 'Terms of Use', url: TERMS_OF_USE_URL },
+const HELP_ROWS: { label: string; url: string; icon: IconName }[] = [
+  { label: 'Support', url: SUPPORT_URL, icon: 'lifebuoy' },
+  { label: 'Privacy', url: PRIVACY_POLICY_URL, icon: 'lock-outline' },
+  { label: 'Terms of Use', url: TERMS_OF_USE_URL, icon: 'file-document-outline' },
 ];
 
 /**
@@ -61,6 +59,15 @@ export default function SettingsScreen() {
     [palette],
   );
   const { isPremium } = usePremium();
+  // A destination can take a moment to appear (first render, the dev bundle over a relay), and a second tap on the same row
+  // would push a duplicate copy of the screen. Ignore a repeat of the same destination for a moment; other rows are unaffected.
+  const lastPush = useRef<{ path: string; at: number } | null>(null);
+  function go(path: '/race/add' | '/find-races' | '/settings/subscription' | '/settings/notifications' | '/settings/signal-privacy' | '/settings/sign-in-methods' | '/settings/developer') {
+    const now = Date.now();
+    if (lastPush.current && lastPush.current.path === path && now - lastPush.current.at < 800) return;
+    lastPush.current = { path, at: now };
+    router.push(path);
+  }
   const { cancelAllForSignOut } = useNotifications();
   // Both existing gates are kept: the notification test tools need the development app variant, and Preview onboarding needs
   // the development preview opt-in. Neither is ever on in a production build, so neither is this entry.
@@ -160,78 +167,60 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} contentInsetAdjustmentBehavior="automatic">
-        {/* Identity: an editorial header at its everyday quiet scale, no enclosing card. */}
-        <View style={identityStyles.identity}>
-          <Avatar initials={initialsFor(displayName)} size={44} />
-          <Text style={identityStyles.identityName}>{displayName}</Text>
-          {session?.user.email ? <Text style={identityStyles.identityEmail}>{session.user.email}</Text> : null}
-        </View>
+    <SettingsScroll>
+      {/* Identity: an editorial header at its everyday quiet scale, no enclosing card. */}
+      <View style={identityStyles.identity}>
+        <Avatar initials={initialsFor(displayName)} size={44} />
+        <Text style={identityStyles.identityName}>{displayName}</Text>
+        {session?.user.email ? <Text style={identityStyles.identityEmail}>{session.user.email}</Text> : null}
+      </View>
 
-        <View style={styles.section}>
-          <SectionHeader title="Race history" />
-          <HairlineRule color={palette.hairline} />
-          <ActionRow label="Add a race manually" onPress={() => router.push('/race/add')} />
-          <HairlineRule color={palette.hairline} />
-          <ActionRow label="Find my races" onPress={() => router.push('/find-races')} />
-        </View>
+      <SettingsSection title="Race history">
+        <ActionRow label="Add a race manually" icon="plus-circle-outline" onPress={() => go('/race/add')} />
+        <ActionRow label="Find my races" icon="magnify" onPress={() => go('/find-races')} />
+      </SettingsSection>
 
-        <View style={styles.section}>
-          <SectionHeader title="Subscription" />
-          <HairlineRule color={palette.hairline} />
-          <ActionRow label="Plan" value={isPremium ? 'Premium' : 'Free'} onPress={() => router.push('/settings/subscription')} />
-        </View>
+      <SettingsSection title="Subscription">
+        <ActionRow label="Plan" icon="credit-card-outline" value={isPremium ? 'Premium' : 'Free'} onPress={() => go('/settings/subscription')} />
+      </SettingsSection>
 
-        <View style={styles.section}>
-          <SectionHeader title="Preferences" />
-          <HairlineRule color={palette.hairline} />
-          <ActionRow label="Notifications" onPress={() => router.push('/settings/notifications')} />
-          <HairlineRule color={palette.hairline} />
-          <ActionRow label="Signal privacy & consent" onPress={() => router.push('/settings/signal-privacy')} />
-        </View>
+      <SettingsSection title="Preferences">
+        <ActionRow label="Notifications" icon="bell-outline" onPress={() => go('/settings/notifications')} />
+        <ActionRow label="Signal privacy & consent" icon="shield-lock-outline" onPress={() => go('/settings/signal-privacy')} />
+      </SettingsSection>
 
-        {showSignInMethods ? (
-          <View style={styles.section}>
-            <SectionHeader title="Account" />
-            <HairlineRule color={palette.hairline} />
-            <ActionRow label="Sign-in methods" onPress={() => router.push('/settings/sign-in-methods')} />
-          </View>
-        ) : null}
+      {showSignInMethods ? (
+        <SettingsSection title="Account">
+          <ActionRow label="Sign-in methods" icon="key-outline" onPress={() => go('/settings/sign-in-methods')} />
+        </SettingsSection>
+      ) : null}
 
-        <View style={styles.section}>
-          <SectionHeader title="Help & legal" />
-          <HairlineRule color={palette.hairline} />
-          {HELP_ROWS.map((row, index) => (
-            <View key={row.label}>
-              {index > 0 ? <HairlineRule color={palette.hairline} /> : null}
-              {row.url ? <ActionRow label={row.label} onPress={() => Linking.openURL(row.url)} /> : <InertRow label={row.label} />}
-            </View>
-          ))}
-        </View>
+      <SettingsSection title="Help & legal">
+        {HELP_ROWS.map((row) =>
+          row.url ? (
+            <ActionRow key={row.label} label={row.label} icon={row.icon} onPress={() => Linking.openURL(row.url)} />
+          ) : (
+            <InertRow key={row.label} label={row.label} icon={row.icon} />
+          ),
+        )}
+      </SettingsSection>
 
-        {/* Apple 5.1.1(v): account creation requires an in-app path to delete it, not merely sign out, with an explicit
-            destructive confirmation (including that deletion does not cancel an App Store subscription). */}
-        <View style={styles.section}>
-          <SectionHeader title="Account actions" />
-          <HairlineRule color={palette.hairline} />
-          <DestructiveRow label={isSigningOut ? 'Signing out…' : 'Sign out'} onPress={handleSignOut} disabled={isSigningOut} />
-          <HairlineRule color={palette.hairline} />
-          <DestructiveRow label={isDeletingAccount ? 'Deleting account…' : 'Delete account'} onPress={handleDeleteAccountPress} disabled={isDeletingAccount} />
-          {deleteError ? <Text style={styles.errorText}>{deleteError}</Text> : null}
-        </View>
+      {/* Apple 5.1.1(v): account creation requires an in-app path to delete it, not merely sign out, with an explicit
+          destructive confirmation (including that deletion does not cancel an App Store subscription). Sign out is neutral;
+          the destructive color is reserved for Delete account. */}
+      <SettingsSection title="Account actions">
+        <ActionRow label={isSigningOut ? 'Signing out…' : 'Sign out'} icon="logout" chevron={false} onPress={handleSignOut} disabled={isSigningOut} />
+        <DestructiveRow label={isDeletingAccount ? 'Deleting account…' : 'Delete account'} icon="delete-outline" onPress={handleDeleteAccountPress} disabled={isDeletingAccount} />
+        {deleteError ? <Text style={styles.errorText}>{deleteError}</Text> : null}
+      </SettingsSection>
 
-        {/* Testing infrastructure, not product UI: one entry, and each tool inside keeps its own visibility gate. */}
-        {showDeveloper ? (
-          <View style={styles.devSection}>
-            <Pressable onPress={() => router.push('/settings/developer')} accessibilityRole="button" accessibilityLabel="Developer tools" style={styles.devRow}>
-              <Text style={styles.devRowLabel}>Developer tools</Text>
-              <AppIcon name="chevron-right" size={16} color={palette.inkSecondary} />
-            </Pressable>
-          </View>
-        ) : null}
-      </ScrollView>
-    </View>
+      {/* Testing infrastructure, not product UI: one entry, and each tool inside keeps its own visibility gate. */}
+      {showDeveloper ? (
+        <SettingsSection title="Developer" dashed>
+          <ActionRow label="Developer tools" icon="code-braces" onPress={() => go('/settings/developer')} />
+        </SettingsSection>
+      ) : null}
+    </SettingsScroll>
   );
 }
 

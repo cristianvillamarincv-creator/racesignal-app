@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
 
-import { HairlineRule } from '@/components/HairlineRule';
-import { ActionRow, PlanStatusRow, SettingsScroll, useSettingsStyles } from '@/components/settings/SettingsRows';
+import { ActionRow, PlanStatusRow, SettingsNote, SettingsScroll, SettingsSection, useSettingsStyles } from '@/components/settings/SettingsRows';
 import { useAuth } from '@/lib/auth';
 import { buildConnectedAccountRows, feedbackForLinkResult, type ConnectFeedback } from '@/lib/connectedAccounts';
 import type { ConnectedProvider, SocialProvider } from '@/lib/socialAuth';
@@ -17,7 +16,7 @@ export default function SignInMethodsScreen() {
   const [connectedLoaded, setConnectedLoaded] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<SocialProvider | null>(null);
   const [connectFeedback, setConnectFeedback] = useState<ConnectFeedback>({ kind: 'none' });
-  const { styles, palette } = useSettingsStyles();
+  const { styles } = useSettingsStyles();
 
   async function refreshConnectedProviders() {
     const identities = await getConnectedProviders();
@@ -45,41 +44,35 @@ export default function SignInMethodsScreen() {
 
   return (
     <SettingsScroll>
-      <View style={styles.section}>
+      <SettingsSection>
         <PlanStatusRow
           title="Email"
+          icon="email-outline"
           detail={session?.user.email ? `${session.user.email} · sign-in link or password` : 'Sign-in link or password'}
         />
         {connectedLoaded && connectedProviders === null ? (
-          <>
-            <HairlineRule color={palette.hairline} />
-            <ActionRow label="Couldn’t load connected accounts. Tap to retry" onPress={refreshConnectedProviders} />
-          </>
+          <ActionRow label="Couldn’t load connected accounts. Tap to retry" icon="refresh" onPress={refreshConnectedProviders} />
         ) : (
-          buildConnectedAccountRows(connectedProviders, socialAuth).map((row) => (
-            <View key={row.provider}>
-              <HairlineRule color={palette.hairline} />
-              {row.connected ? (
-                <PlanStatusRow title={row.label} badge="CONNECTED" detail="You can sign in with it." />
-              ) : (
-                <ActionRow
-                  label={connectingProvider === row.provider ? `Connecting ${row.label}…` : `Connect ${row.label}`}
-                  onPress={() => handleConnectProvider(row.provider)}
-                />
-              )}
-            </View>
-          ))
+          buildConnectedAccountRows(connectedProviders, socialAuth).map((row) =>
+            row.connected ? (
+              <PlanStatusRow key={row.provider} title={row.label} badge="CONNECTED" detail="You can sign in with it." icon="check-circle-outline" />
+            ) : (
+              <ActionRow
+                key={row.provider}
+                label={connectingProvider === row.provider ? `Connecting ${row.label}…` : `Connect ${row.label}`}
+                icon="link-variant"
+                onPress={() => handleConnectProvider(row.provider)}
+              />
+            ),
+          )
         )}
-        <HairlineRule color={palette.hairline} />
-        {/* The account-linking guidance that used to sit on the sign-in screen: an Apple "Hide My Email" address, or any
-            email that differs from the one you signed up with, is never matched automatically, so existing athletes connect
-            the provider here instead of creating a second account. */}
-        <Text style={styles.planDetail}>
-          Use Apple’s Hide My Email, or a different email on Apple or Google? Connect it here so it signs in to this same account.
-        </Text>
-        {connectFeedback.kind === 'error' ? <Text style={styles.errorText}>{connectFeedback.text}</Text> : null}
-        {connectFeedback.kind === 'notice' ? <Text style={styles.planDetail}>{connectFeedback.text}</Text> : null}
-      </View>
+      </SettingsSection>
+      {/* The account-linking guidance that used to sit on the sign-in screen: an Apple "Hide My Email" address, or any
+          email that differs from the one you signed up with, is never matched automatically, so existing athletes connect
+          the provider here instead of creating a second account. */}
+      <SettingsNote>Use Apple’s Hide My Email, or a different email on Apple or Google? Connect it here so it signs in to this same account.</SettingsNote>
+      {connectFeedback.kind === 'error' ? <Text style={styles.errorText}>{connectFeedback.text}</Text> : null}
+      {connectFeedback.kind === 'notice' ? <SettingsNote>{connectFeedback.text}</SettingsNote> : null}
     </SettingsScroll>
   );
 }

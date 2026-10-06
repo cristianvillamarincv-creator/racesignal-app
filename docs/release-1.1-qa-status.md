@@ -43,7 +43,7 @@ Sign in with Apple and Google plus connected accounts; Premium awareness (Signal
 **Authentication**
 - Apple linking from Settings and the conflict case; Google Connect from Settings and its conflict case; Apple "Hide My Email" conflict; cancel and failure behavior of each provider sheet; Welcome-back review-or-skip; larger-text and final visual pass on the sign-in screen.
 
-**Settings layout** (reorganized, see `docs/settings.md`): automated tests only. A device review of the new layout and every moved control is pending: the Subscription, Notifications, Signal privacy & consent, Sign-in methods and Developer screens, plus Sign out and Delete account on the main screen.
+**Settings layout** (reorganized and restyled after a first device review, see `docs/settings.md`): automated tests only; **visual approval is pending**. The first review's recording showed Add a race manually, Find my races, Plan, Notifications and Sign-in methods opening, Signal privacy & consent and Support opening, and a report of unresponsive taps that has not been reproduced or attributed to a specific row. A device review of the new layout and every moved control is pending: the Subscription, Notifications, Signal privacy & consent, Sign-in methods and Developer screens, plus Sign out and Delete account on the main screen.
 
 ## Blocked or needing an owner decision or access
 - **Apple account-deletion revocation:** the dev Apple key is not set, so only the deliberately-broken-key path has run.

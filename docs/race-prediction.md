@@ -84,24 +84,31 @@ The app has no control for setting a race to "considering"; the status for step 
 
 ## Device QA record (development build, `cristian.flipd@gmail.com`)
 
-Reported by the owner after the first test pass. The considering-race check is still pending, so **prediction QA is not complete**.
+Reported by the owner. **This is not full prediction QA or release QA**: only the cases listed as passed were run on a device.
 
-Passed (registered Prediction Test Olympic):
+Passed, registered Prediction Test Olympic (first pass):
 - The suggested question gave the correct historical range, 2:41:55 to 2:48:20.
 - Supporting races, dates and the supplied 6:25 difference were correct.
 - The same-thread follow-up ("Which result is the faster end based on?") correctly named Riverside, Aug 16, 2026, 2:41:55, stayed concise and did not repeat the limitation.
 - The visible allowance went from 38 to 37 after the follow-up.
 
-Corrections made after that pass (prompt and header only; calculation, matching rules, quotas and model unchanged):
-1. First answer shortened: range, supporting results, one short limitation.
-2. The limitation reads naturally ("This reflects your past results; current training and race-day conditions could put you outside that range") instead of "it knows nothing about your training".
-3. No unsolicited second paragraph about trends or improvement.
-4. The Signal header says "Signal has your race details and your full race history." for a race without a recorded result (it still says "your <race> result" when one exists).
+Passed, considering Prediction Test Olympic (second pass, after the wording and header corrections):
+- A custom question about its finish-time reference gave the correct range and supporting results, followed by one concise limitation, with no extra commentary. This confirms the shortened first answer, the natural limitation wording and the absence of an unsolicited trend paragraph, on the real model, for this case.
+- The Signal header showed the corrected "race details" wording for a race without a recorded result.
+- The race screen showed no Signal module for the considering race (proactive suggestions are limited to registered races).
 
-These corrections are deployed to development but **not yet re-tested on the device**: the corrected wording and the header need a fresh look.
+Fixture state: Prediction Test Olympic was restored to `registered` in the development database after the considering check (only that row changed). Pending owner check: its Signal module returns on the race screen.
 
-Pending:
-- **Considering-race check.** Prediction Test Olympic is currently `considering` in the dev account. Expected: no Signal module on its race screen, no suggested question in its chat, and a custom question about its finish-time reference gets the same range. Not yet run.
-- Re-check of the corrected wording and header on the registered race (restore it to `registered` after the considering check).
-- Not yet covered on a device: one result, older history, no comparable history and unsupported distance (covered by automated tests only).
-- Open from before: DNF/DNS detection does not exist (see above), and the real-model behavior for any case other than the two registered-race questions is unverified.
+Corrections made between the passes (prompt and header only; calculation, matching rules, quotas and model unchanged): shorter first answer; natural limitation wording; no unsolicited second paragraph about trends or improvement; header "Signal has your race details and your full race history." for a race without a recorded result (it still says "your <race> result" when one exists).
+
+Still untested on a device (automated tests only), kept separate:
+- One recent result (dated reference only).
+- Only older results (labelled older, no range).
+- No comparable history (no time, nothing invented).
+- Unsupported distance (no estimated time; recorded times can still be quoted).
+- Nearly identical results and duplicate-record wording.
+- Could not check the race history (cannot be forced from a device).
+- The chips and suggestions in an unseeded chat, and the Signal tab's "Your next race" module with an eligible nearest race.
+- Real-model behavior for any case other than the registered and considering two-result cases above.
+
+Open from before: there is no DNF or DNS detection in the import (see above), the production rollout order and the Build 18 behavior change are a release-checkpoint decision, and nothing here has been deployed to production.

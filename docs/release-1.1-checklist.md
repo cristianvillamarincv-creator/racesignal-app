@@ -48,13 +48,15 @@ Backend first, additive only, then the app. Build 18 and earlier keep working at
 - Production build; the "Synced capabilities" step should show Sign in with Apple and Push being added to the production App ID.
 - TestFlight QA against the production backend with **throwaway accounts, never the reviewer account**: fresh Apple and Google sign-in, an existing magic-link account staying signed in after the update, Connected accounts (link, conflict), the Welcome-back review-or-skip flow, account deletion with Apple revocation, Signal and Premium unchanged, and the development app still separate.
 
-**7. Notifications.** Version 1.1 ships the entitlement only. The notification feature itself (priority 4) still needs a permission prompt UX, token registration, server-side sending, and a privacy-label/policy update. Background (silent) notifications would additionally need `enableBackgroundRemoteNotifications` and therefore another build; it is not enabled.
+**7. Notifications.** Version 1.1's notifications are **local only** (race-prep and between-race reminders scheduled on the device; see `docs/notifications.md`). There is no push token registration, no server-side sending and no silent notifications, so `enableBackgroundRemoteNotifications` stays off and no new server component is needed. The `pushEntitlement` flag still controls the `expo-notifications` entitlement. Before release: update the privacy policy and App Privacy answers to mention local notifications, and finish the pending notification device QA listed in `docs/release-1.1-qa-status.md`.
 
 **8. Race prediction (Signal).** Deploy the `signal` function to production **before** the 1.1 app: the request and response are unchanged, so Build 18 keeps working, but Build 18 users immediately get the new answer behavior (a historical range, single dated reference, older references, "no comparable result" or "could not check") instead of the old invented provisional range, with Build 18's old loose suggestion still showing. Decide at the checkpoint whether to accept that, or ship the server with the app. See `docs/race-prediction.md`. Not deployed to production; development only so far.
 
 ## Rollback
 
 Flip the three `production.features` flags to `false` and rebuild to remove the buttons and entitlements from the next build; disable the Apple and Google providers in Supabase production to stop provider sign-ins immediately. Accounts that already linked a provider keep their email sign-in (every account keeps at least one identity).
+
+The consolidated QA and setup status is in `docs/release-1.1-qa-status.md`.
 
 ## Not done yet (as of this commit)
 

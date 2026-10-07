@@ -35,6 +35,7 @@ import { AppIcon } from '@/lib/icons';
 import { normalizeNameForQuery } from '@/lib/nameNormalization';
 import { isPlausibleEmail, normalizeEmailInput } from '@/lib/emailInput';
 import { clearOnboardingDraft, loadOnboardingDraft, saveOnboardingDraft } from '@/lib/onboardingDraft';
+import { welcomeBackPendingCopy } from '@/lib/welcomeBackCopy';
 import { type SocialProvider } from '@/lib/socialAuth';
 import { runSocialSignIn } from '@/lib/socialSignInFlow';
 import { candidateDetailToInsertRow } from '@/lib/raceMapping';
@@ -1406,19 +1407,15 @@ function ExistingAccountStep({ pendingCount, onReview, onSkip }: { pendingCount:
         <SignalMark color={palette.signalBlue} size={20} />
       </View>
       <Text style={styles.headline}>Welcome back.</Text>
-      <Text style={styles.subcopy}>
-        You already have a RaceSignal account. You had selected {pendingCount} race{pendingCount === 1 ? '' : 's'} that
-        {pendingCount === 1 ? ' isn’t' : ' aren’t'} in your history yet. Review {pendingCount === 1 ? 'it' : 'them'} to add{' '}
-        {pendingCount === 1 ? 'it' : 'any you want'}, or skip. Your profile stays exactly as it is.
-      </Text>
+      <Text style={styles.subcopy}>{welcomeBackPendingCopy(pendingCount)}</Text>
 
       <Pressable onPress={onReview} accessibilityRole="button" accessibilityLabel="Review selected races" style={styles.primaryButton}>
         <Text style={styles.primaryButtonLabel}>Review selected races</Text>
       </Pressable>
 
       <View style={styles.secondaryActionsGroup}>
-        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip">
-          <Text style={styles.secondaryLink}>Skip</Text>
+        <Pressable onPress={onSkip} accessibilityRole="button" accessibilityLabel="Skip for now">
+          <Text style={styles.secondaryLink}>Skip for now</Text>
         </Pressable>
       </View>
     </View>

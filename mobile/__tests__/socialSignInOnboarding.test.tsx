@@ -9,6 +9,7 @@ import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 import { AppPhaseProvider, useAppPhase } from '@/lib/appPhase';
 import { AuthProvider } from '@/lib/auth';
 import { loadOnboardingDraft, saveOnboardingDraft } from '@/lib/onboardingDraft';
+import { welcomeBackPendingCopy } from '@/lib/welcomeBackCopy';
 
 /**
  * Apple / Google sign-in through the REAL AuthProvider + AppPhaseProvider + OnboardingFlow, like
@@ -292,7 +293,8 @@ describe('new athlete with pending race selections: save step', () => {
     it('keeps the selections and asks, instead of silently discarding or importing them', async () => {
       const ui = await signInToExistingAccount();
       expect(ui.getByLabelText('Review selected races')).toBeTruthy();
-      expect(ui.getByLabelText('Skip')).toBeTruthy();
+      expect(ui.getByLabelText('Skip for now')).toBeTruthy();
+      expect(ui.getByText(welcomeBackPendingCopy(1))).toBeTruthy(); // the screen shows the copy for the one pending race
       expect(ui.getByTestId('phase-probe').props.children).toBe('onboarding'); // not in the app yet
       const draft = await loadOnboardingDraft();
       expect(draft?.selectedResultIds).toEqual(['r1']); // still saved
@@ -303,7 +305,7 @@ describe('new athlete with pending race selections: save step', () => {
 
     it('"Skip" goes to the app, imports nothing, and clears the draft', async () => {
       const ui = await signInToExistingAccount();
-      await press(ui, 'Skip');
+      await press(ui, 'Skip for now');
       await waitFor(() => expect(ui.getByTestId('phase-probe').props.children).toBe('app'));
       expect(mockUpsertAthleteProfile).not.toHaveBeenCalled();
       expect(mockFetchRaceDetail).not.toHaveBeenCalled();

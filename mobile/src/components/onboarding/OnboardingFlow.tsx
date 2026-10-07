@@ -136,7 +136,6 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
   const [step, setStep] = useState<Step>('restoring');
   const [racingName, setRacingName] = useState('');
   const [birthYearHint, setBirthYearHint] = useState('');
-  const [knownRaceHint, setKnownRaceHint] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   const [identities, setIdentities] = useState<AthleteIdentity[]>([]);
@@ -959,16 +958,7 @@ export function OnboardingFlow({ onComplete, simulateAuth = false, onSimulatedCo
             ) : null}
 
             {step === 'disambiguation' ? (
-              <DisambiguationStep
-                name={racingName}
-                identities={identities}
-                birthYearHint={birthYearHint}
-                knownRaceHint={knownRaceHint}
-                onChangeBirthYearHint={setBirthYearHint}
-                onChangeKnownRaceHint={setKnownRaceHint}
-                onSelect={loadHistoryFor}
-                onBack={backToIdentity}
-              />
+              <DisambiguationStep identities={identities} onSelect={loadHistoryFor} onBack={backToIdentity} />
             ) : null}
 
             {step === 'candidates' ? (
@@ -1156,27 +1146,16 @@ function IdentityStep({
 }
 
 /**
- * Multiple athlete matches — the explanatory copy and optional hint fields stay exactly as they
- * were; each candidate is now a clean editorial row (name + trailing chevron, hairline divider
- * between rows) rather than a rounded rectangular card, matching the archive-row language used
- * elsewhere in the app.
+ * Several athlete matches: each candidate is a clean editorial row (name + trailing chevron, hairline divider between rows).
+ * Choosing one only loads that profile's race history; nothing is merged. (The optional "race you remember" and birth-year hint
+ * inputs that used to sit here neither filtered, ranked nor annotated the matches, so they were removed.)
  */
 function DisambiguationStep({
-  name,
   identities,
-  birthYearHint,
-  knownRaceHint,
-  onChangeBirthYearHint,
-  onChangeKnownRaceHint,
   onSelect,
   onBack,
 }: {
-  name: string;
   identities: AthleteIdentity[];
-  birthYearHint: string;
-  knownRaceHint: string;
-  onChangeBirthYearHint: (value: string) => void;
-  onChangeKnownRaceHint: (value: string) => void;
   onSelect: (identity: AthleteIdentity) => void;
   onBack: () => void;
 }) {
@@ -1185,19 +1164,8 @@ function DisambiguationStep({
 
   return (
     <View style={styles.stepGap}>
-      <Text style={styles.headline}>We found more than one athlete named {name}.</Text>
-      <Text style={styles.subcopy}>
-        A race you remember, or your birth year, can help you tell them apart below. We don&apos;t use
-        these to search, just as a hint for you.
-      </Text>
-
-      <Field label="A race you remember (optional)" value={knownRaceHint} onChangeText={onChangeKnownRaceHint} />
-      <Field
-        label="Birth year (optional)"
-        value={birthYearHint}
-        onChangeText={onChangeBirthYearHint}
-        keyboardType="number-pad"
-      />
+      <Text style={styles.headline}>We found several matching profiles.</Text>
+      <Text style={styles.subcopy}>Choose a profile to review its race history.</Text>
 
       <View style={styles.rowsGroup}>
         <HairlineRule color={palette.hairline} />

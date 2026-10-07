@@ -84,8 +84,8 @@ One race at a time:
 **Still pending (not passed, not tested):**
 - Real scheduled deliveries at normal times: a weekly reminder at its set time, and real seven-day and two-day milestones on their dates. The seven-day accelerated test was not reported either.
 - Timezone changes: reminders rebuilt at the preferred hour after the phone's timezone changes.
-- Permission changes: deny then enable via iOS Settings, and revoke after enabling, then reopen.
-- Account cleanup: sign-out and account deletion leave nothing pending; a different account sees nothing from the first.
+- Permission: only the first-prompt deny path on a fresh install remains (revoke and re-enable in iOS Settings passed 2026-10-08).
+- Account cleanup on **account deletion** (notification state cleared, nothing pending) has not been run on the device; sign-out cleanup and isolation passed 2026-10-08.
 - Invitation timing: appears on the second fresh launch with no upcoming race, never over onboarding, the initial paywall or the consent sheet.
 - Larger text sizes in Settings, the invitation sheet and the starter offer.
 - Single-race focus when the nearest race's checklist is completed, the race is removed, or its date passes (only the date-edit case was exercised on the device).

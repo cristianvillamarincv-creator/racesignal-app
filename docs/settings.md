@@ -1,5 +1,7 @@
 # Settings layout (release 1.1)
 
+Status: device-approved on the iPhone on 2026-10-07 (launch, visual design and every row's navigation). Larger text and dark mode were not reported.
+
 Settings is a compact list of grouped rows. Areas with controls of their own open a detail screen; nothing here edits a profile and there are no placeholder settings.
 
 ```

@@ -12,7 +12,7 @@ Settings                         app/settings/index.tsx
   Preferences                    Notifications                     → settings/notifications
                                  Signal privacy & consent          → settings/signal-privacy
   Account                        Sign-in methods                   → settings/sign-in-methods   (only when Apple or Google sign-in is enabled in the build)
-  Help & legal                   Support · Privacy · Terms of Use  (links, opened directly)
+  Help & legal                   Share feedback · Support · Privacy · Terms of Use  (feedback opens an email draft; the rest are links)
   Account actions                Sign out · Delete account         (directly, with their confirmations)
   Developer tools                (one entry)                       → settings/developer          (development only)
 ```
@@ -32,5 +32,7 @@ Presentation (revised after the first device review):
 - **Destructive color** is reserved for Delete account. Sign out is neutral.
 - **Notifications:** each type is its own group; the day and time values and labels wrap and shrink instead of clipping.
 - **Taps:** a repeat tap on the same row within about 0.8s is ignored so a slow-to-appear screen is not pushed twice.
+
+Share feedback opens the athlete's email app with a `mailto:` link to `racesignal@gmail.com`, subject "Feedback" and a blank body (`lib/feedback.ts`). Nothing is sent automatically and no account information, logs or other data is attached. If the email app cannot open, a message shows the address with a "Copy email…" action; the project has no clipboard module (adding one needs a native rebuild), so that action opens the iOS share sheet, whose Copy puts the address on the clipboard.
 
 Implementation notes: the shared rows and styles are in `components/settings/SettingsRows.tsx` (one set of rows, dividers and touch targets for every Settings screen). The detail screens use the real auth, notification and purchase providers, so they sit inside the same `Stack.Protected` guard as `settings/index` and are not reachable from Developer Preview (`app/_layout.tsx`).

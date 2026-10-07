@@ -12,6 +12,7 @@ import { isDevPreviewAvailable } from '@/lib/devPreview';
 import { getAppVariant } from '@/lib/environment';
 import { clearFindRacesRetryDraft } from '@/lib/findRacesRetryDraft';
 import type { IconName } from '@/lib/icons';
+import { openFeedbackEmail } from '@/lib/feedback';
 import { PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '@/lib/legalLinks';
 import { useNotifications } from '@/lib/notifications/NotificationsProvider';
 import { clearNotificationState } from '@/lib/notifications/prefsStorage';
@@ -196,6 +197,7 @@ export default function SettingsScreen() {
       ) : null}
 
       <SettingsSection title="Help & legal">
+        <ActionRow label="Share feedback" icon="message-text-outline" onPress={() => void openFeedbackEmail()} />
         {HELP_ROWS.map((row) =>
           row.url ? (
             <ActionRow key={row.label} label={row.label} icon={row.icon} onPress={() => Linking.openURL(row.url)} />

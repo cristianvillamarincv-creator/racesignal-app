@@ -151,6 +151,18 @@ describe('main Settings screen', () => {
     await act(async () => ui.unmount());
   });
 
+  it('has Share feedback under Help & legal, above Support, and it opens the feedback email', async () => {
+    const openSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    const ui = await main();
+    const json = JSON.stringify(ui.toJSON());
+    expect(json.indexOf('"Share feedback"')).toBeGreaterThan(json.indexOf('"Help & legal"'));
+    expect(json.indexOf('"Share feedback"')).toBeLessThan(json.indexOf('"Support"'));
+    await fireEvent.press(ui.getByLabelText('Share feedback'));
+    expect(openSpy).toHaveBeenCalledWith('mailto:racesignal@gmail.com?subject=Feedback');
+    openSpy.mockRestore();
+    await act(async () => ui.unmount());
+  });
+
   it('shows the Sign-in methods row (under Account) only when Apple or Google sign-in is available', async () => {
     let ui = await main();
     expect(ui.queryByLabelText('Sign-in methods')).toBeNull();

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories must require lazily (babel hoists them above imports) */
 import mockAsyncStorage from '@react-native-async-storage/async-storage/jest/async-storage-mock';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React from 'react';

@@ -39,7 +39,7 @@ A free balance the server has confirmed is 0 intercepts Send before any message 
 
 **Pending:**
 
-1. Restore Purchases from Settings, the strip, the tab card and the exhausted Send: allowance area, tab and Settings update on return; the pending question is sent once.
+1. Restore Purchases from the strip, the tab card and the exhausted Send: allowance area, tab and Settings update on return; the pending question is sent once. (From Settings → Subscription it passed on the device on 2026-10-07/08 for both outcomes: "Nothing to restore" with no active subscription, "Purchases restored" after a new Test Store purchase.)
 2. Premium at its monthly limit (the counter at 40): "You’ve used your 40 asks this month. More become available next month.", no upgrade action, Send blocked without a paywall.
 3. Larger text sizes: the Signal tab card and the conversation allowance area wrap without clipping.
 4. Production StoreKit testing (real App Store products and sandbox accounts against the production RevenueCat project): not started.

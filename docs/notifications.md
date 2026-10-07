@@ -77,6 +77,10 @@ One race at a time:
 
 **Accelerated test delivery is not the same as a real scheduled delivery.** The test tools schedule a notification about a minute ahead (the weekly and milestone tests preview the real wording and countdown at a near time). They prove trigger shape, delivery, tap routing and wording. They do **not** prove that a real weekly (Sunday, default 4 p.m.) or real seven-day or two-day milestone, scheduled by reconciliation for its actual date and time, is delivered at that time. That has not been observed.
 
+**Passed on the iPhone, 2026-10-08 (development build, accounts A `cristian.flipd@gmail.com` and B `cristian.villamarin.cv@gmail.com`):**
+- Account isolation and cleanup: signing out cancels A's pending reminders but keeps A's preferences on the device; B has its own preferences (off by default) and none of A's reminders; signing back in as A restores A's preferences and reschedules its reminders.
+- Permission recovery: turning Allow Notifications off in iOS Settings shows the in-app warning with Open iOS Settings; turning it back on clears the warning and restores the schedule.
+
 **Still pending (not passed, not tested):**
 - Real scheduled deliveries at normal times: a weekly reminder at its set time, and real seven-day and two-day milestones on their dates. The seven-day accelerated test was not reported either.
 - Timezone changes: reminders rebuilt at the preferred hour after the phone's timezone changes.

@@ -31,6 +31,11 @@ The auth baseline (non-secret fields only) is saved locally for the rollback com
 
 Steps 1 to 4 add capability that Build 18 never uses, so they cannot change Build 18 behavior. Step 5 can.
 
+## Progress
+- **Step 0, CLI token rotation: done 2026-10-08.** The old token was revoked by the owner; the replacement login (plain `sbp_`, 44 characters, created 2026-10-08 16:25:07 UTC) was verified read-only against both projects, and production was confirmed unchanged (functions v16, v8, v2; auth settings equal to the saved baseline; no `APPLE_*` secrets). The old token's revocation itself could not be tested from this machine (its value is gone); the owner removed it in the dashboard.
+- **Step 1, Apple capability: done 2026-10-08 (owner-reported).** The production App ID `com.cristianvillamarin.racesignal` has **Sign in with Apple** enabled as a primary App ID and **Push Notifications unchecked**. Not independently verifiable from here (no Apple API access); it will show up in the build's synced-capabilities step.
+- Next: the production Sign in with Apple key (Apple console), then Google Cloud. No Supabase change, secret or deployment has been made.
+
 ## 0. Rotate the Supabase CLI token (you)
 - **Identify first:** the token in use is the CLI login token in the Keychain: prefix `sbp_30f5`, 44 characters, created **2026-08-27 17:00:15 UTC** (a dashboard entry whose name contains about `1787850015`). Details in `docs/development-environment.md`.
 - **Change:** Supabase dashboard → Account → Access Tokens → revoke **only that entry**; leave any other token you recognize as in use. Then `supabase logout` and `supabase login`.

@@ -14,7 +14,7 @@ Legend: **YOU** = private, credential or console step only you can do (secrets a
 ## 1. Apple
 | # | Step | Who |
 |---|---|---|
-| A1 | Identifiers → App ID `com.cristianvillamarin.racesignal` → enable **Sign in with Apple** (or let EAS sync it during the build). **Leave Push Notifications off.** | YOU (Apple login) |
+| A1 | **Done 2026-10-08 (owner-reported):** production App ID `com.cristianvillamarin.racesignal` has Sign in with Apple enabled as a primary App ID; Push Notifications unchecked. | done |
 | A2 | Keys → create a **Sign in with Apple** key whose primary App ID is the production App ID (or add the production App ID to the existing dev key's Configure screen). Download the `.p8` once. Note the Key ID and Team ID. Used only for account-deletion token revocation. | YOU |
 | A3 | Give me nothing in chat. Set the four Supabase production secrets yourself at a silent prompt or in the Supabase dashboard: `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_CLIENT_ID` (`com.cristianvillamarin.racesignal`), `APPLE_PRIVATE_KEY`. I can prepare a production-safe silent-prompt script on request (the existing helper is dev-only). | YOU |
 | A4 | App Store Connect → Users and Access → **Sandbox** → create sandbox testers for the StoreKit checks. | YOU |
@@ -32,7 +32,7 @@ Legend: **YOU** = private, credential or console step only you can do (secrets a
 Do these only after the CLI token is rotated and on explicit instruction, one at a time.
 | # | Step | Who |
 |---|---|---|
-| S0 | Revoke the exposed Supabase CLI token in the dashboard, then `supabase logout` and `supabase login`. | YOU |
+| S0 | **Done 2026-10-08:** exposed CLI token revoked; replacement login verified read-only against both projects. | done |
 | S1 | Authentication → Providers: **Apple** enabled with client ID `com.cristianvillamarin.racesignal`; **Google** enabled with the Web client ID and secret; **Skip nonce check stays off**; **Enable manual linking** on. | YOU (secrets) or ME with your silent prompt |
 | S2 | URL configuration **read back 2026-10-08**: site URL `racesignal://auth-callback`; allow list `racesignal://auth-callback,racesignal://**`; no `exp://` or `racesignal-dev://` entry. Nothing to change. | done (read) |
 | S3 | Custom SMTP is **confirmed configured** (read-only, 2026-10-08): `smtp.gmail.com:587`, sender `racesignal@gmail.com` (name RaceSignal), email rate limit 30 per hour. Magic-link deliverability and the production-scheme redirect are still checked on the TestFlight binary. | done (read), TestFlight |

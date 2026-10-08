@@ -71,6 +71,7 @@ Sign in with Apple and Google plus connected accounts; Premium awareness (Signal
 - **No DNF/DNS detection** in the race import: results without a recorded time are excluded, but a non-finisher with a recorded time would look like a finish. Needs a real provider payload check.
 - **Production StoreKit testing** needs the production setup below first.
 - **Google brand verification** decision (needs an owned domain) and privacy/terms hosting.
+- **RevenueCat customer record is left behind by account deletion** (found 2026-10-08, same in production): **unresolved**: confirm what RevenueCat retains after deletion, then decide how deletion handles it (a privacy-policy statement alone does not close it) before submission (see `docs/release-1.1-checklist.md`).
 - **Policy and App Store text:** privacy policy and App Privacy label for sign-in providers, notifications and prediction; Anthropic zero-data-retention status unknown.
 - **Carried over from the 2026-10-02 handoff, status unconfirmed this session:** custom SMTP for magic links, free-allowance reset after delete and re-signup, RevenueCat record deletion on account deletion, Sportstats usage rights (no agreement documented), rotation of the Supabase CLI token that was exposed earlier.
 - **Housekeeping:** version is still 1.0.0 (no 1.1.0 bump, no production build); the unused Google iOS client and older Web client can be deleted in Google Cloud.

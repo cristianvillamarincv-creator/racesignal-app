@@ -34,8 +34,8 @@ Do these only after the CLI token is rotated and on explicit instruction, one at
 |---|---|---|
 | S0 | Revoke the exposed Supabase CLI token in the dashboard, then `supabase logout` and `supabase login`. | YOU |
 | S1 | Authentication → Providers: **Apple** enabled with client ID `com.cristianvillamarin.racesignal`; **Google** enabled with the Web client ID and secret; **Skip nonce check stays off**; **Enable manual linking** on. | YOU (secrets) or ME with your silent prompt |
-| S2 | Authentication → URL configuration: confirm `racesignal://**` is allowed and that **no** `exp://` or `racesignal-dev://` URL is present. | YOU to check; ME to read back |
-| S3 | Confirm custom SMTP for magic links (unconfirmed since 2026-10-02) and that the magic-link redirect works for the production scheme. | YOU |
+| S2 | URL configuration **read back 2026-10-08**: site URL `racesignal://auth-callback`; allow list `racesignal://auth-callback,racesignal://**`; no `exp://` or `racesignal-dev://` entry. Nothing to change. | done (read) |
+| S3 | Custom SMTP is **confirmed configured** (read-only, 2026-10-08): `smtp.gmail.com:587`, sender `racesignal@gmail.com` (name RaceSignal), email rate limit 30 per hour. Magic-link deliverability and the production-scheme redirect are still checked on the TestFlight binary. | done (read), TestFlight |
 | S4 | Deploy `delete-account` (Apple revocation), then `signal`, each with `--project-ref <production ref>`, one at a time, reading back versions. `race-discovery` stays v8. Follow the `signal` compatibility and rollback section of the release checklist first. | ME on explicit instruction |
 | S5 | Read back `external_apple_enabled`, `external_google_enabled`, `security_manual_linking_enabled`; confirm the secret names exist. | ME |
 

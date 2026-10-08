@@ -92,6 +92,10 @@ The development build does not prove production behavior: the production variant
 
 So no extra capability, entitlement or key is needed for local notifications, and the push capability should stay off. This is static evidence. **It is confirmed only by the TestFlight checks below.**
 
+## Tracked before submission: account deletion and the RevenueCat customer record
+
+Found 2026-10-08 when a development account was deleted from the app: the auth user, profile, races, Signal data and Apple identity were all removed, but the account's **RevenueCat customer record still exists** (in the development project; production behaves the same because `delete-account` does not touch RevenueCat). It holds the app user ID (the Supabase user ID), first/last-seen timestamps, device and country metadata, and any purchase history. **Unresolved.** Before App Store submission we must confirm exactly what RevenueCat keeps after an account is deleted (the app user ID and its metadata, purchase and subscription history, any attributes, and how long RevenueCat retains it) and then decide how deletion handles it: for example, delete the customer through RevenueCat's API as part of account deletion, or keep it with a documented, justified retention. **A privacy-policy statement alone does not close this review**; the policy must match whatever we actually do. An active App Store subscription is not cancelled by deleting the account (the deletion alert already says so). Not implemented; no production change.
+
 ## Verification required before release
 
 The development checks use the dev build, Test Store and dev accounts. The TestFlight checks use the production binary, the production backend and throwaway accounts (never the reviewer account). Existing evidence is reused, not redone.

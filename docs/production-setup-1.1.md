@@ -15,8 +15,8 @@ Legend: **YOU** = private, credential or console step only you can do (secrets a
 | # | Step | Who |
 |---|---|---|
 | A1 | **Done 2026-10-08 (owner-reported):** production App ID `com.cristianvillamarin.racesignal` has Sign in with Apple enabled as a primary App ID; Push Notifications unchecked. | done |
-| A2 | Keys → create a **Sign in with Apple** key whose primary App ID is the production App ID (or add the production App ID to the existing dev key's Configure screen). Download the `.p8` once. Note the Key ID and Team ID. Used only for account-deletion token revocation. | YOU |
-| A3 | Give me nothing in chat. Set the four Supabase production secrets yourself at a silent prompt or in the Supabase dashboard: `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_CLIENT_ID` (`com.cristianvillamarin.racesignal`), `APPLE_PRIVATE_KEY`. I can prepare a production-safe silent-prompt script on request (the existing helper is dev-only). | YOU |
+| A2 (done 2026-10-09, owner-reported: production key created and the .p8 saved) | Keys → create a **Sign in with Apple** key whose primary App ID is the production App ID (or add the production App ID to the existing dev key's Configure screen). Download the `.p8` once. Note the Key ID and Team ID. Used only for account-deletion token revocation. | YOU |
+| A3 | **Done 2026-10-09:** the four Supabase production secrets (`APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_CLIENT_ID`, `APPLE_PRIVATE_KEY`) were set with `supabase/prod/set-apple-secrets.py set --apply`; read-back and an independent read-only check confirmed them and left every other secret unchanged. | done |
 | A4 | App Store Connect → Users and Access → **Sandbox** → create sandbox testers for the StoreKit checks. | YOU |
 | A5 | App Store Connect: 1.1 version record, What's New text, review notes (keep the reviewer email+password path; add that Apple and Google sign-in are available and that Sign in with Apple satisfies Guideline 4.8), App Privacy answers (email via Apple and Google; local notifications; Anthropic), screenshots if needed. | YOU |
 

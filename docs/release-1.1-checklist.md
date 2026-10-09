@@ -64,7 +64,7 @@ Backend first, additive only, then the app. Build 18 and earlier keep working at
 
 **Before deploying:**
 1. Rotate the exposed Supabase CLI token and `supabase login` again.
-2. Record the current production version and hash: `supabase functions list --project-ref <production ref>` (today: `signal` v16, sha256 `cea75ad1d54539788adccafc4aafab8bda956652b1acf13dd55bab8e30acec92`).
+2. Record the current production version and hash: `supabase functions list --project-ref <production ref>` (identify by hash: sha256 `cea75ad1d54539788adccafc4aafab8bda956652b1acf13dd55bab8e30acec92`; it was v16 and became v17 on 2026-10-09 when Apple secrets were set, with no code change).
 3. Confirm tag `v1.0.0-build18` exists locally and on `origin` (`git ls-remote --tags origin`).
 4. Run the checks (`deno test --allow-read=. supabase/functions/signal/`).
 

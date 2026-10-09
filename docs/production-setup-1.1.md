@@ -23,7 +23,7 @@ Legend: **YOU** = private, credential or console step only you can do (secrets a
 ## 2. Google
 | # | Step | Who |
 |---|---|---|
-| G1 | Google Cloud project `RaceSignal` → the existing Web client → add `https://<production ref>.supabase.co/auth/v1/callback` as a second authorized redirect URI (keep the dev one). No iOS client is needed. | YOU |
+| G1 | **Done 2026-10-09:** the production redirect URI was added beside the dev one on the existing Web client; a read-only probe shows Google accepts both. | done |
 | G2 | Google Auth platform → Audience → **Publish app** (In production). Basic scopes only (`openid`, `email`, `profile`). Check the Publish screen for whether a privacy-policy link is required. | YOU |
 | G3 | **Decision:** brand verification (showing the app name and logo) needs a domain you own with the policy hosted on it; the Notion pages cannot be verified. Either accept the unbranded consent screen or host the policy on your own domain and submit verification. | YOU |
 | G4 | Give the Web client **ID** (not secret) to me for `environments.json`. Put the client **secret** into Supabase yourself (step S1). | YOU, then ME for the ID |

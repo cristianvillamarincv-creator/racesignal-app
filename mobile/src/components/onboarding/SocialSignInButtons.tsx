@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useColorScheme } from '@/lib/appearance';
 import { hasAppleAuthenticationNative } from '@/lib/nativeModules';
 import { type SocialProvider } from '@/lib/socialAuth';
 import { getSocialAuthConfig } from '@/lib/socialAuthConfig';

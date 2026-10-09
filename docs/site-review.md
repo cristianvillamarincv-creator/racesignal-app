@@ -1,0 +1,34 @@
+# RaceSignal website: review notes (draft, nothing published)
+
+Domain: `racesignal.app` (purchased by the owner through Cloudflare). The draft site is in `site/` (static HTML and one stylesheet; homepage, `/privacy/`, `/terms/`, `/support/`). Nothing is uploaded, DNS is untouched, the Notion pages stay live, and no app link, Supabase deployment or build changed. Preview: `racesignal-site-preview` in `.claude/launch.json` (a tiny local server on port 4173) and the images in `.claude/tmp/site-preview/`.
+
+## Design approval (owner, 2026-10-09): keep as is
+The homepage design is **approved and should not change**: warm white page (light only, whatever the visitor's device setting), logo, "Your racing, all in one place.", "Keep your race results together, explore your history with Signal, and prepare for your next race.", the official black Download on the App Store badge, and one large phone showing the app's dark-mode Stats screen (text beside the phone on desktop, stacked on mobile), then the footer. Mobile was checked at 320, 360, 390, 430 and 768px: no horizontal scrolling and nothing outside the margins (an earlier "cut off" capture was a headless-Chrome screenshot crop, not overflow).
+- The phone image is the app's own Stats code rendered with made-up sample athlete data (captioned "Sample data"); it can be swapped for a real screenshot later.
+- The badge links to `https://apps.apple.com/app/id6816325063`. It must not go live until the app has a public App Store listing (Apple only allows the badge when it links to the listing); the draft banner says so.
+- **Approval covers the design only. Publishing stays paused until the privacy wording is resolved** (the RevenueCat deletion sentence below).
+
+## What the pages say, and what it was checked against
+- **Homepage:** the simplified design below (logo, headline, one paragraph, App Store badge, one phone mockup, footer with Privacy, Terms, Support and the support email). Google needs a public homepage that describes the app and links the privacy policy; the headline and paragraph describe the app and the footer links the policy.
+- **Privacy:** rewritten from `docs/legal/privacy-policy.md` and checked against the code and live data. Facts verified: no analytics, advertising or crash SDKs in the app's dependencies; screenshots are not persisted (nothing in `lib/db/signal.ts` stores an image); `delete-account` deletes the auth user and, as the 2026-10-08 device test showed, every dependent row (profile, races, conversations, usage); Supabase stores a Google sign-in's `name`, `picture` and `avatar_url` with the sign-in record (read from the dev database), so the policy says so; production sign-in emails are sent through Gmail's SMTP (read from the auth config), so Google is listed for email delivery; race lookups keep IP-keyed daily counters (`discovery_rate_limit`).
+- **Terms:** the existing draft updated for Apple and Google sign-in, on-device reminders (may be late or not delivered), and "a range from your past results is a look back, not a forecast". Age 13 or older, matching the privacy policy.
+- **Support:** the existing draft plus sign-in help, reminders, Signal limits (no numbers, so they can change), subscription management, Restore Purchases, in-app Share feedback, and account deletion.
+
+## Retention wording: what is settled and what is not
+1. **Anthropic (settled, sourced).** Anthropic's own privacy center (pages dated 2026-07-01 and 2026-08-18) says API inputs and outputs are deleted within 30 days (longer for usage-policy enforcement, legal requirements and some other cases) and that commercial-product data is not used for training by default. The policy states exactly that and does not claim zero data retention (not confirmed for our account).
+2. **RevenueCat (decision needed; highlighted with a dashed outline in the draft).** Today `delete-account` does **not** delete the RevenueCat customer record, so the draft sentence "we also ask RevenueCat to delete the customer record" is **not yet true**. RevenueCat documents `DELETE /v1/subscribers/{app_user_id}` (needs a RevenueCat secret API key; clears its data including purchase history; Apple's records and the App Store subscription are unaffected; a restored purchase can recreate the record). Recommended: add that call to `delete-account` (best-effort, never blocking deletion) before it is deployed in the production plan, then the sentence is accurate. **Do not publish the privacy page until that ships, or swap in the alternative below.** Alternative wording for today's behavior: "Our subscription provider, RevenueCat, keeps a record linked to your account ID, including purchase history, after you delete your account. Email us and we will delete it." (that needs you to delete it in the RevenueCat dashboard on request). As agreed earlier, a policy statement alone does not close the review: the behavior and the wording have to match.
+3. **IP-keyed counters (disclosed, no retention period stated).** `discovery_rate_limit` has no cleanup job. The policy says only that they are daily counters not linked to an account. Consider pruning old rows (a small, separate change).
+4. **Birth year (disclosed as legacy).** No screen collects it now (corrected 2026-10-09); accounts from earlier builds may hold one, stored and never read. The policy says that.
+5. **Backups and rights requests** use general wording ("limited time", "reasonable time") because the production backup schedule and a response commitment were not specified.
+
+## Not decided here (please check)
+- No legal entity, postal address, governing law or dispute terms appear (none exist in the earlier drafts). A short attorney review is still advisable before submission.
+- "Last updated: October 9, 2026" should be set to the real publish date.
+- Both pages should be re-read once the app's final features are fixed (for example if Find a race or Strava ever ships).
+
+## Publishing, when you approve (not done)
+1. Remove the draft markers: `python3 site-tools/prepare-site.py <empty folder> --confirm-published-changes` (refuses without the flag, so the RevenueCat line cannot slip out unresolved; it never uploads).
+2. In Cloudflare: Workers & Pages → create a Pages project with **Upload assets**, drag in that folder, then add the custom domain `racesignal.app` (and `www`, redirecting to one) under Custom domains. DNS and HTTPS are automatic because the domain is on Cloudflare.
+3. In Search Console add the **Domain** property `racesignal.app`, add the TXT record it shows in Cloudflare DNS, verify.
+4. In Google Auth platform → Branding, set the homepage `https://racesignal.app/`, privacy `https://racesignal.app/privacy/`, terms `https://racesignal.app/terms/`, and add `racesignal.app` under Authorized domains, then Publish app.
+5. Only after that, and on a later instruction: point the app's Privacy, Terms and Support links and App Store Connect at the new URLs.

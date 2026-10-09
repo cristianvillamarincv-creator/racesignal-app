@@ -11,6 +11,7 @@ import { InitialPaywallGate } from '@/components/InitialPaywallGate';
 import { NotificationInvitationHost } from '@/components/notifications/NotificationInvitationHost';
 import { NotificationTapRouter } from '@/components/notifications/NotificationTapRouter';
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
+import { useAppearanceLoaded, loadAppearance } from '@/lib/appearance';
 import { AppPhaseProvider, useAppPhase } from '@/lib/appPhase';
 import { AuthProvider } from '@/lib/auth';
 import { useBrandPalette } from '@/lib/brandTheme';
@@ -46,6 +47,10 @@ function useRaceSignalNavigationTheme() {
 }
 
 export default function RootLayout() {
+  // Read the saved Appearance choice (or fall back to Dark) while the splash screen is still up.
+  useEffect(() => {
+    void loadAppearance();
+  }, []);
   const raceSignalTheme = useRaceSignalNavigationTheme();
   const palette = useBrandPalette();
   return (
@@ -141,11 +146,12 @@ function RootNavigator() {
   const { returnToSettingsOnExit, consumeReturnToSettingsFlag } = useDevPreview();
   const router = useRouter();
 
+  const appearanceLoaded = useAppearanceLoaded();
   useEffect(() => {
-    if (isReady) {
+    if (isReady && appearanceLoaded) {
       SplashScreen.hideAsync();
     }
-  }, [isReady]);
+  }, [isReady, appearanceLoaded]);
 
   // Settings' "Preview onboarding" row exits back through this same real tree, re-authenticated
   // with the same real session (never touched during the replay) — this is the one-shot hop back
@@ -230,6 +236,7 @@ function AppStack({ preview }: { preview: boolean }) {
           options={{ headerShown: true, title: 'Settings', headerLeft: () => <HeaderBackButton /> }}
         />
         <Stack.Screen name="settings/subscription" options={{ headerShown: true, title: 'Subscription', headerLeft: () => <HeaderBackButton /> }} />
+        <Stack.Screen name="settings/appearance" options={{ headerShown: true, title: 'Appearance', headerLeft: () => <HeaderBackButton /> }} />
         <Stack.Screen name="settings/notifications" options={{ headerShown: true, title: 'Notifications', headerLeft: () => <HeaderBackButton /> }} />
         <Stack.Screen name="settings/signal-privacy" options={{ headerShown: true, title: 'Signal privacy & consent', headerLeft: () => <HeaderBackButton /> }} />
         <Stack.Screen name="settings/sign-in-methods" options={{ headerShown: true, title: 'Sign-in methods', headerLeft: () => <HeaderBackButton /> }} />

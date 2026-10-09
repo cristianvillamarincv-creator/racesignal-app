@@ -1,8 +1,9 @@
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMemo, useState, type ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, Switch, Text, useColorScheme, View, type TextStyle, type ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, Switch, Text, View, type TextStyle, type ViewStyle } from 'react-native';
 
 import { SettingsGroup, TEXT_DIVIDER_INSET } from '@/components/settings/SettingsRows';
+import { useColorScheme } from '@/lib/appearance';
 import { AppIcon } from '@/lib/icons';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { formatLocalMoment, formatTimeOfDay, formatWeeklySlot, SIGNAL_ASK_NOTE } from '@/lib/notifications/format';

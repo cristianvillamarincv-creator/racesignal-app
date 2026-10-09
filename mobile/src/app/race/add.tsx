@@ -11,7 +11,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
   type TextStyle,
   type ViewStyle,
@@ -20,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HeaderBackButton } from '@/components/HeaderBackButton';
 import type { Race, SportCategory } from '@/fixtures/races';
+import { useColorScheme } from '@/lib/appearance';
 import { type BrandPalette, useBrandPalette, withAlpha } from '@/lib/brandTheme';
 import { canSaveManualRace, categoryPlaceholderFor, hmsToSeconds, initialSportForManualRace } from '@/lib/manualRaceForm';
 import { useOptionalNotifications } from '@/lib/notifications/NotificationsProvider';

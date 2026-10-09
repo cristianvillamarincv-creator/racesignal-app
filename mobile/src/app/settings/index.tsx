@@ -5,6 +5,7 @@ import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import { Avatar } from '@/components/Avatar';
 import { ActionRow, DestructiveRow, InertRow, SettingsScroll, SettingsSection, useSettingsStyles } from '@/components/settings/SettingsRows';
 import { useAppPhase } from '@/lib/appPhase';
+import { appearanceLabel, useAppearancePreference } from '@/lib/appearance';
 import { useAuth } from '@/lib/auth';
 import { APPLE_MANUAL_REMOVAL_MESSAGE, needsManualAppleRemovalNotice, planAppleRevocation } from '@/lib/accountDeletion';
 import { deleteAccount } from '@/lib/deleteAccount';
@@ -44,6 +45,7 @@ export default function SettingsScreen() {
   const { session, signOut, getConnectedProviders } = useAuth();
   const { racingName } = useAthleteRaces();
   const displayName = racingName ?? session?.user.email ?? 'Athlete';
+  const appearance = useAppearancePreference();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function SettingsScreen() {
   // A destination can take a moment to appear (first render, the dev bundle over a relay), and a second tap on the same row
   // would push a duplicate copy of the screen. Ignore a repeat of the same destination for a moment; other rows are unaffected.
   const lastPush = useRef<{ path: string; at: number } | null>(null);
-  function go(path: '/race/add' | '/find-races' | '/settings/subscription' | '/settings/notifications' | '/settings/signal-privacy' | '/settings/sign-in-methods' | '/settings/developer') {
+  function go(path: '/race/add' | '/find-races' | '/settings/subscription' | '/settings/appearance' | '/settings/notifications' | '/settings/signal-privacy' | '/settings/sign-in-methods' | '/settings/developer') {
     const now = Date.now();
     if (lastPush.current && lastPush.current.path === path && now - lastPush.current.at < 800) return;
     lastPush.current = { path, at: now };
@@ -186,6 +188,7 @@ export default function SettingsScreen() {
       </SettingsSection>
 
       <SettingsSection title="Preferences">
+        <ActionRow label="Appearance" icon="theme-light-dark" value={appearanceLabel(appearance)} onPress={() => go('/settings/appearance')} />
         <ActionRow label="Notifications" icon="bell-outline" onPress={() => go('/settings/notifications')} />
         <ActionRow label="Signal privacy & consent" icon="shield-lock-outline" onPress={() => go('/settings/signal-privacy')} />
       </SettingsSection>

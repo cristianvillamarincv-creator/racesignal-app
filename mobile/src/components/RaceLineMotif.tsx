@@ -1,4 +1,6 @@
-import { Image, StyleSheet, useColorScheme, type ImageStyle } from 'react-native';
+import { Image, StyleSheet, type ImageStyle } from 'react-native';
+
+import { useColorScheme } from '@/lib/appearance';
 
 interface RaceLineMotifProps {
   /** No longer applied to the image — kept only so this component's 5 existing call sites

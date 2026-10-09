@@ -99,7 +99,7 @@ describe('main Settings screen', () => {
     expect(ui.getByText('Test Athlete')).toBeTruthy();
     expect(ui.getByText('athlete@example.com')).toBeTruthy();
     for (const header of ['Race history', 'Subscription', 'Preferences', 'Help & legal', 'Account actions']) expect(ui.getByText(header)).toBeTruthy();
-    for (const row of ['Add a race manually', 'Find my races', 'Notifications', 'Signal privacy & consent', 'Support', 'Privacy', 'Terms of Use', 'Sign out', 'Delete account']) {
+    for (const row of ['Add a race manually', 'Find my races', 'Appearance, Dark', 'Notifications', 'Signal privacy & consent', 'Support', 'Privacy', 'Terms of Use', 'Sign out', 'Delete account']) {
       expect(ui.getByLabelText(row)).toBeTruthy();
     }
     // Moved: none of these controls is on the main screen any more.
@@ -125,6 +125,7 @@ describe('main Settings screen', () => {
       ['Add a race manually', '/race/add'],
       ['Find my races', '/find-races'],
       ['Plan, Free', '/settings/subscription'],
+      ['Appearance, Dark', '/settings/appearance'],
       ['Notifications', '/settings/notifications'],
       ['Signal privacy & consent', '/settings/signal-privacy'],
     ];

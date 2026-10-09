@@ -1,4 +1,6 @@
-import { useColorScheme, type TextStyle } from 'react-native';
+import { type TextStyle } from 'react-native';
+
+import { useColorScheme } from '@/lib/appearance';
 
 /**
  * "Race Morning Precision" — RaceSignal's emerging visual identity (Step 6): a light-first warm

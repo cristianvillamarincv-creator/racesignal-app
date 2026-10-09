@@ -206,6 +206,34 @@ export function ActionRow({ label, detail, value, icon, onPress, chevron = true,
   );
 }
 
+interface ChoiceRowProps {
+  label: string;
+  detail?: string;
+  icon?: IconName;
+  selected: boolean;
+  onPress: () => void;
+}
+
+/** One option in a pick-one list: the whole row is tappable, and the chosen option shows a check instead of a chevron. */
+export function ChoiceRow({ label, detail, icon, selected, onPress }: ChoiceRowProps) {
+  const { styles, palette } = useSettingsStyles();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityLabel={detail ? `${label}, ${detail}` : label}
+      accessibilityState={{ selected, checked: selected }}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+      <LeadingIcon icon={icon} color={selected ? palette.signalBlue : palette.inkSecondary} />
+      <View style={styles.rowText}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {detail ? <Text style={styles.rowDetail}>{detail}</Text> : null}
+      </View>
+      {selected ? <AppIcon name="check" size={22} color={palette.signalBlue} /> : null}
+    </Pressable>
+  );
+}
+
 /** The destructive action row (danger colored, no chevron). */
 export function DestructiveRow({ label, onPress, disabled, icon }: { label: string; onPress: () => void; disabled?: boolean; icon?: IconName }) {
   return <ActionRow label={label} onPress={onPress} icon={icon} chevron={false} destructive disabled={disabled} />;

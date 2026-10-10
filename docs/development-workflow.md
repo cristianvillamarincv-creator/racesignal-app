@@ -44,7 +44,7 @@ npx expo-doctor                # 18/18 at 8e3f0ec
 cd ../supabase/functions/signal && deno test --allow-read --no-check          # 32 tests
 cd ../race-discovery && deno test --allow-read --no-check                      # 11 tests
 cd ../delete-account && deno test --allow-read --no-check                      # 8 tests (Apple revocation)
-cd .. && deno test --allow-read --no-check _shared                             # 29 tests (RevenueCat deletion and sweep)
+cd .. && deno test --allow-read --no-check _shared                             # 30 tests (RevenueCat deletion and sweep)
 ```
 
 Jest conventions (RTL 14 is async): `await render(...)`; wrap every `fireEvent` and `unmount` in `await act(async () => …)`; keep real `import`s above `jest.mock` calls (babel-jest hoists mocks; satisfies `import/first`); mock the Supabase client, AsyncStorage, and `expo-linking`. A full-router test via `expo-router/testing-library`'s `renderRouter()` is **not usable** on the current versions (`expo-router@6.0.24` does not await RTL 14's async `render()`); test routing logic in isolation instead (see `mobile/__tests__/tabsDefaultRouteEffect.test.tsx`).

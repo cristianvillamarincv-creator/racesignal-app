@@ -141,3 +141,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Publishable website package built by site-tools/prepare-site.py (never committed)
+site-dist/
+site-dist.zip

@@ -26,9 +26,22 @@ The homepage design is **approved and should not change**: warm white page (ligh
 - "Last updated: October 9, 2026" should be set to the real publish date.
 - Both pages should be re-read once the app's final features are fixed (for example if Find a race or Strava ever ships).
 
-## Publishing, when you approve (not done)
-1. Remove the draft markers: `python3 site-tools/prepare-site.py <empty folder> --confirm-published-changes` (refuses without the flag, so the RevenueCat line cannot slip out unresolved; it never uploads).
-2. In Cloudflare: Workers & Pages → create a Pages project with **Upload assets**, drag in that folder, then add the custom domain `racesignal.app` (and `www`, redirecting to one) under Custom domains. DNS and HTTPS are automatic because the domain is on Cloudflare.
-3. In Search Console add the **Domain** property `racesignal.app`, add the TXT record it shows in Cloudflare DNS, verify.
-4. In Google Auth platform → Branding, set the homepage `https://racesignal.app/`, privacy `https://racesignal.app/privacy/`, terms `https://racesignal.app/terms/`, and add `racesignal.app` under Authorized domains, then Publish app.
-5. Only after that, and on a later instruction: point the app's Privacy, Terms and Support links and App Store Connect at the new URLs.
+## Status 2026-10-10: package prepared, not uploaded
+- **Privacy:** the RevenueCat deletion paragraph now describes the behavior verified on production (`docs/production-rollout-checklist-1.1.md`, "Recorded results"): a 30-minute automatic check, up to 10 attempts, a 7-day recheck, the request record deleted 30 days after confirmation, unresolved records kept and handled by hand; a deleted account does not cancel an App Store subscription. The `pending` marker is removed from the source. "Last updated" is **October 9, 2026** on Privacy and Terms; change both if you publish on a later day.
+- **App Store listing is not public** (the App Store lookup returns no result and `apps.apple.com/app/id6816325063` answers 404), so the homepage shows the plain label **"Coming soon on the App Store"** instead of the badge. It is not a link and uses no Apple artwork. `prepare-site.py` now refuses to package any `apps.apple.com` link, and leaves the badge file out of the package, unless `--app-store-live` is passed.
+- **Package:** `site-dist/` (and `site-dist.zip`, 218 KB, `index.html` at its root), built with `python3 site-tools/prepare-site.py site-dist --confirm-published-changes`. Both are git-ignored. It holds the homepage, `/privacy/`, `/terms/`, `/support/` and `assets/` (icon, favicon, dark Stats mockup, stylesheet). Checked: no draft banner, no noindex, no pending marker, no App Store link, no broken local links, no horizontal overflow at 390 px. Nothing has been uploaded and no DNS, app link, auth setting, Signal deploy or build changed.
+
+## When the App Store listing goes public: swap the label for the badge
+1. In `site/index.html` replace `<p class="coming-soon">Coming soon on the App Store</p>` with:
+   `<a class="badge" href="https://apps.apple.com/app/id6816325063" aria-label="Download RaceSignal on the App Store"><img src="assets/app-store-badge-black.svg" alt="Download on the App Store" height="48"></a>`
+2. Rebuild with `python3 site-tools/prepare-site.py site-dist --confirm-published-changes --app-store-live` (an empty `site-dist/`), upload the new package the same way (Pages → the project → Create new deployment).
+3. Confirm the link opens the listing (use the country-specific URL if the bare one does not redirect).
+
+## Publishing steps (Cloudflare Pages, Upload assets)
+1. Build the package (above). Use `site-dist/` or `site-dist.zip`.
+2. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Upload assets**. Project name `racesignal-site`. Upload the folder (or the zip) and **Deploy**. Check the temporary `https://racesignal-site.pages.dev/` address: `/`, `/privacy/`, `/terms/`, `/support/` all load.
+3. In the project → **Custom domains** → **Set up a custom domain** → `racesignal.app` → continue. Because the domain is registered and DNS-hosted in your Cloudflare account, the DNS record and the HTTPS certificate are created automatically; wait until the status shows **Active**.
+4. Add `www.racesignal.app` the same way, then make one address canonical: **Rules** → **Redirect Rules** → create a rule "www to apex": when the hostname equals `www.racesignal.app`, redirect (301, dynamic) to `concat("https://racesignal.app", http.request.uri.path)`, preserving the query string.
+5. Verify in a private window over HTTPS: `https://racesignal.app/`, `/privacy/`, `/terms/`, `/support/`, and that `http://` and `www` end up on `https://racesignal.app/`.
+6. Google setup (after the site is live): Search Console → **Domain** property `racesignal.app` → add the TXT record it shows in Cloudflare DNS (DNS → Records, type TXT, name `@`) → verify. Then Google Auth platform → **Branding**: homepage `https://racesignal.app/`, privacy `https://racesignal.app/privacy/`, terms `https://racesignal.app/terms/`, authorized domain `racesignal.app` → **Publish app**.
+7. Only after that, and on a later instruction: point the app's Privacy, Terms and Support links and App Store Connect at the new URLs, then enable production Google sign-in.

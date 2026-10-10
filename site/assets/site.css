@@ -52,6 +52,8 @@ body.home .hero { flex: 1; display: flex; align-items: center; padding: 48px 0; 
 .hero-text .lede { font-size: clamp(18px, 2vw, 21px); line-height: 1.5; color: var(--ink2); margin: 0 0 34px; max-width: 28em; }
 .badge { display: inline-block; line-height: 0; border-radius: 9px; }
 .badge img { height: 48px; width: auto; display: block; }
+/* Shown instead of the App Store badge until the app has a public App Store listing (plain text, no Apple artwork, not a link). */
+.coming-soon { display: inline-flex; align-items: center; height: 48px; margin: 0; padding: 0 20px; border-radius: 9px; background: #0C1720; color: #F8F7F3; font-size: 16px; font-weight: 600; letter-spacing: 0.1px; line-height: 1; }
 .hero-phone { position: relative; display: flex; flex-direction: column; align-items: center; }
 .hero-phone::before { content: ""; position: absolute; z-index: 0; width: min(460px, 100%); aspect-ratio: 1; height: auto; border-radius: 50%; background: var(--elevated); top: 50%; left: 50%; transform: translate(-50%, -50%); }
 .phone-frame { position: relative; z-index: 1; width: min(330px, 100%); padding: 9px; border-radius: 56px; background: #0E1317; box-shadow: 0 30px 60px -20px rgba(12, 23, 32, .45), 0 0 0 1px rgba(255, 255, 255, .08) inset; }

@@ -42,9 +42,9 @@ Legend: **YOU** = private console or credential step. **ME** = I run it on your 
 ## D. Website and Google publishing (after C2 to C6 are verified, and **before C1**)
 | # | Item | Who / type | Done when |
 |---|---|---|---|
-| D1 | Remove the privacy `pending` marker (the deletion paragraph then describes exactly what C2 to C6 verified: 30-minute check, 10 attempts, 7-day recheck, request record deleted 30 days after confirmation, unresolved handled by hand) | ME | the highlighted block is gone only after C6's evidence is recorded |
-| D2 | Set the Privacy and Terms "Last updated" date to the publish date | ME | date set |
-| D3 | `site-tools/prepare-site.py <empty folder> --confirm-published-changes`, then Cloudflare Pages upload and `racesignal.app` (+ `www`) custom domain | YOU/ME, CHANGE (public) | pages load over HTTPS; the App Store badge does **not** go live before the app's App Store listing exists (badge decision recorded in `docs/site-review.md`) |
+| D1 | **DONE 2026-10-10 (in the source; package prepared, not uploaded).** Remove the privacy `pending` marker (the deletion paragraph then describes exactly what C2 to C6 verified: 30-minute check, 10 attempts, 7-day recheck, request record deleted 30 days after confirmation, unresolved handled by hand) | ME | the highlighted block is gone only after C6's evidence is recorded |
+| D2 | **DONE 2026-10-10** (October 9, 2026; change it if you publish later). Set the Privacy and Terms "Last updated" date to the publish date | ME | date set |
+| D3 | `site-tools/prepare-site.py <empty folder> --confirm-published-changes`, then Cloudflare Pages upload and `racesignal.app` (+ `www`) custom domain | YOU/ME, CHANGE (public) | pages load over HTTPS; the homepage shows "Coming soon on the App Store" until the listing is public (the official badge swap is in `docs/site-review.md`; the package tool refuses an App Store link without `--app-store-live`) |
 | D4 | Search Console domain verification (TXT) and Google Auth platform Branding (homepage, privacy, terms, authorized domain `racesignal.app`), then Publish app | YOU | consent screen published |
 
 ## E. App build (separate approval)

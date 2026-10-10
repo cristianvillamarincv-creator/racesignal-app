@@ -41,7 +41,7 @@
 <h3>Screenshots you attach to Signal</h3>
 <p>If you attach a screenshot (for example from Garmin, Strava or TrainingPeaks), it is sent once, for that one message, to Anthropic. <strong>We do not save the image.</strong> Signal&rsquo;s written reply, which may describe what it read in the image, is saved with your conversation. The photo-library permission is used only to let you pick that screenshot.</p>
 <h3>Subscription information</h3>
-<p>Purchases are handled by Apple, and we never see your payment details. Our subscription provider, RevenueCat, receives your account ID, your purchase and subscription status, and basic device and app information so it can tell us whether Premium is active.</p>
+<p>Purchases are handled by Apple, and we never see your payment details. Our subscription provider, RevenueCat, receives your account ID, your purchase and subscription status, and basic device and app information so it can tell us whether Premium is active. Before you sign in, the app may create a random installation identifier with RevenueCat, with the same basic device and app information and no name, email or account ID; when you sign in it is linked to your account. See <a href="https://www.revenuecat.com/privacy">RevenueCat&rsquo;s privacy policy</a>.</p>
 <h3>Usage and technical data</h3>
 <ul>
 <li>How many Signal questions your account has used, so we can apply the free and Premium limits. For each Signal request we also record counts only (the size of the request and reply, whether an image was attached, and whether you were Premium), never the content.</li>
@@ -84,11 +84,11 @@
 <p>We keep your data for as long as your account exists. You can delete your account at any time in the app: <strong>Settings &rarr; Delete account</strong>. This permanently deletes your account, your profile, your race history, your Signal conversations and your usage records. It cannot be undone.</p>
 <ul>
 <li><strong>Sign in with Apple.</strong> When you delete your account we ask Apple to revoke RaceSignal&rsquo;s access. If that cannot be confirmed, the app tells you how to remove RaceSignal in your Apple ID settings.</li>
-<li class="pending"><strong>Subscription record.</strong> We also ask RevenueCat to delete the customer record linked to your account ID, including its purchase history. Apple keeps its own purchase records, and deleting your account does not cancel an App Store subscription: cancel it in your device&rsquo;s Apple ID subscription settings.</li>
+<li class="pending"><strong>Subscription record.</strong> After your account is deleted, we ask RevenueCat to delete the customer record linked to your account ID, including its purchase history and the installation identifier that was linked to it when you signed in. RevenueCat carries this out on its side, so it is not instant. An automatic check runs every 30 minutes: it confirms the record is gone and repeats the request if it is not (up to 10 attempts in all), and for 7 days after confirmation it checks again in case the record is recreated. While this is in progress we keep a minimal record of the request: your old account ID and its status, nothing else. We delete that record 30 days after RevenueCat&rsquo;s record is confirmed gone. If a record still cannot be confirmed gone after the 10 attempts, automatic retries stop, we keep the minimal record, and we resolve it by hand; it stays until then. You do not need to contact us. A record RevenueCat created for an installation that never signed in is not linked to any account. Apple keeps its own purchase records, and <strong>deleting your account does not cancel an App Store subscription</strong>: cancel it in your device&rsquo;s Apple ID subscription settings, or it will keep renewing.</li>
 <li><strong>Data held by others.</strong> Anthropic&rsquo;s retention described above, and anything Apple or Google hold under their own policies, are outside our control.</li>
 <li><strong>Backups.</strong> Copies of deleted data may remain in routine infrastructure backups for a limited time before they are overwritten.</li>
 </ul>
-<p>If you would rather request deletion by email, or the in-app option does not work for you, write to <a href="mailto:racesignal@gmail.com">racesignal@gmail.com</a>.</p>
+<p>If the in-app option does not work for you, or you would like help, write to <a href="mailto:racesignal@gmail.com">racesignal@gmail.com</a>.</p>
 
 <h2>Your choices and rights</h2>
 <ul>

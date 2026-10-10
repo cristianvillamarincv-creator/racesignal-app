@@ -19,3 +19,9 @@ verify_jwt = true
 [functions.delete-account]
 # Every action requires a signed-in athlete, same as `signal`.
 verify_jwt = true
+
+[functions.revenuecat-cleanup]
+# Not for athletes. The gateway JWT check is OFF on purpose: the project's new-format secret key (sb_secret_...) is not a JWT. The
+# function itself refuses any key that cannot read the service-only revenuecat_deletion_requests table (so the anon key, a signed-in
+# athlete's token and a missing key all get 401).
+verify_jwt = false

@@ -9,7 +9,7 @@
 #
 #   supabase/dev/dev-supabase.sh status                     # remote migration + function state of dev
 #   supabase/dev/dev-supabase.sh push [--dry-run]           # apply supabase/migrations to dev
-#   supabase/dev/dev-supabase.sh deploy [fn ...]            # deploy functions (default: all three) to dev
+#   supabase/dev/dev-supabase.sh deploy [fn ...]            # deploy functions (default: all four) to dev
 #   supabase/dev/dev-supabase.sh secrets                    # list dev secret NAMES (digests, no values)
 # Secrets are set with supabase/dev/set-dev-secret.sh (silent prompt).
 #
@@ -53,9 +53,9 @@ case "$CMD" in
   push)
     sb db push --linked -p "$(cat "$PW_FILE")" "$@" ;;
   deploy)
-    FUNCS=("$@"); [ ${#FUNCS[@]} -gt 0 ] || FUNCS=(race-discovery signal delete-account)
+    FUNCS=("$@"); [ ${#FUNCS[@]} -gt 0 ] || FUNCS=(race-discovery signal delete-account revenuecat-cleanup)
     for fn in "${FUNCS[@]}"; do
-      case "$fn" in race-discovery|signal|delete-account) ;; *) echo "unknown function $fn" >&2; exit 1 ;; esac
+      case "$fn" in race-discovery|signal|delete-account|revenuecat-cleanup) ;; *) echo "unknown function $fn" >&2; exit 1 ;; esac
       sb functions deploy "$fn" --project-ref "$DEV_REF" --use-api
     done ;;
   secrets)

@@ -12,11 +12,19 @@
 // must not, delete rows from those tables itself. `discovery_rate_limit` is keyed by IP address,
 // not by athlete, and holds no personal data — nothing to remove there.
 //
+// After the account is gone the function also asks RevenueCat (the subscription provider) to delete the account's customer
+// record. That can never block or fail the account deletion: the request is written to `revenuecat_deletion_requests`
+// (migration 0012) BEFORE the account is deleted and updated after, so a failed or still-pending request is recorded for the
+// `revenuecat-cleanup` sweep to verify and retry. See ../_shared/revenuecat*.ts and docs/revenuecat-deletion-plan.md.
+//
 // The client never sees the service-role key: this function is the only place it's read, from
 // Deno.env, exactly like `signal` and `race-discovery`.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
+import { readRevenueCatConfig } from '../_shared/revenuecat.ts';
+import { handleRevenueCatDeletion } from '../_shared/revenuecatCleanup.ts';
+import { createDeletionStore } from '../_shared/revenuecatStore.ts';
 import { type AppleRevocationStatus, readAppleConfig, revokeAppleSignIn } from './apple.ts';
 
 const CORS_HEADERS = {
@@ -71,11 +79,26 @@ Deno.serve(async (req) => {
     if (appleConfig) appleRevocation = await revokeAppleSignIn(code, appleConfig);
   }
 
-  const { error } = await serviceRoleClient().auth.admin.deleteUser(user.id);
+  const client = serviceRoleClient();
+  const store = createDeletionStore(client);
+  // Written before the deletion so a crash between the two cannot lose the RevenueCat request. If this fails the account is still
+  // deleted (the sweep cannot know about it then, which is logged here).
+  let recorded = true;
+  try {
+    await store.upsertQueued(user.id);
+  } catch {
+    recorded = false;
+    console.warn('[delete-account] could not record the RevenueCat deletion request before deleting', user.id);
+  }
+
+  const { error } = await client.auth.admin.deleteUser(user.id);
   if (error) {
     console.warn('[delete-account] admin.deleteUser failed for', user.id, '-', error.message);
+    // The account still exists, so nothing is owed to RevenueCat: drop the row.
+    if (recorded) await store.remove(user.id).catch(() => {});
     return unavailable('server_error', 500);
   }
 
-  return json({ available: true, data: { deleted: true, appleRevocation } });
+  const revenueCat = await handleRevenueCatDeletion(user.id, readRevenueCatConfig(Deno.env), store);
+  return json({ available: true, data: { deleted: true, appleRevocation, revenueCat } });
 });

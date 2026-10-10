@@ -1,6 +1,6 @@
 # RaceSignal: Supabase backend
 
-Postgres schema (with row-level security), three Edge Functions, and Auth for the RaceSignal app. Verified against the live project on 2026-10-02: all 11 migrations are applied, and the deployed functions are byte-identical to commit `8e3f0ec` (Build 18).
+Postgres schema (with row-level security), four Edge Functions, and Auth for the RaceSignal app. Verified against the live project on 2026-10-02: all 11 migrations are applied, and the deployed functions are byte-identical to commit `8e3f0ec` (Build 18).
 
 **There are two Supabase projects.** Production (linked in `supabase/.temp/project-ref`, so a bare `supabase … deploy/push/secrets set` from here hits production) and `racesignal-dev` (free plan, synthetic data; ref in `../mobile/config/environments.json`). Local app development uses dev. Always pass `--project-ref <dev ref>` for dev work, and read `../docs/development-environment.md` and `../docs/development-workflow.md` §4–5 first, because production deploys affect every installed build immediately. Dev helpers: `dev/seed-dev.mjs` (guarded synthetic seed) and `dev/set-dev-secret.sh` (silent-prompt secret setter, dev only).
 
@@ -11,8 +11,9 @@ Postgres schema (with row-level security), three Edge Functions, and Auth for th
 | Function | Auth | Purpose |
 |---|---|---|
 | `race-discovery` | `verify_jwt = false` (deliberate; `detail` validates the JWT itself) | Sportstats search / athlete history / single-result detail. Never writes athlete data; the client persists selected races under RLS. Per-IP daily request cap and a `provider_config` kill switch. Parses unofficial public Sportstats endpoints, including an embedded Next.js payload in an HTML page, so a page-shape change can break it. |
+| `revenuecat-cleanup` | `verify_jwt = false`; service key required inside | Verifies and retries RevenueCat customer deletions (development only so far; scheduled there every 30 minutes with `dev/schedule-revenuecat-cleanup.py`; production has no schedule yet). |
 | `signal` | `verify_jwt = true` | Signal chat. Calls the Anthropic Messages API (model `claude-sonnet-5` by default), enforces allowances, checks Premium via the RevenueCat REST API, dedups retries by `requestId`. Prompt: `functions/signal/systemPrompt.ts`. |
-| `delete-account` | `verify_jwt = true` | Calls `auth.admin.deleteUser`; foreign-key cascades delete all athlete data. Does not touch RevenueCat. Optionally revokes Sign in with Apple tokens first when the app sends a fresh `appleAuthorizationCode` and the `APPLE_*` secrets exist (best-effort, never blocks deletion; see `../docs/social-sign-in.md`). |
+| `delete-account` | `verify_jwt = true` | Calls `auth.admin.deleteUser`; foreign-key cascades delete all athlete data. Then asks RevenueCat to delete the customer (needs `REVENUECAT_SECRET_API_KEY` + `REVENUECAT_PROJECT_ID`; recorded in `revenuecat_deletion_requests`, never blocks deletion; development only until released, see `../docs/revenuecat-deletion-plan.md`). Optionally revokes Sign in with Apple tokens first when the app sends a fresh `appleAuthorizationCode` and the `APPLE_*` secrets exist (best-effort, never blocks deletion; see `../docs/social-sign-in.md`). |
 
 Tests: `cd functions/signal && deno test --allow-read --no-check` (32), `cd functions/race-discovery && deno test --allow-read --no-check` (11), `cd functions/delete-account && deno test --allow-read --no-check` (8, Apple token revocation). `functions/race-discovery/repair_*.ts` are one-time maintenance scripts that have already been run; they are not deployed. **Do not rerun them.**
 
@@ -31,6 +32,7 @@ Tests: `cd functions/signal && deno test --allow-read --no-check` (32), `cd func
 | 0009 | `athlete_profiles.initial_paywall_seen_at` (existing accounts backfilled as seen) |
 | 0010 | `signal_free_usage`: free allowance is **3 asks lifetime**; dropped `free_request_count` |
 | 0011 | `signal_request_dedup` + claim/complete/fail RPCs; reservation tracking in `reserve_signal_ask` |
+| 0012 | `revenuecat_deletion_requests` (service-only record of RevenueCat deletion requests; development only so far) |
 
 Every table that holds athlete data references `athlete_profiles` (and through it `auth.users`) with `on delete cascade`. There is no DELETE policy on `races`; removal is a soft delete (`import_status = 'removed'`).
 

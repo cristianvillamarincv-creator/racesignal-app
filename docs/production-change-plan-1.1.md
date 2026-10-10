@@ -57,7 +57,7 @@ Steps 1 to 3 add capability that Build 18 never uses. **Step 4 does change Build
 - **Rollback:** `supabase secrets unset APPLE_TEAM_ID APPLE_KEY_ID APPLE_CLIENT_ID APPLE_PRIVATE_KEY --project-ref <production ref>`. Nothing reads them until the new `delete-account` is deployed.
 
 ## 3. Supabase Auth settings (production)
-**Order (revised 2026-10-10): do this only after the website is published and the Google consent screen is published** (rollout checklist section D), because this step turns on production Google sign-in. **Status 2026-10-10: the website is live and Audience is confirmed In production (owner-confirmed); this step is PREPARED, NOT APPLIED. The exact change, verification and rollback are implemented in `supabase/prod/configure-auth.py` and written out in `docs/production-rollout-checklist-1.1.md`, "C1 in detail".**
+**Order (revised 2026-10-10): do this only after the website is published and the Google consent screen is published** (rollout checklist section D), because this step turns on production Google sign-in. **Status 2026-10-10: APPLIED by the owner with `supabase/prod/configure-auth.py apply --apply` and verified read-only (see "C1 result" in `docs/production-rollout-checklist-1.1.md`); only the approved keys changed. (Before it: the website was live and Audience confirmed In production.) The exact change, verification and rollback are implemented in `supabase/prod/configure-auth.py` and written out in `docs/production-rollout-checklist-1.1.md`, "C1 in detail".**
 
 - **Exact change** (Management API `PATCH /v1/projects/<ref>/config/auth`, or the dashboard's Authentication → Providers):
   - `external_apple_enabled: true`, `external_apple_client_id: "com.cristianvillamarin.racesignal"`

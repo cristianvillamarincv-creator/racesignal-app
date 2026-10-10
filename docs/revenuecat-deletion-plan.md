@@ -36,7 +36,7 @@
 
 ## 4. Development rollout and verification (development project only)
 1. You create the development v2 key (single permission) privately; I set the two secrets with the helper (dry run, then apply, read-back digest).
-2. Deploy the new `delete-account` to **development only**. (Production stays untouched; Build 18 stays on the old function.)
+2. Deploy the new `delete-account` to **development only**. (Production stays untouched; Build 18 stays on the old function. **Correction 2026-10-10:** on production, Build 18 calls the same `delete-account`, so deploying it there changes Build 18's deletion behavior too; see `docs/production-change-plan-1.1.md` step 4.)
 3. With a **throwaway dev account** (never the owner's real accounts): sign up, optionally make a Test Store purchase, note its RevenueCat customer, delete the account in the app. Then check read-only, over a few minutes: the customer is gone (the deletion is asynchronous); **it does not reappear** after sign-out and a foreground refresh; whether the account's anonymous alias survived; purchases for it are gone. Record the exact outcome.
 4. Run the backfill on the five development orphans (dry run, review, apply).
 5. If the throwaway test and backfill pass, record them; then the production steps below wait for your approval, folded into the existing production plan (`docs/production-change-plan-1.1.md`, "deploy `delete-account`"), with the rollback below.

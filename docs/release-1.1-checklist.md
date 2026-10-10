@@ -18,7 +18,7 @@ Three places must agree. If any one is missing, that feature stays off or the bu
 
 ## Order of operations
 
-Backend first, additive only, then the app. Build 18 and earlier keep working at every step: nothing here changes an existing function's request/response contract except an optional extra field in `delete-account`'s success response (older builds ignore it and never send the new optional request field).
+Backend first, additive only, then the app. Build 18 and earlier keep working at every step: nothing here changes an existing function's request/response contract except optional extra fields in `delete-account`'s success response (older builds ignore them and never send the new optional request field). **Correction 2026-10-10: that is a compatibility statement, not a "no behavior change" statement.** Build 18 calls `delete-account`, so deploying it also makes Build 18 account deletions ask RevenueCat to delete the customer and record the request (see `docs/production-change-plan-1.1.md` step 4); that needs an explicit owner decision like `signal`.
 
 **0. Preconditions.** The consolidated development rebuild passed the iPhone checklist in `docs/social-sign-in.md` (including the real-address Google linking test and the Apple conflict/link tests), and the owner says "release 1.1 configuration go".
 

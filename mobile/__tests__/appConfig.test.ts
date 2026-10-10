@@ -116,8 +116,25 @@ describe('app.config.js: native sign-in and push configuration (gated per varian
     expect(cfg.plugins.some((p) => (Array.isArray(p) ? p[0] : p) === '@react-native-google-signin/google-signin')).toBe(false);
   });
 
-  it('production: no Apple capability, no push entitlement, no Google plugin, every provider off (unchanged until the owner enables it)', () => {
+  it('production (release 1.1): Apple capability and Google on, NO push entitlement and no notification plugin (notifications are local only)', () => {
     const cfg = evaluateWith(envs, {});
+    expect(cfg.ios.usesAppleSignIn).toBe(true);
+    expect(cfg.plugins.map((p: unknown) => (Array.isArray(p) ? p[0] : p))).not.toContain('expo-notifications');
+    expect(cfg.plugins.some((p: unknown) => (Array.isArray(p) ? p[0] : p) === '@react-native-google-signin/google-signin')).toBe(false);
+    expect(cfg.extra.auth).toEqual({ apple: true, google: true });
+  });
+
+  it('production release configuration is exactly what 1.1 ships: Apple and Google on, push off, the Google Web client ID set, production identity', () => {
+    expect(envs.production.features).toEqual({ appleSignIn: true, googleSignIn: true, pushEntitlement: false });
+    expect(envs.production.google.webClientId).toMatch(/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/);
+    expect(envs.production.bundleIdentifier).toBe('com.cristianvillamarin.racesignal');
+    expect(envs.production.scheme).toBe('racesignal');
+    expect(envs.production).not.toHaveProperty('supabaseProjectRef');
+  });
+
+  it('with every provider off (the Build 18 shape) the production build gets no Apple capability and no extra plugin', () => {
+    const off = { ...envs, production: { ...envs.production, features: { appleSignIn: false, googleSignIn: false, pushEntitlement: false } } };
+    const cfg = evaluateWith(off, {});
     expect(cfg.ios.usesAppleSignIn).toBeUndefined();
     expect(cfg.plugins).toEqual(['expo-router']);
     expect(cfg.extra.auth).toEqual({ apple: false, google: false });
